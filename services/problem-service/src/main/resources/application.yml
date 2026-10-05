@@ -1,0 +1,5 @@
+spring:
+  application:
+    name: problem-service
+server:
+  port: ${SERVER_PORT:8083}

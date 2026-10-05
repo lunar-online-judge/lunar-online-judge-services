@@ -1,0 +1,11 @@
+spring:
+  application:
+    name: auth-service
+  datasource:
+    url: jdbc:postgresql://${POSTGRES_HOST:localhost}:${POSTGRES_PORT:5432}/${POSTGRES_DB:lunar}
+    username: ${POSTGRES_USER:lunar}
+    password: ${POSTGRES_PASSWORD:change-me}
+  flyway:
+    enabled: ${FLYWAY_ENABLED:false}
+server:
+  port: ${SERVER_PORT:8081}
