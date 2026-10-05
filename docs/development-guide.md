@@ -43,6 +43,8 @@
 
 ## 5. 第一站：auth-service 实现路径
 
+> **进度（2026-10-05）**：第 1–8 步已完成并通过真实库实测（SecurityConfig、MyBatis-Plus、RS256 JWT + JWKS、真实登录、失败限流、种子管理员）；第 9 步（服务间接口）按计划随 contest-service 开发。限流仍为内存实现，Redis 接入后迁移（第 8 步 TODO 保留）。
+
 前置现状：依赖已就位（web、validation、security、oauth2-resource-server、postgresql、flyway）；`src/main/resources/db/migration/` 已有 `V1__auth.sql`（`auth_schema.users` 表）和 `V2__student_account_fields.sql`；`AuthController` 是 mock 登录。端口 8081。
 
 按顺序做，每步可独立验证：

@@ -30,12 +30,13 @@
 
 | 组件 | 端口 | 所在文件 | 凭据 |
 |---|---|---|---|
-| PostgreSQL | 5432 | compose.core.yml | `lunar` / `change-me`，库 `lunar` |
+| PostgreSQL | 宿主机 5433（容器内 5432） | compose.core.yml | `lunar` / `change-me`，库 `lunar`；宿主 5432 被本机 postgres 服务占用，开发期映射 5433，服务启动需 `POSTGRES_PORT=5433` |
 | Redis | 6379 | compose.core.yml | 无密码（仅本地） |
 | MinIO | 9000（API）/ 9001（控制台） | compose.core.yml | `lunar` / `change-me-now` |
 | Nacos | 8848 / 9848 | compose.platform.yml | standalone 模式 |
 | RocketMQ NameServer | 9876 | compose.platform.yml | — |
 | RocketMQ Broker | 10909 / 10911 / 10912 | compose.platform.yml | 配置见 `docker/rocketmq/broker.conf` |
+| RocketMQ Dashboard | 8090 | compose.platform.yml | 开发专用管理面板；与 broker 共享网络命名空间（无登录），broker 重启后需一起重启 |
 | OpenResty（反向代理） | 80 | compose.edge.yml | 回源宿主机 gateway-service :8080 |
 | go-judge（评测沙箱） | 5050 | compose.judge.yml | `privileged` + `shm 256m`（官方推荐本地方式），独立网络 |
 
@@ -70,7 +71,15 @@ mvn spring-boot:run -pl services/auth-service
 java -jar services/judge-service/target/judge-service-0.1.0-SNAPSHOT.jar
 ```
 
-当前服务的接口都要求认证（Spring Security 默认配置下返回 401，控制台会打印随机密码），登录接口 `POST /api/v1/auth/login` 目前是 mock 实现，不依赖数据库。auth-service 的数据库迁移由 `FLYWAY_ENABLED=true` 开启，默认关闭。
+所有服务的接口都要求认证。**auth-service 已有 SecurityConfig 基线**（放行 `POST /api/v1/auth/login` 与 `GET /api/v1/auth/jwks`，登录为真实实现：BCrypt 校验 + RS256 JWT + 失败限流），其余服务仍是 Spring Security 默认行为（401）。auth-service 的数据库迁移由 `FLYWAY_ENABLED=true` 开启，默认关闭。
+
+**本地启动注意**（2026-10-05 实测）：
+
+- `mvn spring-boot:run -pl <module>` 前必须先执行 `mvn -DskipTests install`，否则单模块解析不到 `lunar-common`/`lunar-contracts`（依赖解析失败）；
+- auth-service 连 Docker postgres 需设置 `POSTGRES_PORT=5433`（见上方端口表）；
+- judge-service 没有 `application.yml`，默认 profile 不生效，本地必须以 `SPRING_PROFILES_ACTIVE=mock SERVER_PORT=8085 java -jar ...` 启动，否则容器因找不到 `JudgeEngine` Bean 而启动失败。
+
+**开发种子管理员**：`FLYWAY_ENABLED=true` 且 `AUTH_DEV_SEED=true`（默认）时，V3 迁移插入 `admin` / `admin123`（BCrypt 存储）；生产必须设置 `AUTH_DEV_SEED=false`。
 
 ## 冒烟验证
 
@@ -86,16 +95,17 @@ curl -s -o /dev/null -w "%{http_code}\n" http://localhost/
 # 0.2 评测沙箱可达（返回 go-judge 版本号；judge-service 设置 GO_JUDGE_BASE_URL 后即切换真实引擎）
 curl -s http://localhost:5050/version
 
-# 1. Mock 登录（当前返回 mock-access-token；真实 JWT 契约见 docs/api.md"认证"节）
+# 1. 真实登录（开发种子管理员 admin/admin123；需 FLYWAY_ENABLED=true + POSTGRES_PORT=5433 启动过一次使迁移生效）
 curl -s -X POST http://localhost:8081/api/v1/auth/login \
   -H "Content-Type: application/json" \
-  -d '{"username":"admin","password":"anything"}'
+  -d '{"username":"admin","password":"admin123"}'
+# 连续失败 5 次后返回 429 AUTH_RATE_LIMITED；JWKS: GET http://localhost:8081/api/v1/auth/jwks
 
 # 2. 无令牌访问受保护端点 → 401（Security 默认行为，属预期）
 curl -s -o /dev/null -w "%{http_code}\n" http://localhost:8084/api/v1/submissions
 
-# 3. 请求追踪：响应头应回显 X-Request-Id（经 OpenResty 时缺失会由边缘补生成）
-curl -s -i -H "X-Request-Id: test-123" http://localhost:8083/api/v1/problems | grep -i x-request-id
+# 3. 请求追踪：响应头应回显 X-Request-Id（缺失时由 RequestIdFilter 自动生成）
+curl -s -i -H "X-Request-Id: test-123" http://localhost:8081/api/v1/auth/jwks | grep -i x-request-id
 
 # 4. Swagger（judge-service 默认 8080 端口；与其他服务同起时先 SERVER_PORT 区分）
 # 浏览器打开 http://localhost:8080/swagger-ui.html
@@ -112,9 +122,15 @@ curl -s -i -H "X-Request-Id: test-123" http://localhost:8083/api/v1/problems | g
 | `GO_JUDGE_CONNECT_TIMEOUT_MS` | go-judge 连接超时 | `2000` |
 | `GO_JUDGE_READ_TIMEOUT_MS` | go-judge 读取超时 | `10000` |
 | `POSTGRES_HOST` | PostgreSQL 地址 | `localhost` |
-| `POSTGRES_PORT` | PostgreSQL 端口 | `5432` |
+| `POSTGRES_PORT` | PostgreSQL 端口（本地 Compose 映射在 5433） | `5432` |
 | `POSTGRES_DB` | 数据库名 | `lunar` |
 | `POSTGRES_USER` / `POSTGRES_PASSWORD` | 数据库凭据 | `lunar` / `change-me` |
+| `AUTH_JWT_PRIVATE_KEY` | RS256 私钥（PKCS#8 PEM）；留空则启动期临时生成开发密钥，重启令牌失效 | 未设置（临时生成） |
+| `AUTH_JWT_KEY_ID` | JWKS 的 kid | `lunar-dev-1` |
+| `AUTH_JWT_TTL_MINUTES` | access token 有效期（分钟） | `30` |
+| `AUTH_LOGIN_MAX_FAILURES` | 登录失败锁定阈值 | `5` |
+| `AUTH_LOGIN_LOCK_MINUTES` | 登录锁定时长（分钟） | `5` |
+| `AUTH_DEV_SEED` | 开发种子管理员（V3 迁移），生产必须为 `false` | `true` |
 | `REDIS_HOST` | Redis 地址 | `localhost` |
 | `ROCKETMQ_NAMESRV_ADDR` | RocketMQ NameServer | `localhost:9876` |
 | `MINIO_ENDPOINT` | MinIO 地址 | `http://localhost:9000` |
@@ -139,4 +155,6 @@ curl -s -i -H "X-Request-Id: test-123" http://localhost:8083/api/v1/problems | g
 
 - RocketMQ broker 广播地址固定为 `127.0.0.1`（Spring 服务跑在宿主机的前提）；服务容器化后需注释掉 `broker.conf` 中的 `brokerIP1`；开发期 `autoCreateTopicEnable=true`，生产必须改为 `false` 并显式建 Topic；
 - gateway、judge、anti-cheat、media、audit 五个服务没有 `application.yml`，同时本地启动多个时会全部抢占 8080；
-- 各服务当前都没有健康检查端点（未引入 actuator），Compose 也没有配置健康探测。
+- 各服务当前都没有健康检查端点（未引入 actuator），Compose 也没有配置健康探测；
+- 登录失败限流目前是 auth-service 的内存实现（重启清零、多实例不共享），Redis Starter 接入后迁移；
+- go-judge 在 Docker Desktop（WSL2）上嵌套 cgroup 受限，本地沙箱联调暂缓（配置保留在 compose.judge.yml），生产 Linux 节点不受影响。

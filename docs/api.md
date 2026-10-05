@@ -46,7 +46,7 @@ HTTP 前缀统一为 `/api/v1`。各服务经 gateway 对外暴露；客户端�
 | `Idempotency-Key` | 写操作幂等键；同一键重复请求返回首次结果，不产生二次副作用 | 客户端 |
 | `Authorization: Bearer <JWT>` | 访问令牌，由 auth-service 签发，各服务作为资源服务器本地验签 | 登录后携带 |
 
-未携带或携带无效令牌返回 401；令牌有效但缺少角色/授权返回 403。注意：当前各服务尚未配置 `SecurityFilterChain`，运行时是 Spring Security 默认行为（所有端点 401），鉴权规则随 auth 落地逐步生效。
+未携带或携带无效令牌返回 401（auth-service 为 Bearer 入口点）；令牌有效但缺少角色/授权返回 403。注意：除 auth-service 外，其余服务尚未配置 `SecurityFilterChain`，运行时是 Spring Security 默认行为（所有端点 401），鉴权规则随各服务落地逐步生效。
 
 ### 认证令牌
 
@@ -114,7 +114,7 @@ HTTP 前缀统一为 `/api/v1`。各服务经 gateway 对外暴露；客户端�
 
 ### 登录
 
-`POST /api/v1/auth/login`（已实现 Mock；真实实现按以下契约补齐，实现路径见 `docs/development-guide.md` 第 5 节）
+`POST /api/v1/auth/login`（已实现：BCrypt 校验 + RS256 JWT 签发 + 失败限流；开发种子账号 admin/admin123 仅限本地，见 `docs/deployment.md`）
 
 请求：
 

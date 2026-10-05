@@ -59,9 +59,9 @@ anti-cheat ──(plagiarism-requested)──> plagiarism-worker（独立部署�
 - 职责：用户账号管理（含老师为学生创建/重置账号，`studentNo` 组织内唯一，`username` 全局唯一）；登录认证；签发短期 Access Token（JWT）；角色与 RBAC；竞赛授权关系（把老师/监考员授权到具体竞赛）；服务间身份；密码只持久化 BCrypt 哈希（后续可选升级 Argon2id），`passwordChangeRequired` 强制首次登录改密；登录失败限流与短暂锁定。
 - 不负责：资源级权限判定——RBAC 只解决"能否访问"，竞赛范围由 contest-service 和监考策略继续校验；不保存报名关系（那是 contest-service 的数据）；不返回密码或哈希。
 - 数据与基础设施：`auth_schema.users`（字段设计见 `docs/architecture.md` §2.1.2）；Redis 存令牌黑名单/失效状态。
-- 对外接口：`POST /api/v1/auth/login`（已实现，mock）；规划中还有学生账号管理服务间接口（供 contest-service 调用，见 `docs/api.md`）。
-- 当前实现：`AuthServiceApplication`、`AuthController`（mock——按用户名硬编码角色、返回 `"mock-access-token"`）。已挂 `spring-boot-starter-security` + `spring-boot-starter-oauth2-resource-server` 依赖，尚无 `SecurityFilterChain`、`JwtEncoder` 和用户表实现。
-- 下一步：用户表迁移 + `JwtEncoder` 真实签发 + 密码哈希 + 登录限流，这是整个平台实现顺序的第一位。具体实现路径见 `docs/development-guide.md` 第 5 节。
+- 对外接口：`POST /api/v1/auth/login`、`GET /api/v1/auth/jwks`（均已实现，真实校验）；规划中还有学生账号管理服务间接口（供 contest-service 调用，见 `docs/api.md`）。
+- 当前实现（2026-10-05）：`SecurityConfig` 基线（STATELESS、放行 login/jwks、其余 401+Bearer 入口点）；MyBatis-Plus `UserMapper` 查 `auth_schema.users`；`AuthService` 编排（限流检查→用户加载→BCrypt 校验→ACTIVE 校验→签发）；RS256 `JwtTokenService`（claims 契约见 api.md）+ JWKS 公钥分发（`AUTH_JWT_PRIVATE_KEY` 未配置时临时生成开发密钥）；`LoginRateLimiter` 内存失败限流（5 次锁 5 分钟，Redis 接入后迁移）；V3 迁移含开发种子管理员（`AUTH_DEV_SEED` 守卫）。13 个单测通过，真实库实测通过。
+- 下一步：服务间接口（创建学生/重置密码，随 contest-service 开发）；令牌吊销（Redis 黑名单）；限流迁 Redis。
 
 ## contest-service
 

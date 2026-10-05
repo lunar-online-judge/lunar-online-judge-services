@@ -1,0 +1,66 @@
+# Lunar OJ 接口手测集 —— IDEA / VS Code HTTP Client 直接逐个运行
+# 使用前提：auth-service 在 8081 运行（FLYWAY_ENABLED=true POSTGRES_PORT=5433 mvn spring-boot:run -pl services/auth-service）
+# 说明：带 ◆ 的请求会把结果存为变量供后续请求使用
+
+### ◆ 登录成功（开发种子管理员；200 + accessToken）
+POST http://localhost:8081/api/v1/auth/login
+Content-Type: application/json
+
+{"username":"admin","password":"admin123"}
+
+> {%
+    client.global.set("access_token", response.body.data.accessToken);
+    client.log("拿到令牌，后续请求可用 Authorization: Bearer {{access_token}}");
+ %}
+
+### 登录失败：密码错误（401 + AUTH_INVALID_CREDENTIALS）
+POST http://localhost:8081/api/v1/auth/login
+Content-Type: application/json
+
+{"username":"admin","password":"wrong-password"}
+
+### 登录失败：用户不存在（同样 401 + 同一错误码，防枚举）
+POST http://localhost:8081/api/v1/auth/login
+Content-Type: application/json
+
+{"username":"ghost","password":"whatever"}
+
+### 登录失败：参数为空（400 + VALIDATION_FAILED）
+POST http://localhost:8081/api/v1/auth/login
+Content-Type: application/json
+
+{"username":"","password":""}
+
+### 连续失败限流：把下面请求连跑 5 次，第 6 次起 429 + AUTH_RATE_LIMITED（重启服务即解锁）
+POST http://localhost:8081/api/v1/auth/login
+Content-Type: application/json
+
+{"username":"lockme","password":"bad"}
+
+### JWKS 公钥集（200 + keys 数组）
+GET http://localhost:8081/api/v1/auth/jwks
+
+### 请求追踪：带了 X-Request-Id → 响应头和 body 原样回显
+GET http://localhost:8081/api/v1/auth/jwks
+X-Request-Id: my-trace-001
+
+### 请求追踪：不带 → 响应头和 body 自动生成
+GET http://localhost:8081/api/v1/auth/jwks
+
+### 边缘代理自检（OpenResty 直接返回 ok，不回源）
+GET http://localhost/healthz
+
+### 评测沙箱版本（go-judge）
+GET http://localhost:5050/version
+
+### MinIO 存活检查
+GET http://localhost:9000/minio/health/live
+
+### Nacos 控制台可达性（浏览器打开 http://localhost:8848/nacos 更直观，账号 nacos/nacos）
+GET http://localhost:8848/nacos/
+
+### judge 提交评测（当前预期 401：judge-service 尚无 SecurityConfig，等接入令牌验签后自动放行）
+POST http://localhost:8085/api/v1/judge/submissions
+Content-Type: application/json
+
+{"submissionId":"sub_1","language":"cpp","sourceCode":"int main(){return 0;}","cpuTimeLimitMs":2000,"memoryLimitKb":256000}
