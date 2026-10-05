@@ -1,0 +1,12 @@
+# 评测沙箱节点（go-judge）——用户代码的唯一执行环境。
+# 刻意使用独立默认网络：不与 core / platform / edge 共网，业务服务只能经 5050 端口访问其 HTTP API；
+# go-judge 与业务服务分节点/分隔离运行时是生产要求（docs/architecture.md §14）。
+services:
+  go-judge:
+    image: criyle/go-judge:latest
+    # 未固定版本（本地工具链验证期），生产部署前必须锁定 digest 或明确版本
+    privileged: true
+    # 沙箱需要嵌套 cgroup/namespace，官方推荐的本地运行方式；生产环境须按架构文档 §14 收紧并审计
+    shm_size: "256m"
+    # 文件缓存位于 /dev/shm，官方推荐值
+    ports: ["5050:5050"]

@@ -1,0 +1,21 @@
+services:
+  nacos:
+    image: nacos/nacos-server:v2.4.2
+    environment:
+      MODE: standalone
+    ports: ["8848:8848", "9848:9848"]
+  namesrv:
+    image: apache/rocketmq:5.3.1
+    command: sh mqnamesrv
+    ports: ["9876:9876"]
+  broker:
+    image: apache/rocketmq:5.3.1
+    command: sh mqbroker -n namesrv:9876 -c /home/rocketmq/broker.conf
+    depends_on:
+      - namesrv
+    environment:
+      # 默认堆是 8g，本地开发必须调小
+      JAVA_OPT_EXT: "-Xms512m -Xmx512m -Xmn128m"
+    ports: ["10909:10909", "10911:10911", "10912:10912"]
+    volumes:
+      - ./rocketmq/broker.conf:/home/rocketmq/broker.conf

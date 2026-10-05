@@ -1,0 +1,13 @@
+# 边缘入口层：OpenResty 反向代理。
+# gateway-service 等业务服务目前跑在宿主机，容器内通过 host.docker.internal 回源；
+# 服务容器化后，把回源地址改为对应服务名并加入同一网络即可。
+services:
+  openresty:
+    image: openresty/openresty:1.29.2.4-0-alpine
+    ports: ["80:80"]
+    volumes:
+      - ./openresty/nginx.conf:/usr/local/openresty/nginx/conf/nginx.conf:ro
+    # Linux 宿主机兼容（Docker Desktop 自带 host.docker.internal）；
+    # Windows 下 80 端口若被 IIS/http.sys 占用，改为其他映射端口并同步文档
+    extra_hosts:
+      - "host.docker.internal:host-gateway"

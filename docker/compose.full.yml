@@ -1,0 +1,5 @@
+include:
+  - compose.core.yml
+  - compose.platform.yml
+  - compose.edge.yml
+  - compose.judge.yml
