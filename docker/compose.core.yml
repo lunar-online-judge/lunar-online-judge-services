@@ -5,7 +5,9 @@ services:
       POSTGRES_DB: lunar
       POSTGRES_USER: lunar
       POSTGRES_PASSWORD: change-me
-    ports: ["5432:5432"]
+    # 宿主机 5432 被本机 postgres 服务占用，开发期映射到 5433（容器内仍是 5432）；
+    # 本地启动服务需设置 POSTGRES_PORT=5433。生产环境无此冲突，按实际端口注入即可
+    ports: ["5433:5432"]
     volumes: ["postgres-data:/var/lib/postgresql/data"]
   redis:
     image: redis:7-alpine

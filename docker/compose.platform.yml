@@ -16,6 +16,16 @@ services:
     environment:
       # 默认堆是 8g，本地开发必须调小
       JAVA_OPT_EXT: "-Xms512m -Xmx512m -Xmn128m"
-    ports: ["10909:10909", "10911:10911", "10912:10912"]
+    ports: ["10909:10909", "10911:10911", "10912:10912", "8090:8082"]
     volumes:
       - ./rocketmq/broker.conf:/home/rocketmq/broker.conf
+  # 开发专用管理面板（生产不部署）。与 broker 共享网络命名空间：broker 向 NameServer 注册的地址是
+  # 127.0.0.1（宿主机客户端的前提），共享后面板的 127.0.0.1 即 broker 本机，全部页面可用；
+  # Web 端口 8082 经 broker 的 8090 映射暴露到宿主机。broker 重启后面板需一起重启
+  rocketmq-dashboard:
+    image: apacherocketmq/rocketmq-dashboard:latest
+    network_mode: "container:docker-broker-1"
+    depends_on:
+      - broker
+    environment:
+      JAVA_OPTS: "-Drocketmq.namesrv.addr=namesrv:9876 -Dserver.port=8082 -Drocketmq.config.loginRequired=false"
