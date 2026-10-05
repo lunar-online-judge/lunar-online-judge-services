@@ -1,0 +1,31 @@
+# ---- 构建产物 ----
+target/
+*.class
+
+# ---- IDE ----
+.idea/
+*.iml
+*.ipr
+*.iws
+.vscode/
+.settings/
+.project
+.classpath
+.factorypath
+
+# ---- 日志 ----
+logs/
+*.log
+
+# ---- 本地环境与密钥 ----
+
+.env
+.env.*
+*.pem
+*.key
+*.jks
+
+# ---- 操作系统 ----
+.DS_Store
+Thumbs.db
+Desktop.ini
