@@ -2,10 +2,25 @@ spring:
   application:
     name: auth-service
   datasource:
-    url: jdbc:postgresql://${POSTGRES_HOST:localhost}:${POSTGRES_PORT:5432}/${POSTGRES_DB:lunar}
+    # stringtype=unspecified：让 String 参数可直接写入 uuid 列（MyBatis 无 uuid 类型处理器）
+    url: jdbc:postgresql://${POSTGRES_HOST:localhost}:${POSTGRES_PORT:5432}/${POSTGRES_DB:lunar}?stringtype=unspecified
     username: ${POSTGRES_USER:lunar}
     password: ${POSTGRES_PASSWORD:change-me}
   flyway:
     enabled: ${FLYWAY_ENABLED:false}
+    placeholders:
+      # 开发种子数据开关（V3 管理员账号）；生产必须显式设置 AUTH_DEV_SEED=false
+      dev_seed: ${AUTH_DEV_SEED:true}
 server:
   port: ${SERVER_PORT:8081}
+
+auth:
+  jwt:
+    # RS256 私钥（PKCS#8 PEM 正文，可带可不带头尾行）。留空时启动期临时生成开发密钥：
+    # 重启后已签发令牌全部失效；生产必须外部注入，密钥禁止入库
+    private-key: ${AUTH_JWT_PRIVATE_KEY:}
+    key-id: ${AUTH_JWT_KEY_ID:lunar-dev-1}
+    access-ttl-minutes: ${AUTH_JWT_TTL_MINUTES:30}
+  login:
+    max-failures: ${AUTH_LOGIN_MAX_FAILURES:5}
+    lock-minutes: ${AUTH_LOGIN_LOCK_MINUTES:5}
