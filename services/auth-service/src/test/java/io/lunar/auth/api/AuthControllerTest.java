@@ -30,6 +30,7 @@ class AuthControllerTest {
 
     @MockitoBean AuthService authService;
     @MockitoBean JwksService jwksService;
+    @MockitoBean org.springframework.security.oauth2.jwt.JwtDecoder jwtDecoder;
 
     private static final AuthService.LoginResult RESULT = new AuthService.LoginResult(
             "user_1", "jwt-token-value", Instant.parse("2026-10-05T12:30:00Z"), Role.CANDIDATE, true);

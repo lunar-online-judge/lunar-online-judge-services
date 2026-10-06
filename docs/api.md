@@ -29,12 +29,16 @@ HTTP 前缀统一为 `/api/v1`。各服务经 gateway 对外暴露；客户端�
 | `AUTH_ACCOUNT_DISABLED` | 账号已禁用 | 403 |
 | `AUTH_RATE_LIMITED` | 登录失败次数过多，暂时锁定 | 429 |
 | `AUTH_WEAK_PASSWORD` | 密码强度不满足要求 | 400 |
+| `AUTH_USER_NOT_FOUND` | 目标用户不存在（服务间接口） | 404 |
+| `AUTH_USERNAME_EXISTS` | 登录账户名已被占用 | 409 |
+| `AUTH_STUDENT_NO_EXISTS` | 学号已被占用 | 409 |
 | `CONTEST_NOT_FOUND` | 竞赛不存在 | 404 |
 | `CONTEST_NOT_ENROLLED` | 不在竞赛名单中 | 403 |
 | `CONTEST_NOT_RUNNING` | 竞赛未开始或已结束 | 409 |
 | `CONTEST_CLOSED` | 考试入口已关闭 | 409 |
 | `CONTEST_INVALID_TRANSITION` | 生命周期非法流转（如草稿直接发布） | 409 |
 | `CONTEST_PUBLISH_INCOMPLETE` | 发布前配置不完整（时间窗口、名单、题目等） | 409 |
+| `CONTEST_STUDENT_ALREADY_ENROLLED` | 该学生已在本竞赛名单中 | 409 |
 | `SUBMISSION_LIMIT_EXCEEDED` | 提交次数超限 | 429 |
 | `SUBMISSION_LANGUAGE_NOT_ALLOWED` | 语言不在白名单 | 400 |
 | `SUBMISSION_DUPLICATE` | 幂等键重复提交 | 409 |
@@ -99,8 +103,13 @@ HTTP 前缀统一为 `/api/v1`。各服务经 gateway 对外暴露；客户端�
 | submission | POST | `/api/v1/submissions` | 已实现（Mock） |
 | submission | GET | `/api/v1/submissions/{id}` | 已实现（Mock） |
 | judge | POST | `/api/v1/judge/submissions` | 已实现（Mock 引擎） |
-| contest | POST | `/api/v1/contests/{contestId}/review` | 规划 |
-| contest | POST | `/api/v1/contests/{contestId}/publish` | 规划 |
+| contest | POST | `/api/v1/contests/{contestId}/review` | 已实现（DRAFT→REVIEWING） |
+| contest | POST | `/api/v1/contests/{contestId}/publish` | 已实现（管理员；REVIEWING→PUBLISHED） |
+| contest | POST | `/api/v1/contests/{contestId}/students` | 已实现（添加学生，账号经 auth 创建/复用） |
+| contest | GET | `/api/v1/contests/{contestId}/students` | 已实现（分页 + 学号 keyword） |
+| contest | POST | `/api/v1/contests/{contestId}/students/{studentId}/password-reset` | 已实现（经 auth 重置） |
+| contest | DELETE | `/api/v1/contests/{contestId}/students/{studentId}` | 已实现（软删除） |
+| auth | GET/POST | `/api/v1/internal/students/**` | 已实现（服务间接口，TEACHER/ADMIN 令牌） |
 | contest | POST | `/api/v1/contests/{contestId}/announcements` | 规划 |
 | contest | GET | `/api/v1/contests/{contestId}/assignments/{studentId}` | 规划 |
 | contest | GET | `/api/v1/contests/{contestId}/score` | 规划 |

@@ -35,4 +35,18 @@ public class ContestException extends RuntimeException {
             super("CONTEST_PUBLISH_INCOMPLETE", 409, "发布前需完成配置：" + missing);
         }
     }
+
+    /** 409：该学生已在名单中有效报名（同一 contestId+studentNo 只能有一条有效报名关系）。 */
+    public static final class AlreadyEnrolled extends ContestException {
+        public AlreadyEnrolled() {
+            super("CONTEST_STUDENT_ALREADY_ENROLLED", 409, "该学生已在本竞赛名单中");
+        }
+    }
+
+    /** 403：报名关系不存在或已移出（docs/api.md 错误码注册表）。 */
+    public static final class NotEnrolled extends ContestException {
+        public NotEnrolled() {
+            super("CONTEST_NOT_ENROLLED", 403, "该学生不在本竞赛名单中");
+        }
+    }
 }

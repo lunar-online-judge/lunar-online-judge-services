@@ -4,6 +4,7 @@ import com.baomidou.mybatisplus.annotation.IdType;
 import com.baomidou.mybatisplus.annotation.TableId;
 import com.baomidou.mybatisplus.annotation.TableName;
 
+import java.time.Instant;
 /**
  * auth_schema.users 的持久化对象。id 由应用侧生成（uuid 主键无库端默认值）；
  * created_at/updated_at 由数据库默认值维护，仅在插入时需要显式赋值的场景手动设置。
@@ -30,6 +31,10 @@ public class UserEntity {
 
     private Boolean passwordChangeRequired;
 
+    private Instant createdAt;
+
+    private Instant updatedAt;
+
     public String getId() { return id; }
     public void setId(String id) { this.id = id; }
     public String getUsername() { return username; }
@@ -48,4 +53,8 @@ public class UserEntity {
     public void setManagedByTeacherId(String managedByTeacherId) { this.managedByTeacherId = managedByTeacherId; }
     public Boolean getPasswordChangeRequired() { return passwordChangeRequired; }
     public void setPasswordChangeRequired(Boolean passwordChangeRequired) { this.passwordChangeRequired = passwordChangeRequired; }
+    public Instant getCreatedAt() { return createdAt; }
+    public void setCreatedAt(Instant createdAt) { this.createdAt = createdAt; }
+    public Instant getUpdatedAt() { return updatedAt; }
+    public void setUpdatedAt(Instant updatedAt) { this.updatedAt = updatedAt; }
 }

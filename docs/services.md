@@ -61,7 +61,8 @@ anti-cheat ──(plagiarism-requested)──> plagiarism-worker（独立部署�
 - 数据与基础设施：`auth_schema.users`（字段设计见 `docs/architecture.md` §2.1.2）；Redis 存令牌黑名单/失效状态。
 - 对外接口：`POST /api/v1/auth/login`、`GET /api/v1/auth/jwks`（均已实现，真实校验）；规划中还有学生账号管理服务间接口（供 contest-service 调用，见 `docs/api.md`）。
 - 当前实现（2026-10-05）：`SecurityConfig` 基线（STATELESS、放行 login/jwks、其余 401+Bearer 入口点）；MyBatis-Plus `UserMapper` 查 `auth_schema.users`；`AuthService` 编排（限流检查→用户加载→BCrypt 校验→ACTIVE 校验→签发）；RS256 `JwtTokenService`（claims 契约见 api.md）+ JWKS 公钥分发（`AUTH_JWT_PRIVATE_KEY` 未配置时临时生成开发密钥）；`LoginRateLimiter` 内存失败限流（5 次锁 5 分钟，Redis 接入后迁移）；V3 迁移含开发种子管理员（`AUTH_DEV_SEED` 守卫）。13 个单测通过，真实库实测通过。
-- 下一步：服务间接口（创建学生/重置密码，随 contest-service 开发）；令牌吊销（Redis 黑名单）；限流迁 Redis。
+- 服务间接口（2026-10-06）：`/api/v1/internal/students`——创建学生账号（CANDIDATE 固定角色，BCrypt，幂等靠唯一约束）、按学号/账户名查询、重置密码；鉴权 = 操作者（老师/管理员）令牌由 contest 转发，auth 以自身资源服务器验签；审计事件先以结构化日志落（AUDIT event=...），audit-service 建成后迁移。
+- 下一步：令牌吊销（Redis 黑名单）；限流迁 Redis；服务间独立身份（客户端凭证）。
 
 ## contest-service
 
@@ -72,7 +73,8 @@ anti-cheat ──(plagiarism-requested)──> plagiarism-worker（独立部署�
 - 数据与基础设施：`contest_schema.contest_candidates` 与竞赛、会话、分配表（字段设计见 `docs/architecture.md` §2.1.2）；Redis 存会话心跳。
 - 对外接口：`POST /api/v1/contests`、`GET /api/v1/contests/{id}`、`POST /{id}/review`、`POST /{id}/publish`（均已实现，JWT 验签 + 角色控制：创建/审核老师或管理员、发布仅管理员）；规划：公告、学生名单 CRUD、密码重置、题目分配查询、成绩查询（见 `docs/api.md`）；消费 `lunar-submission-judged` 更新排名。
 - 当前实现（2026-10-06）：**首个 OAuth2 资源服务器**——JWT 经 auth-service JWKS 本地验签（roles claim → ROLE_ authorities，`AUTH_JWK_SET_URI` 可覆盖）；`contest_schema.contests` 落库（MyBatis-Plus，独立 Flyway 历史表 `contest_history`）；生命周期状态机（`ContestStatus` 单向流转 + 条件更新防并发双审，RUNNING/FINISHED/ARCHIVED 的触发随时间管理特性落地）；15 个单测 + 真机全流程实测通过。
-- 下一步：`contest_candidates` 报名表 + 考生会话（对应 auth 第 9 步的服务间接口）；RUNNING/FINISHED 的时间窗口驱动；成绩查询。
+- 学生名单（2026-10-06）：`contest_schema.contest_candidates` 报名关系（唯一约束 contest_id+student_id，学号/账户名/显示名快照）；添加学生（auth 账号不存在则创建、存在则复用；REMOVED 行重新加入时激活）、分页名单（keyword 查学号）、重置密码（学生须在名单中）、移出（软删除 REMOVED）；重复报名 409、重复/未报名移出 403。
+- 下一步：考生会话（进入考试创建/恢复会话）+ auth 第 9 步收尾；RUNNING/FINISHED 的时间窗口驱动；成绩查询。
 
 ## problem-service
 

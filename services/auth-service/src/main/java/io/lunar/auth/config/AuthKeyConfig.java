@@ -10,7 +10,9 @@ import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
+import org.springframework.security.oauth2.jwt.JwtDecoder;
 import org.springframework.security.oauth2.jwt.JwtEncoder;
+import org.springframework.security.oauth2.jwt.NimbusJwtDecoder;
 import org.springframework.security.oauth2.jwt.NimbusJwtEncoder;
 
 import java.security.KeyFactory;
@@ -35,7 +37,7 @@ public class AuthKeyConfig {
     private static final Logger log = LoggerFactory.getLogger(AuthKeyConfig.class);
 
     /** 完整 RSA 密钥（含私钥），签发与公钥分发的唯一来源。 */
-    record KeyMaterial(RSAKey rsaKey) {}
+    record KeyMaterial(RSAKey rsaKey, java.security.interfaces.RSAPublicKey publicKey) {}
 
     @Bean
     public KeyMaterial keyMaterial(@Value("${auth.jwt.private-key:}") String privateKeyPem,
@@ -48,12 +50,18 @@ public class AuthKeyConfig {
                 .keyUse(KeyUse.SIGNATURE)
                 .algorithm(JWSAlgorithm.RS256)
                 .build();
-        return new KeyMaterial(rsaKey);
+        return new KeyMaterial(rsaKey, publicKey);
     }
 
     @Bean
     public JwtEncoder jwtEncoder(KeyMaterial keyMaterial) {
         return new NimbusJwtEncoder(new ImmutableJWKSet<>(new JWKSet(keyMaterial.rsaKey())));
+    }
+
+    /** 验签自身签发的令牌（服务间接口 /api/v1/internal/** 的鉴权基础）。 */
+    @Bean
+    public org.springframework.security.oauth2.jwt.JwtDecoder jwtDecoder(KeyMaterial keyMaterial) {
+        return NimbusJwtDecoder.withPublicKey(keyMaterial.publicKey()).build();
     }
 
     /** JWKS 端点内容：仅含公钥。 */

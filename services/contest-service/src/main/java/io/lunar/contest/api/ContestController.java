@@ -4,6 +4,7 @@ import io.lunar.common.api.ApiResponse;
 import io.lunar.common.web.RequestIdFilter;
 import io.lunar.contest.infra.ContestEntity;
 import io.lunar.contest.domain.ContestService;
+import io.lunar.contest.domain.EnrollmentService;
 import jakarta.validation.Valid;
 import jakarta.validation.constraints.NotBlank;
 import org.springframework.http.ResponseEntity;
@@ -12,6 +13,7 @@ import org.springframework.security.core.Authentication;
 import org.springframework.web.bind.annotation.*;
 
 import java.time.Instant;
+import java.util.Map;
 
 /**
  * 考试生命周期入口（docs/exam-process.md §1）：
@@ -22,9 +24,11 @@ import java.time.Instant;
 public class ContestController {
 
     private final ContestService contestService;
+    private final EnrollmentService enrollmentService;
 
-    public ContestController(ContestService contestService) {
+    public ContestController(ContestService contestService, EnrollmentService enrollmentService) {
         this.contestService = contestService;
+        this.enrollmentService = enrollmentService;
     }
 
     @PostMapping
@@ -58,6 +62,64 @@ public class ContestController {
                                                                 @RequestHeader(value = RequestIdFilter.HEADER, required = false) String requestId) {
         return ResponseEntity.ok(ApiResponse.success(requestId, ContestResponse.of(contestService.publish(id))));
     }
+
+    /** 添加学生：账号不存在则经 auth 创建（存在则复用），并建立报名关系（docs/api.md"添加学生"）。 */
+    @PostMapping("/{contestId}/students")
+    @PreAuthorize("hasAnyRole('TEACHER', 'ADMIN')")
+    public ResponseEntity<ApiResponse<EnrollmentService.CandidateView>> addStudent(
+            @PathVariable String contestId,
+            @Valid @RequestBody AddStudentRequest request,
+            Authentication authentication,
+            @RequestHeader(value = RequestIdFilter.HEADER, required = false) String requestId,
+            @RequestHeader(value = "Authorization", required = false) String authorization) {
+        var view = enrollmentService.add(contestId, request.studentNo(), request.username(),
+                request.displayName(), request.initialPassword(), authorization, authentication.getName());
+        return ResponseEntity.ok(ApiResponse.success(requestId, view));
+    }
+
+    /** 分页查询竞赛名单；keyword 模糊匹配学号。 */
+    @GetMapping("/{contestId}/students")
+    @PreAuthorize("hasAnyRole('TEACHER', 'ADMIN')")
+    public ResponseEntity<ApiResponse<EnrollmentService.CandidatePage>> listStudents(
+            @PathVariable String contestId,
+            @RequestParam(defaultValue = "1") long page,
+            @RequestParam(defaultValue = "20") long pageSize,
+            @RequestParam(required = false) String keyword,
+            @RequestHeader(value = RequestIdFilter.HEADER, required = false) String requestId) {
+        return ResponseEntity.ok(ApiResponse.success(requestId, enrollmentService.list(contestId, page, pageSize, keyword)));
+    }
+
+    /** 重置学生密码：学生须在名单中；返回 passwordChangeRequired=true，不返回密码。 */
+    @PostMapping("/{contestId}/students/{studentId}/password-reset")
+    @PreAuthorize("hasAnyRole('TEACHER', 'ADMIN')")
+    public ResponseEntity<ApiResponse<Map<String, Object>>> resetStudentPassword(
+            @PathVariable String contestId,
+            @PathVariable String studentId,
+            @Valid @RequestBody ResetPasswordRequest request,
+            Authentication authentication,
+            @RequestHeader(value = RequestIdFilter.HEADER, required = false) String requestId,
+            @RequestHeader(value = "Authorization", required = false) String authorization) {
+        enrollmentService.resetPassword(contestId, studentId, request.temporaryPassword(),
+                authorization, authentication.getName());
+        return ResponseEntity.ok(ApiResponse.success(requestId, Map.of("passwordChangeRequired", true)));
+    }
+
+    /** 移出名单（软删除）：学生账号与历史数据保留。 */
+    @DeleteMapping("/{contestId}/students/{studentId}")
+    @PreAuthorize("hasAnyRole('TEACHER', 'ADMIN')")
+    public ResponseEntity<ApiResponse<Void>> removeStudent(
+            @PathVariable String contestId,
+            @PathVariable String studentId,
+            Authentication authentication,
+            @RequestHeader(value = RequestIdFilter.HEADER, required = false) String requestId) {
+        enrollmentService.remove(contestId, studentId, authentication.getName());
+        return ResponseEntity.ok(ApiResponse.success(requestId, null));
+    }
+
+    public record AddStudentRequest(@NotBlank String studentNo, @NotBlank String username,
+                                    @NotBlank String displayName, @NotBlank String initialPassword) {}
+
+    public record ResetPasswordRequest(@NotBlank String temporaryPassword) {}
 
     public record CreateContestRequest(@NotBlank String name, String description,
                                        Instant startAt, Instant endAt) {}
