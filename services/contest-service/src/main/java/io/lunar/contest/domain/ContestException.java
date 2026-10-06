@@ -49,4 +49,25 @@ public class ContestException extends RuntimeException {
             super("CONTEST_NOT_ENROLLED", 403, "该学生不在本竞赛名单中");
         }
     }
+
+    /** 409：竞赛未开始或尚未发布（服务端时间判定，docs/exam-process.md §4）。 */
+    public static final class NotRunning extends ContestException {
+        public NotRunning() {
+            super("CONTEST_NOT_RUNNING", 409, "竞赛未开始或已结束");
+        }
+    }
+
+    /** 409：考试入口已关闭（统一结束时间之后）。 */
+    public static final class Closed extends ContestException {
+        public Closed() {
+            super("CONTEST_CLOSED", 409, "考试入口已关闭");
+        }
+    }
+
+    /** 409：考生会话不存在或未处于 ACTIVE（心跳/恢复场景）。 */
+    public static final class SessionNotActive extends ContestException {
+        public SessionNotActive() {
+            super("SESSION_NOT_ACTIVE", 409, "考试会话未激活，请重新进入考试");
+        }
+    }
 }

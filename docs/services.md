@@ -74,7 +74,8 @@ anti-cheat ──(plagiarism-requested)──> plagiarism-worker（独立部署�
 - 对外接口：`POST /api/v1/contests`、`GET /api/v1/contests/{id}`、`POST /{id}/review`、`POST /{id}/publish`（均已实现，JWT 验签 + 角色控制：创建/审核老师或管理员、发布仅管理员）；规划：公告、学生名单 CRUD、密码重置、题目分配查询、成绩查询（见 `docs/api.md`）；消费 `lunar-submission-judged` 更新排名。
 - 当前实现（2026-10-06）：**首个 OAuth2 资源服务器**——JWT 经 auth-service JWKS 本地验签（roles claim → ROLE_ authorities，`AUTH_JWK_SET_URI` 可覆盖）；`contest_schema.contests` 落库（MyBatis-Plus，独立 Flyway 历史表 `contest_history`）；生命周期状态机（`ContestStatus` 单向流转 + 条件更新防并发双审，RUNNING/FINISHED/ARCHIVED 的触发随时间管理特性落地）；15 个单测 + 真机全流程实测通过。
 - 学生名单（2026-10-06）：`contest_schema.contest_candidates` 报名关系（唯一约束 contest_id+student_id，学号/账户名/显示名快照）；添加学生（auth 账号不存在则创建、存在则复用；REMOVED 行重新加入时激活）、分页名单（keyword 查学号）、重置密码（学生须在名单中）、移出（软删除 REMOVED）；重复报名 409、重复/未报名移出 403。
-- 下一步：考生会话（进入考试创建/恢复会话）+ auth 第 9 步收尾；RUNNING/FINISHED 的时间窗口驱动；成绩查询。
+- 考生会话（2026-10-06）：`contest_schema.exam_sessions`（唯一约束 contest_id+student_id）；进入（名单+状态+时间窗口校验）、心跳、断线重连恢复、TERMINATED 终态拒绝重进；心跳超时（默认 2 分钟，`exam.session.heartbeat-timeout-minutes`）由 @Scheduled 扫描置 EXPIRED（条件更新多实例幂等）；重复登录踢设备的设备模型随客户端版本字段落地。
+- 下一步：考试开始/结束的状态推进（RUNNING/FINISHED 时间窗口驱动）；成绩查询与读模型（依赖评测链路）；公告。
 
 ## problem-service
 

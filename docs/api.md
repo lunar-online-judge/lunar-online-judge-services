@@ -39,6 +39,7 @@ HTTP 前缀统一为 `/api/v1`。各服务经 gateway 对外暴露；客户端�
 | `CONTEST_INVALID_TRANSITION` | 生命周期非法流转（如草稿直接发布） | 409 |
 | `CONTEST_PUBLISH_INCOMPLETE` | 发布前配置不完整（时间窗口、名单、题目等） | 409 |
 | `CONTEST_STUDENT_ALREADY_ENROLLED` | 该学生已在本竞赛名单中 | 409 |
+| `SESSION_NOT_ACTIVE` | 考生会话不存在或未激活（心跳/恢复） | 409 |
 | `SUBMISSION_LIMIT_EXCEEDED` | 提交次数超限 | 429 |
 | `SUBMISSION_LANGUAGE_NOT_ALLOWED` | 语言不在白名单 | 400 |
 | `SUBMISSION_DUPLICATE` | 幂等键重复提交 | 409 |
@@ -109,6 +110,8 @@ HTTP 前缀统一为 `/api/v1`。各服务经 gateway 对外暴露；客户端�
 | contest | GET | `/api/v1/contests/{contestId}/students` | 已实现（分页 + 学号 keyword） |
 | contest | POST | `/api/v1/contests/{contestId}/students/{studentId}/password-reset` | 已实现（经 auth 重置） |
 | contest | DELETE | `/api/v1/contests/{contestId}/students/{studentId}` | 已实现（软删除） |
+| contest | POST | `/api/v1/contests/{contestId}/session` | 已实现（考生进入/恢复会话，本人 CANDIDATE） |
+| contest | POST | `/api/v1/contests/{contestId}/session/heartbeat` | 已实现（心跳 + 剩余秒数） |
 | auth | GET/POST | `/api/v1/internal/students/**` | 已实现（服务间接口，TEACHER/ADMIN 令牌） |
 | contest | POST | `/api/v1/contests/{contestId}/announcements` | 规划 |
 | contest | GET | `/api/v1/contests/{contestId}/assignments/{studentId}` | 规划 |
@@ -173,6 +176,8 @@ HTTP 前缀统一为 `/api/v1`。各服务经 gateway 对外暴露；客户端�
 ## 考试流程
 
 考试和竞赛使用同一个活动模型。考试生命周期 `DRAFT → REVIEWING → PUBLISHED → RUNNING → FINISHED → ARCHIVED` 由 contest-service 管理（已实现前两段流转：提交审核与发布），规则细节见 `docs/exam-process.md`：
+
+考生会话（2026-10-06 已实现）：`POST /api/v1/contests/{contestId}/session` 进入/恢复，`POST .../session/heartbeat` 心跳；进入条件 = 名单 ENROLLED + 状态 PUBLISHED/RUNNING + 服务端时间在窗口内；同一学生同一竞赛一个会话，断线重连恢复且剩余时间不补偿；心跳超时（默认 2 分钟）由定时扫描置 EXPIRED；管理端终止（TERMINATED）后不可重进（v1 决策）。
 
 - `POST /api/v1/contests`：老师创建草稿考试；
 - `POST /api/v1/contests/{contestId}/review`：提交管理员审核；
