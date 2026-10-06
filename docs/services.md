@@ -70,9 +70,9 @@ anti-cheat ──(plagiarism-requested)──> plagiarism-worker（独立部署�
 - 职责：竞赛生命周期（创建→审核→发布→进行→结束→归档，见 `docs/exam-process.md` §1）；参赛名单与报名关系（`ENROLLED/DISABLED/REMOVED`，含老师添加学生流程的编排与补偿）；考生会话（进入前创建/恢复服务端会话，校验名单、时间窗口、重复登录、客户端版本）；开始/结束时间（统一结束时间关闭进入与提交，学生没有主动交卷接口）；监考策略与截图策略；随机题目分配（发布时生成，保存随机种子，见 `docs/exam-process.md` §3）；公告；排名规则与排名更新。
 - 不负责：学生账号本身（归 auth-service）；题目内容与测试数据（只引用 problem-service 的题目版本）；评测。
 - 数据与基础设施：`contest_schema.contest_candidates` 与竞赛、会话、分配表（字段设计见 `docs/architecture.md` §2.1.2）；Redis 存会话心跳。
-- 对外接口：`POST /api/v1/contests`、`GET /api/v1/contests/{id}`（已实现，mock）；规划：审核/发布、公告、学生名单 CRUD、密码重置、题目分配查询、成绩查询（见 `docs/api.md`）；消费 `lunar-submission-judged` 更新排名。
-- 当前实现：`ContestServiceApplication`、`ContestController`（内存 Map 模拟创建竞赛，固定 DRAFT 状态，无持久化、无状态机）。
-- 下一步：考试状态机 + `contest_candidates` 表 + 会话模型（对应实现顺序第 3 步）。
+- 对外接口：`POST /api/v1/contests`、`GET /api/v1/contests/{id}`、`POST /{id}/review`、`POST /{id}/publish`（均已实现，JWT 验签 + 角色控制：创建/审核老师或管理员、发布仅管理员）；规划：公告、学生名单 CRUD、密码重置、题目分配查询、成绩查询（见 `docs/api.md`）；消费 `lunar-submission-judged` 更新排名。
+- 当前实现（2026-10-06）：**首个 OAuth2 资源服务器**——JWT 经 auth-service JWKS 本地验签（roles claim → ROLE_ authorities，`AUTH_JWK_SET_URI` 可覆盖）；`contest_schema.contests` 落库（MyBatis-Plus，独立 Flyway 历史表 `contest_history`）；生命周期状态机（`ContestStatus` 单向流转 + 条件更新防并发双审，RUNNING/FINISHED/ARCHIVED 的触发随时间管理特性落地）；15 个单测 + 真机全流程实测通过。
+- 下一步：`contest_candidates` 报名表 + 考生会话（对应 auth 第 9 步的服务间接口）；RUNNING/FINISHED 的时间窗口驱动；成绩查询。
 
 ## problem-service
 

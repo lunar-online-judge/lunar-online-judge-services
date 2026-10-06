@@ -35,10 +35,13 @@ public class AuthController {
         return ResponseEntity.ok(ApiResponse.success(requestId, body));
     }
 
+    /**
+     * 标准 JWKS 端点：顶层必须是 {"keys":[...]}（RFC 7517），不套 ApiResponse 统一包装——
+     * 资源服务的 JwtDecoder 按标准格式解析（docs/api.md 通用约定的唯一例外）。
+     */
     @GetMapping("/jwks")
-    public ResponseEntity<ApiResponse<Map<String, Object>>> jwks(
-            @RequestHeader(value = RequestIdFilter.HEADER, required = false) String requestId) {
-        return ResponseEntity.ok(ApiResponse.success(requestId, jwksService.asJson()));
+    public Map<String, Object> jwks() {
+        return jwksService.asJson();
     }
 
     public record LoginRequest(@NotBlank String username, @NotBlank String password) {}

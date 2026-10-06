@@ -101,7 +101,7 @@ class AuthControllerTest {
 
         mockMvc.perform(get("/api/v1/auth/jwks"))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$.data.keys").exists());
+                .andExpect(jsonPath("$.keys").exists());
     }
 
     @Test

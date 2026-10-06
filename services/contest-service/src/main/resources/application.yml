@@ -1,5 +1,22 @@
 spring:
   application:
     name: contest-service
+  datasource:
+    # stringtype=unspecified：让 String 参数可直接写入 uuid 列（MyBatis 无 uuid 类型处理器）
+    url: jdbc:postgresql://${POSTGRES_HOST:localhost}:${POSTGRES_PORT:5432}/${POSTGRES_DB:lunar}?stringtype=unspecified
+    username: ${POSTGRES_USER:lunar}
+    password: ${POSTGRES_PASSWORD:change-me}
+  flyway:
+    enabled: ${FLYWAY_ENABLED:false}
+    # 多服务共用一个库：每个服务用独立 schema 与独立迁移历史表，避免版本号/checksum 撞车
+    # （auth-service 沿用默认 public.flyway_schema_history，此约定对其新增迁移同样适用）
+    schemas: contest_schema
+    table: contest_history
+  security:
+    oauth2:
+      resourceserver:
+        jwt:
+          # 本地验签：auth-service 的 JWKS 公钥（docs/api.md"认证令牌"）
+          jwk-set-uri: ${AUTH_JWK_SET_URI:http://localhost:8081/api/v1/auth/jwks}
 server:
   port: ${SERVER_PORT:8082}

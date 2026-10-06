@@ -33,6 +33,8 @@ HTTP 前缀统一为 `/api/v1`。各服务经 gateway 对外暴露；客户端�
 | `CONTEST_NOT_ENROLLED` | 不在竞赛名单中 | 403 |
 | `CONTEST_NOT_RUNNING` | 竞赛未开始或已结束 | 409 |
 | `CONTEST_CLOSED` | 考试入口已关闭 | 409 |
+| `CONTEST_INVALID_TRANSITION` | 生命周期非法流转（如草稿直接发布） | 409 |
+| `CONTEST_PUBLISH_INCOMPLETE` | 发布前配置不完整（时间窗口、名单、题目等） | 409 |
 | `SUBMISSION_LIMIT_EXCEEDED` | 提交次数超限 | 429 |
 | `SUBMISSION_LANGUAGE_NOT_ALLOWED` | 语言不在白名单 | 400 |
 | `SUBMISSION_DUPLICATE` | 幂等键重复提交 | 409 |
@@ -88,8 +90,10 @@ HTTP 前缀统一为 `/api/v1`。各服务经 gateway 对外暴露；客户端�
 |---|---|---|---|
 | auth | POST | `/api/v1/auth/login` | 已实现（Mock） |
 | auth | GET | `/api/v1/auth/jwks` | 规划 |
-| contest | POST | `/api/v1/contests` | 已实现（Mock） |
-| contest | GET | `/api/v1/contests/{id}` | 已实现（Mock） |
+| contest | POST | `/api/v1/contests` | 已实现（角色：老师/管理员） |
+| contest | GET | `/api/v1/contests/{id}` | 已实现 |
+| contest | POST | `/api/v1/contests/{id}/review` | 已实现（DRAFT→REVIEWING） |
+| contest | POST | `/api/v1/contests/{id}/publish` | 已实现（管理员；REVIEWING→PUBLISHED） |
 | problem | POST | `/api/v1/problems` | 已实现（Mock） |
 | problem | GET | `/api/v1/problems/{id}` | 已实现（Mock） |
 | submission | POST | `/api/v1/submissions` | 已实现（Mock） |
@@ -139,7 +143,7 @@ HTTP 前缀统一为 `/api/v1`。各服务经 gateway 对外暴露；客户端�
 
 ### JWKS
 
-`GET /api/v1/auth/jwks`：公开返回 RS256 公钥集（JWKSet JSON），资源服务据此本地验签。
+`GET /api/v1/auth/jwks`：公开返回 RS256 公钥集。**本端点是 RFC 7517 标准协议端点，返回顶层 `{"keys":[...]}`，不套通用响应包装**——资源服务的 JwtDecoder 按标准格式解析。
 
 ## 评测
 
@@ -159,7 +163,7 @@ HTTP 前缀统一为 `/api/v1`。各服务经 gateway 对外暴露；客户端�
 
 ## 考试流程
 
-考试和竞赛使用同一个活动模型。考试生命周期 `DRAFT → REVIEWING → PUBLISHED → RUNNING → FINISHED → ARCHIVED` 由 contest-service 管理，规则细节见 `docs/exam-process.md`：
+考试和竞赛使用同一个活动模型。考试生命周期 `DRAFT → REVIEWING → PUBLISHED → RUNNING → FINISHED → ARCHIVED` 由 contest-service 管理（已实现前两段流转：提交审核与发布），规则细节见 `docs/exam-process.md`：
 
 - `POST /api/v1/contests`：老师创建草稿考试；
 - `POST /api/v1/contests/{contestId}/review`：提交管理员审核；

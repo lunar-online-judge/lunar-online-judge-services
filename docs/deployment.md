@@ -136,7 +136,9 @@ curl -s -i -H "X-Request-Id: test-123" http://localhost:8081/api/v1/auth/jwks | 
 | `MINIO_ENDPOINT` | MinIO 地址 | `http://localhost:9000` |
 | `MEDIA_SIGNALING_URL` | WebRTC 信令服务地址 | 未设置 |
 
-数据库连接变量当前由 auth-service 的 `application.yml` 消费，其余服务接入持久化时按同样方式引用。
+数据库连接变量当前由 auth-service、contest-service 的 `application.yml` 消费，其余服务接入持久化时按同样方式引用。
+
+**多服务共库的 Flyway 约定**：每个服务使用独立的 schema 与独立的迁移历史表（`spring.flyway.schemas` + `spring.flyway.table`），避免版本号/checksum 冲突——auth-service 沿用默认 `public.flyway_schema_history`；contest-service 用 `contest_schema` + `contest_history`；后续服务照此办理。**资源服务验签**：`AUTH_JWK_SET_URI` 指向 auth 的 JWKS（默认 `http://localhost:8081/api/v1/auth/jwks`），本地启动顺序上 auth 需先于其他资源服务可用。
 
 ## 生产要求
 
