@@ -3,6 +3,7 @@ package io.lunar.contest.api;
 import io.lunar.common.api.ApiResponse;
 import io.lunar.common.web.RequestIdFilter;
 import io.lunar.contest.infra.ContestEntity;
+import io.lunar.contest.domain.AnnouncementService;
 import io.lunar.contest.domain.ContestService;
 import io.lunar.contest.domain.EnrollmentService;
 import jakarta.validation.Valid;
@@ -13,6 +14,7 @@ import org.springframework.security.core.Authentication;
 import org.springframework.web.bind.annotation.*;
 
 import java.time.Instant;
+import java.util.List;
 import java.util.Map;
 
 /**
@@ -25,10 +27,13 @@ public class ContestController {
 
     private final ContestService contestService;
     private final EnrollmentService enrollmentService;
+    private final AnnouncementService announcementService;
 
-    public ContestController(ContestService contestService, EnrollmentService enrollmentService) {
+    public ContestController(ContestService contestService, EnrollmentService enrollmentService,
+                             AnnouncementService announcementService) {
         this.contestService = contestService;
         this.enrollmentService = enrollmentService;
+        this.announcementService = announcementService;
     }
 
     @PostMapping
@@ -123,6 +128,50 @@ public class ContestController {
         enrollmentService.remove(contestId, studentId, authentication.getName());
         return ResponseEntity.ok(ApiResponse.success(requestId, null));
     }
+
+    /** 发布公告（老师/管理员；docs/exam-process.md §8）。 */
+    @PostMapping("/{contestId}/announcements")
+    @PreAuthorize("hasAnyRole('TEACHER', 'ADMIN')")
+    public ResponseEntity<ApiResponse<AnnouncementService.AnnouncementView>> publishAnnouncement(
+            @PathVariable String contestId,
+            @Valid @RequestBody PublishAnnouncementRequest request,
+            Authentication authentication,
+            @RequestHeader(value = RequestIdFilter.HEADER, required = false) String requestId) {
+        var view = announcementService.publish(contestId, request.content(),
+                Boolean.TRUE.equals(request.important()), Boolean.TRUE.equals(request.requireConfirmation()),
+                authentication.getName());
+        return ResponseEntity.ok(ApiResponse.success(requestId, view));
+    }
+
+    /** 公告列表：老师/管理员看全部；考生拉取即送达（require_confirmation 记录 delivered_at）。 */
+    @GetMapping("/{contestId}/announcements")
+    public ResponseEntity<ApiResponse<List<AnnouncementService.AnnouncementView>>> listAnnouncements(
+            @PathVariable String contestId,
+            Authentication authentication,
+            @RequestHeader(value = RequestIdFilter.HEADER, required = false) String requestId) {
+        List<String> roles = authentication.getAuthorities().stream()
+                .map(Object::toString).toList();
+        var views = roles.contains("ROLE_CANDIDATE") && !roles.contains("ROLE_ADMIN")
+                ? announcementService.listForCandidate(contestId, authentication.getName())
+                : announcementService.listForOperator(contestId);
+        return ResponseEntity.ok(ApiResponse.success(requestId, views));
+    }
+
+    /** 考生确认公告（幂等：保留首次确认时间）。 */
+    @PostMapping("/{contestId}/announcements/{announcementId}/confirm")
+    @PreAuthorize("hasRole('CANDIDATE')")
+    public ResponseEntity<ApiResponse<Void>> confirmAnnouncement(
+            @PathVariable String contestId,
+            @PathVariable String announcementId,
+            Authentication authentication,
+            @RequestHeader(value = RequestIdFilter.HEADER, required = false) String requestId) {
+        announcementService.confirm(contestId, announcementId, authentication.getName());
+        return ResponseEntity.ok(ApiResponse.success(requestId, null));
+    }
+
+    public record PublishAnnouncementRequest(@NotBlank String content,
+                                             Boolean important,
+                                             Boolean requireConfirmation) {}
 
     public record AddStudentRequest(@NotBlank String studentNo, @NotBlank String username,
                                     @NotBlank String displayName, @NotBlank String initialPassword) {}

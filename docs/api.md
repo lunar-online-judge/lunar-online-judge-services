@@ -113,6 +113,9 @@ HTTP 前缀统一为 `/api/v1`。各服务经 gateway 对外暴露；客户端�
 | contest | POST | `/api/v1/contests/{contestId}/session` | 已实现（考生进入/恢复会话，本人 CANDIDATE） |
 | contest | POST | `/api/v1/contests/{contestId}/session/heartbeat` | 已实现（心跳 + 剩余秒数） |
 | contest | POST | `/api/v1/contests/{contestId}/archive` | 已实现（管理员；FINISHED→ARCHIVED） |
+| contest | POST | `/api/v1/contests/{contestId}/announcements` | 已实现（老师/管理员发布公告） |
+| contest | GET | `/api/v1/contests/{contestId}/announcements` | 已实现（考生拉取即送达；管理员全量） |
+| contest | POST | `/api/v1/contests/{contestId}/announcements/{announcementId}/confirm` | 已实现（考生确认，幂等） |
 | auth | GET/POST | `/api/v1/internal/students/**` | 已实现（服务间接口，TEACHER/ADMIN 令牌） |
 | contest | POST | `/api/v1/contests/{contestId}/announcements` | 规划 |
 | contest | GET | `/api/v1/contests/{contestId}/assignments/{studentId}` | 规划 |
@@ -177,6 +180,8 @@ HTTP 前缀统一为 `/api/v1`。各服务经 gateway 对外暴露；客户端�
 ## 考试流程
 
 考试和竞赛使用同一个活动模型。考试生命周期 `DRAFT → REVIEWING → PUBLISHED → RUNNING → FINISHED → ARCHIVED` 由 contest-service 管理（已实现前两段流转：提交审核与发布），规则细节见 `docs/exam-process.md`：
+
+公告（2026-10-06 已实现）：老师/管理员发布（content/important/requireConfirmation）；考生拉取列表即送达（require_confirmation 记录 delivered_at），确认记录 confirmed_at，重复确认幂等；"指定题目公告"随 problem-service 接入扩展 scope。表：contest_schema.announcements + announcement_confirms（唯一约束 announcement_id+student_id）。
 
 状态推进（2026-10-06 已实现）：PUBLISHED→RUNNING→FINISHED 由调度按时间窗口自动推进（30s 周期，条件更新多实例幂等）；心跳会复核考试状态、时间窗口与名单——考试结束/被移出名单的会话立即失效；ARCHIVED 由管理员手动归档。
 

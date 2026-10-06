@@ -34,6 +34,7 @@ class ContestControllerTest {
 
     @MockitoBean ContestService contestService;
     @MockitoBean io.lunar.contest.domain.EnrollmentService enrollmentService;
+    @MockitoBean io.lunar.contest.domain.AnnouncementService announcementService;
     @MockitoBean JwtDecoder jwtDecoder;
 
     private static final ContestEntity ENTITY = entity("c1", "DRAFT");
