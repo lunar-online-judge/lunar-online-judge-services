@@ -45,7 +45,9 @@ HTTP 前缀统一为 `/api/v1`。各服务经 gateway 对外暴露；客户端�
 | `PROBLEM_VERSION_IMMUTABLE` | 版本已发布不可修改（改动须创建新版本） | 409 |
 | `SUBMISSION_LIMIT_EXCEEDED` | 提交次数超限 | 429 |
 | `SUBMISSION_LANGUAGE_NOT_ALLOWED` | 语言不在白名单 | 400 |
-| `SUBMISSION_DUPLICATE` | 幂等键重复提交 | 409 |
+| `SUBMISSION_DUPLICATE` | 幂等键重复且请求内容不一致 | 409 |
+| `SUBMISSION_NOT_FOUND` | 提交不存在 | 404 |
+| `SUBMISSION_INVALID_TRANSITION` | 提交状态不允许该流转（如终态再回写判决） | 409 |
 | `INTERNAL_ERROR` | 未分类服务端错误 | 500 |
 
 ### 请求头
@@ -53,7 +55,7 @@ HTTP 前缀统一为 `/api/v1`。各服务经 gateway 对外暴露；客户端�
 | 请求头 | 语义 | 生成方 |
 |---|---|---|
 | `X-Request-Id` | 全链路追踪 ID，`RequestIdFilter` 透传并在响应头返回 | 客户端或服务端自动生成 |
-| `Idempotency-Key` | 写操作幂等键；同一键重复请求返回首次结果，不产生二次副作用 | 客户端 |
+| `Idempotency-Key` | 写操作幂等键；同一键 + 相同请求内容返回首次结果（200，不产生二次副作用），同一键 + 不同请求内容返回 409 `SUBMISSION_DUPLICATE` | 客户端 |
 | `Authorization: Bearer <JWT>` | 访问令牌，由 auth-service 签发，各服务作为资源服务器本地验签 | 登录后携带 |
 
 未携带或携带无效令牌返回 401（auth-service 为 Bearer 入口点）；令牌有效但缺少角色/授权返回 403。注意：除 auth-service 外，其余服务尚未配置 `SecurityFilterChain`，运行时是 Spring Security 默认行为（所有端点 401），鉴权规则随各服务落地逐步生效。
@@ -108,8 +110,9 @@ HTTP 前缀统一为 `/api/v1`。各服务经 gateway 对外暴露；客户端�
 | problem | GET | `/api/v1/problems/{id}/versions` | 已实现（版本列表，老师/管理员） |
 | problem | POST | `/api/v1/problems/{id}/versions/{versionId}/publish` | 已实现（发布，切换当前版本） |
 | problem | GET | `/api/v1/problems/{id}/versions/{versionId}/testcases` | 已实现（仅老师/管理员/判题链路） |
-| submission | POST | `/api/v1/submissions` | 已实现（Mock） |
-| submission | GET | `/api/v1/submissions/{id}` | 已实现（Mock） |
+| submission | POST | `/api/v1/submissions` | 已实现（考生；幂等 + 会话/竞赛/语言校验 + Outbox） |
+| submission | GET | `/api/v1/submissions/{id}` | 已实现（学生看自己，老师/管理员可查任意） |
+| submission | POST | `/api/v1/internal/submissions/{id}/judged` | 已实现（判题回写，RocketMQ 接入前过渡，ADMIN） |
 | judge | POST | `/api/v1/judge/submissions` | 已实现（Mock 引擎） |
 | contest | POST | `/api/v1/contests/{contestId}/review` | 已实现（DRAFT→REVIEWING） |
 | contest | POST | `/api/v1/contests/{contestId}/publish` | 已实现（管理员；REVIEWING→PUBLISHED） |

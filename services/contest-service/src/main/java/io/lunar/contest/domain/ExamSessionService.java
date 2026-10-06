@@ -123,6 +123,37 @@ public class ExamSessionService {
         return session;
     }
 
+    public record SubmissionCheck(boolean canSubmit, String sessionStatus, String contestStatus,
+                                  long remainingSeconds) {}
+
+    /** 服务间提交校验（供 submission-service）：会话 ACTIVE + 竞赛状态/时间窗口 + 名单 ENROLLED。 */
+    public SubmissionCheck checkCanSubmit(String contestId, String studentId) {
+        io.lunar.contest.infra.ContestEntity contest = contestMapper.selectById(contestId);
+        if (contest == null) {
+            throw new ContestException.NotFound();
+        }
+        long remaining = 0;
+        if (contest.getEndAt() != null) {
+            remaining = Math.max(0, contest.getEndAt().getEpochSecond() - Instant.now().getEpochSecond());
+        }
+        SessionEntity session = sessionMapper.selectOne(new LambdaQueryWrapper<SessionEntity>()
+                .eq(SessionEntity::getContestId, contestId)
+                .eq(SessionEntity::getStudentId, studentId)
+                .last("limit 1"));
+        String sessionStatus = session == null ? "NONE" : session.getStatus();
+        boolean inWindow = (contest.getStartAt() == null || !Instant.now().isBefore(contest.getStartAt()))
+                && (contest.getEndAt() == null || Instant.now().isBefore(contest.getEndAt()));
+        ContestStatus status = ContestStatus.valueOf(contest.getStatus());
+        boolean contestOpen = status == ContestStatus.PUBLISHED || status == ContestStatus.RUNNING;
+        CandidateEntity candidate = candidateMapper.selectOne(new LambdaQueryWrapper<CandidateEntity>()
+                .eq(CandidateEntity::getContestId, contestId)
+                .eq(CandidateEntity::getStudentId, studentId)
+                .last("limit 1"));
+        boolean enrolled = candidate != null && "ENROLLED".equals(candidate.getStatus());
+        boolean canSubmit = "ACTIVE".equals(sessionStatus) && inWindow && contestOpen && enrolled;
+        return new SubmissionCheck(canSubmit, sessionStatus, contest.getStatus(), remaining);
+    }
+
     /** 心跳超时扫描：ACTIVE 且超过阈值无心跳 → EXPIRED。条件更新保证多实例幂等。 */
     @Scheduled(fixedDelayString = "${exam.session.sweep-interval-ms:30000}")
     public void expireStaleSessions() {

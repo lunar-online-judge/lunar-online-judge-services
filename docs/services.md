@@ -97,9 +97,9 @@ anti-cheat ──(plagiarism-requested)──> plagiarism-worker（独立部署�
 - 职责：接收代码提交（`Idempotency-Key` 幂等）；提交前五项校验（会话有效、竞赛进行中、题目属于竞赛、语言允许、次数未超限）；本地事务写入 `submission(status=QUEUED)` 与 Outbox，发布 `lunar-submission-created`；提交状态展示（`GET /{id}`）；消费 `lunar-submission-judged` 更新成绩读模型；保存源码快照引用供查重。
 - 不负责：不直接调用 go-judge，也不了解评测细节。
 - 数据与基础设施：`submission_schema`；PostgreSQL Outbox 表；Redis 幂等键。
-- 对外接口：`POST /api/v1/submissions`、`GET /api/v1/submissions/{id}`（已实现，mock）；生产 `lunar-submission-created`、消费 `lunar-submission-judged`。
-- 当前实现：`SubmissionServiceApplication`、`SubmissionController`。
-- 下一步：提交表 + Outbox + RocketMQ Starter（实现顺序第 4 步）。
+- 对外接口：`POST /api/v1/submissions`（考生；`Idempotency-Key` 幂等）、`GET /{id}`（学生看自己，老师/管理员可查任意）、`POST /api/v1/internal/submissions/{id}/judged`（判题回写过渡端点）；生产 `lunar-submission-created`、消费 `lunar-submission-judged`。
+- 当前实现（2026-10-06）：`submission_schema` 落库（submissions + outbox_events，独立 Flyway 历史表 `submission_history`）；五项校验实现三项——会话有效 + 竞赛进行中（contest 服务间判定 `/api/v1/internal/contests/{id}/session`）、语言白名单 + 判题限制（problem 服务间查询）；「题目属于竞赛」依赖随机分配表、「次数未超限」阈值待确认，均标 TODO 不假装校验；幂等=同键同指纹返首次、异指纹 409；提交与 Outbox（信封含 traceId）同一事务；判决回写更新状态并写 `lunar-submission-judged` Outbox；9 个单测 + 真机闭环通过。
+- 下一步：RocketMQ Outbox 发布器与消费（judged 改走 MQ）；题目归属校验（随机分配表落地后）；提交频率阈值确认后启用 SUBMISSION_LIMIT_EXCEEDED。
 
 ## judge-service
 
