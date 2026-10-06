@@ -86,9 +86,9 @@ anti-cheat ──(plagiarism-requested)──> plagiarism-worker（独立部署�
 - 职责：题目与题面；样例；测试点与测试数据；判题限制（CPU/墙钟/内存/输出）；语言白名单与执行模板（C、C++、Java、Python、Go、JavaScript/TypeScript，TypeScript 需先 tsc 编译）；题目版本管理（发布后不原地修改）。
 - 不负责：测试数据绝不能通过公开题目 API 返回给考生。
 - 数据与基础设施：`problem_schema`。
-- 对外接口：`POST /api/v1/problems`、`GET /api/v1/problems/{id}`（已实现，mock）；题目版本/测试点管理接口规划中。
-- 当前实现：`ProblemServiceApplication`、`ProblemController`。
-- 下一步：题目与版本表、测试点对象存储引用、语言白名单配置。
+- 对外接口：`POST /api/v1/problems`（题目+首版本+测试点）、`GET /{id}`（考生视角：当前发布版本，**不含测试点**）、`POST /{id}/versions`（新版本，可复制已有版本）、`GET /{id}/versions`、`POST /{id}/versions/{versionId}/publish`、`GET /{id}/versions/{versionId}/testcases`（仅老师/管理员/判题链路）。
+- 当前实现（2026-10-06）：`problem_schema` 落库（problems + problem_versions + testcases，独立 Flyway 历史表 `problem_history`）；版本模型——创建即 v1 草稿，发布后不可变，改动建新版本（复制+覆盖），发布时切换 `current_version_id`；判题限制（CPU/内存/输出）与语言白名单（逗号分隔）；JWT 资源服务器 + 角色控制；8 个单测 + 真机闭环（含"考生视图无测试点"安全约束验证）。测试点数据 v1 直接落库，大文件对象存储迁移留后。
+- 下一步：测试点对象存储引用；语言执行模板配置；供 judge-service 的服务间测试点接口（复用管理查询）。
 
 ## submission-service
 

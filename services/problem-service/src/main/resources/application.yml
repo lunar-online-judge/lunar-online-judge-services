@@ -1,5 +1,21 @@
 spring:
   application:
     name: problem-service
+  datasource:
+    # stringtype=unspecified：让 String 参数可直接写入 uuid 列（MyBatis 无 uuid 类型处理器）
+    url: jdbc:postgresql://${POSTGRES_HOST:localhost}:${POSTGRES_PORT:5432}/${POSTGRES_DB:lunar}?stringtype=unspecified
+    username: ${POSTGRES_USER:lunar}
+    password: ${POSTGRES_PASSWORD:change-me}
+  flyway:
+    enabled: ${FLYWAY_ENABLED:false}
+    # 多服务共用一个库：独立 schema + 独立迁移历史表（见 docs/deployment.md 约定）
+    schemas: problem_schema
+    table: problem_history
+  security:
+    oauth2:
+      resourceserver:
+        jwt:
+          # 本地验签：auth-service 的 JWKS 公钥（docs/api.md"认证令牌"）
+          jwk-set-uri: ${AUTH_JWK_SET_URI:http://localhost:8081/api/v1/auth/jwks}
 server:
   port: ${SERVER_PORT:8083}

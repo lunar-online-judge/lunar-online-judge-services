@@ -40,6 +40,9 @@ HTTP 前缀统一为 `/api/v1`。各服务经 gateway 对外暴露；客户端�
 | `CONTEST_PUBLISH_INCOMPLETE` | 发布前配置不完整（时间窗口、名单、题目等） | 409 |
 | `CONTEST_STUDENT_ALREADY_ENROLLED` | 该学生已在本竞赛名单中 | 409 |
 | `SESSION_NOT_ACTIVE` | 考生会话不存在或未激活（心跳/恢复） | 409 |
+| `PROBLEM_NOT_FOUND` | 题目不存在 | 404 |
+| `PROBLEM_VERSION_NOT_FOUND` | 题目版本不存在（含未发布） | 404 |
+| `PROBLEM_VERSION_IMMUTABLE` | 版本已发布不可修改（改动须创建新版本） | 409 |
 | `SUBMISSION_LIMIT_EXCEEDED` | 提交次数超限 | 429 |
 | `SUBMISSION_LANGUAGE_NOT_ALLOWED` | 语言不在白名单 | 400 |
 | `SUBMISSION_DUPLICATE` | 幂等键重复提交 | 409 |
@@ -99,8 +102,12 @@ HTTP 前缀统一为 `/api/v1`。各服务经 gateway 对外暴露；客户端�
 | contest | GET | `/api/v1/contests/{id}` | 已实现 |
 | contest | POST | `/api/v1/contests/{id}/review` | 已实现（DRAFT→REVIEWING） |
 | contest | POST | `/api/v1/contests/{id}/publish` | 已实现（管理员；REVIEWING→PUBLISHED） |
-| problem | POST | `/api/v1/problems` | 已实现（Mock） |
-| problem | GET | `/api/v1/problems/{id}` | 已实现（Mock） |
+| problem | POST | `/api/v1/problems` | 已实现（题目+首版本+测试点，老师/管理员） |
+| problem | GET | `/api/v1/problems/{id}` | 已实现（考生视角：当前发布版本，不含测试点） |
+| problem | POST | `/api/v1/problems/{id}/versions` | 已实现（新版本，可基于已有版本复制） |
+| problem | GET | `/api/v1/problems/{id}/versions` | 已实现（版本列表，老师/管理员） |
+| problem | POST | `/api/v1/problems/{id}/versions/{versionId}/publish` | 已实现（发布，切换当前版本） |
+| problem | GET | `/api/v1/problems/{id}/versions/{versionId}/testcases` | 已实现（仅老师/管理员/判题链路） |
 | submission | POST | `/api/v1/submissions` | 已实现（Mock） |
 | submission | GET | `/api/v1/submissions/{id}` | 已实现（Mock） |
 | judge | POST | `/api/v1/judge/submissions` | 已实现（Mock 引擎） |
