@@ -107,3 +107,75 @@ Content-Type: application/json
 ### 查询不存在的考试（404 + CONTEST_NOT_FOUND）
 GET http://localhost:8082/api/v1/contests/00000000-0000-0000-0000-00000000dead
 Authorization: Bearer {{access_token}}
+
+
+# ==================== 老师管理竞赛学生（contest 编排 + auth 执行） ====================
+# 前提：已运行"◆ 登录成功"（admin 令牌）与"◆ 创建考试"（contest_id 变量）。
+# 流程：添加学生（auth 创建账号）→ 学生用初始密码登录 → 老师重置密码 → 旧密码失效 → 移出名单。
+
+### ◆ 添加学生（200：auth 创建账号 + 报名 ENROLLED；studentId 自动存变量）
+POST http://localhost:8082/api/v1/contests/{{contest_id}}/students
+Authorization: Bearer {{access_token}}
+Content-Type: application/json
+
+{"studentNo":"20260001","username":"student_20260001","displayName":"Zhang San","initialPassword":"init-pass-123"}
+
+> {%
+    client.global.set("student_id", response.body.data.studentId);
+    client.log("studentId 已存变量：" + response.body.data.studentId);
+ %}
+
+### 重复添加同一学号（409 + CONTEST_STUDENT_ALREADY_ENROLLED）
+POST http://localhost:8082/api/v1/contests/{{contest_id}}/students
+Authorization: Bearer {{access_token}}
+Content-Type: application/json
+
+{"studentNo":"20260001","username":"student_20260001","displayName":"Zhang San","initialPassword":"init-pass-123"}
+
+### 分页查询名单（200：total、学号/账户名/显示名快照、keyword 过滤）
+GET http://localhost:8082/api/v1/contests/{{contest_id}}/students?page=1&pageSize=20&keyword=2026
+Authorization: Bearer {{access_token}}
+
+### 学生用初始密码登录（200，passwordChangeRequired=true——去 auth 的 Swagger 试也行）
+POST http://localhost:8081/api/v1/auth/login
+Content-Type: application/json
+
+{"username":"student_20260001","password":"init-pass-123"}
+
+### 老师重置学生密码（200 + passwordChangeRequired=true，不返回密码）
+POST http://localhost:8082/api/v1/contests/{{contest_id}}/students/{{student_id}}/password-reset
+Authorization: Bearer {{access_token}}
+Content-Type: application/json
+
+{"temporaryPassword":"new-pass-456"}
+
+### 学生旧密码登录（401——重置已生效）
+POST http://localhost:8081/api/v1/auth/login
+Content-Type: application/json
+
+{"username":"student_20260001","password":"init-pass-123"}
+
+### 学生新密码登录（200）
+POST http://localhost:8081/api/v1/auth/login
+Content-Type: application/json
+
+{"username":"student_20260001","password":"new-pass-456"}
+
+### 账号已存在的学生加入另一场考试（200：账号复用，不重复创建——先对新考试"◆ 创建考试"再跑这条）
+POST http://localhost:8082/api/v1/contests/{{contest_id}}/students
+Authorization: Bearer {{access_token}}
+Content-Type: application/json
+
+{"studentNo":"20260001","username":"student_20260001","displayName":"Zhang San","initialPassword":"whatever-999"}
+
+### 移出名单（200：软删除，status=REMOVED）
+DELETE http://localhost:8082/api/v1/contests/{{contest_id}}/students/{{student_id}}
+Authorization: Bearer {{access_token}}
+
+### 再次移出（403 + CONTEST_NOT_ENROLLED）
+DELETE http://localhost:8082/api/v1/contests/{{contest_id}}/students/{{student_id}}
+Authorization: Bearer {{access_token}}
+
+### 数据库核对（Git Bash 运行）：账号在 auth，关系在 contest
+# docker exec docker-postgres-1 psql -U lunar -d lunar -c "select username, role, status, managed_by_teacher_id from auth_schema.users where role='CANDIDATE';"
+# docker exec docker-postgres-1 psql -U lunar -d lunar -c "select student_no_snapshot, status, removed_at from contest_schema.contest_candidates;"
