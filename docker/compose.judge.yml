@@ -6,7 +6,10 @@ services:
     image: criyle/go-judge:latest
     # 未固定版本（本地工具链验证期），生产部署前必须锁定 digest 或明确版本
     privileged: true
-    # 沙箱需要嵌套 cgroup/namespace，官方推荐的本地运行方式；生产环境须按架构文档 §14 收紧并审计
+    # 必须共享宿主 cgroup 命名空间：Docker Desktop（WSL2）下 private ns 的 cgroup 路径为空，
+    # go-judge 启动即 fatal（cgroup path is empty）；共享后进程可执行，但嵌套 cgroup 内存限制
+    # 在 Docker Desktop 上不可靠（已知限制，见 docs/deployment.md），生产 Linux 节点无此问题
+    cgroup: host
     shm_size: "256m"
     # 文件缓存位于 /dev/shm，官方推荐值
     ports: ["5050:5050"]
