@@ -95,6 +95,22 @@ class ContestServiceTest {
     }
 
     @Test
+    void archiveTransitionsFinishedToArchived() {
+        when(mapper.selectById("c1")).thenReturn(entity("c1", ContestStatus.FINISHED, null, null));
+        when(mapper.update(isNull(), any())).thenReturn(1);
+
+        assertThat(service.archive("c1").getStatus()).isEqualTo("ARCHIVED");
+    }
+
+    @Test
+    void archiveRunningContestRejected() {
+        when(mapper.selectById("c1")).thenReturn(entity("c1", ContestStatus.RUNNING, null, null));
+
+        assertThatThrownBy(() -> service.archive("c1"))
+                .isInstanceOf(ContestException.InvalidTransition.class);
+    }
+
+    @Test
     void illegalTransitionRejectedBeforeUpdate() {
         when(mapper.selectById("c1")).thenReturn(entity("c1", ContestStatus.DRAFT, null, null));
 

@@ -169,11 +169,38 @@ class ExamSessionServiceTest {
     }
 
     @Test
+    void heartbeatAfterExamEndThrowsClosed() {
+        when(contestMapper.selectById("c1")).thenReturn(contest("PUBLISHED", PAST, PAST));
+        when(sessionMapper.selectOne(any())).thenReturn(session("s1", "ACTIVE"));
+
+        assertThatThrownBy(() -> service.heartbeat("c1", "stu_1"))
+                .isInstanceOf(ContestException.Closed.class);
+    }
+
+    @Test
+    void heartbeatAfterRemovalThrowsNotEnrolled() {
+        when(candidateMapper.selectOne(any())).thenReturn(candidate("stu_1", "20260001", "REMOVED"));
+        when(sessionMapper.selectOne(any())).thenReturn(session("s1", "ACTIVE"));
+
+        assertThatThrownBy(() -> service.heartbeat("c1", "stu_1"))
+                .isInstanceOf(ContestException.NotEnrolled.class);
+    }
+
+    @Test
     void staleSessionSweepExpiresOnlyStale() {
         service.expireStaleSessions();
 
         // 条件更新（status=ACTIVE 且 last_heartbeat < 阈值）由 SQL 保证；这里验证执行了批量更新
         verify(sessionMapper).update(isNull(), any());
+    }
+
+    private static CandidateEntity candidate(String studentId, String studentNo, String status) {
+        CandidateEntity c = new CandidateEntity();
+        c.setContestId("c1");
+        c.setStudentId(studentId);
+        c.setStudentNoSnapshot(studentNo);
+        c.setStatus(status);
+        return c;
     }
 
     private static ContestEntity contest(String status, Instant startAt, Instant endAt) {

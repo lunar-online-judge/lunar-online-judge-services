@@ -75,8 +75,12 @@ public class ExamSessionService {
         return toView(session);
     }
 
-    /** 心跳：仅 ACTIVE 会话；刷新最后心跳并返回剩余秒数。 */
+    /**
+     * 心跳：仅 ACTIVE 会话；同时复核考试状态、时间窗口与名单——
+     * 考试结束（CONTEST_CLOSED）、被移出名单（CONTEST_NOT_ENROLLED）的学生会话立即失效。
+     */
     public SessionView heartbeat(String contestId, String studentId) {
+        checkWindow(contestId, studentId);
         SessionEntity session = requireActive(contestId, studentId);
         session.setLastHeartbeatAt(Instant.now());
         sessionMapper.updateById(session);

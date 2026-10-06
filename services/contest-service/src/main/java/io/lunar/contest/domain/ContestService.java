@@ -65,6 +65,11 @@ public class ContestService {
         return doTransition(current, ContestStatus.PUBLISHED);
     }
 
+    /** 管理员归档：FINISHED -> ARCHIVED（低频管理动作，不自动执行）。 */
+    public ContestEntity archive(String id) {
+        return doTransition(get(id), ContestStatus.ARCHIVED);
+    }
+
     private ContestEntity doTransition(ContestEntity current, ContestStatus target) {
         ContestStatus from = ContestStatus.valueOf(current.getStatus());
         if (!from.canTransitionTo(target)) {

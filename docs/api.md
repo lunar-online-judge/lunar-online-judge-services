@@ -112,6 +112,7 @@ HTTP 前缀统一为 `/api/v1`。各服务经 gateway 对外暴露；客户端�
 | contest | DELETE | `/api/v1/contests/{contestId}/students/{studentId}` | 已实现（软删除） |
 | contest | POST | `/api/v1/contests/{contestId}/session` | 已实现（考生进入/恢复会话，本人 CANDIDATE） |
 | contest | POST | `/api/v1/contests/{contestId}/session/heartbeat` | 已实现（心跳 + 剩余秒数） |
+| contest | POST | `/api/v1/contests/{contestId}/archive` | 已实现（管理员；FINISHED→ARCHIVED） |
 | auth | GET/POST | `/api/v1/internal/students/**` | 已实现（服务间接口，TEACHER/ADMIN 令牌） |
 | contest | POST | `/api/v1/contests/{contestId}/announcements` | 规划 |
 | contest | GET | `/api/v1/contests/{contestId}/assignments/{studentId}` | 规划 |
@@ -176,6 +177,8 @@ HTTP 前缀统一为 `/api/v1`。各服务经 gateway 对外暴露；客户端�
 ## 考试流程
 
 考试和竞赛使用同一个活动模型。考试生命周期 `DRAFT → REVIEWING → PUBLISHED → RUNNING → FINISHED → ARCHIVED` 由 contest-service 管理（已实现前两段流转：提交审核与发布），规则细节见 `docs/exam-process.md`：
+
+状态推进（2026-10-06 已实现）：PUBLISHED→RUNNING→FINISHED 由调度按时间窗口自动推进（30s 周期，条件更新多实例幂等）；心跳会复核考试状态、时间窗口与名单——考试结束/被移出名单的会话立即失效；ARCHIVED 由管理员手动归档。
 
 考生会话（2026-10-06 已实现）：`POST /api/v1/contests/{contestId}/session` 进入/恢复，`POST .../session/heartbeat` 心跳；进入条件 = 名单 ENROLLED + 状态 PUBLISHED/RUNNING + 服务端时间在窗口内；同一学生同一竞赛一个会话，断线重连恢复且剩余时间不补偿；心跳超时（默认 2 分钟）由定时扫描置 EXPIRED；管理端终止（TERMINATED）后不可重进（v1 决策）。
 

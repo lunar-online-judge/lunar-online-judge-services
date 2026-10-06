@@ -63,6 +63,14 @@ public class ContestController {
         return ResponseEntity.ok(ApiResponse.success(requestId, ContestResponse.of(contestService.publish(id))));
     }
 
+    /** 管理员归档：FINISHED -> ARCHIVED。 */
+    @PostMapping("/{id}/archive")
+    @PreAuthorize("hasRole('ADMIN')")
+    public ResponseEntity<ApiResponse<ContestResponse>> archive(@PathVariable String id,
+                                                                @RequestHeader(value = RequestIdFilter.HEADER, required = false) String requestId) {
+        return ResponseEntity.ok(ApiResponse.success(requestId, ContestResponse.of(contestService.archive(id))));
+    }
+
     /** 添加学生：账号不存在则经 auth 创建（存在则复用），并建立报名关系（docs/api.md"添加学生"）。 */
     @PostMapping("/{contestId}/students")
     @PreAuthorize("hasAnyRole('TEACHER', 'ADMIN')")
