@@ -137,6 +137,7 @@ public class SubmissionService {
                 "problemVersionId", problemVersionId,
                 "studentId", studentId,
                 "language", language,
+                "sourceCode", sourceCode,
                 "timeLimitMs", timeLimitMs == null ? 0 : timeLimitMs,
                 "memoryLimitKb", memoryLimitKb == null ? 0 : memoryLimitKb)));
         log.info("AUDIT event=SUBMISSION_CREATED submissionId={} contestId={} problemId={} studentId={}",

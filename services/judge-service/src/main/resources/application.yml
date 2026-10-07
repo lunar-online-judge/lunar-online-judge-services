@@ -1,0 +1,8 @@
+spring:
+  application:
+    name: judge-service
+
+rocketmq:
+  name-server: ${ROCKETMQ_NAMESRV_ADDR:localhost:9876}
+  producer:
+    group: judge_producer_group

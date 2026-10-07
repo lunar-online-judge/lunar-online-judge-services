@@ -99,7 +99,8 @@ anti-cheat ──(plagiarism-requested)──> plagiarism-worker（独立部署�
 - 数据与基础设施：`submission_schema`；PostgreSQL Outbox 表；Redis 幂等键。
 - 对外接口：`POST /api/v1/submissions`（考生；`Idempotency-Key` 幂等）、`GET /{id}`（学生看自己，老师/管理员可查任意）、`POST /api/v1/internal/submissions/{id}/judged`（判题回写过渡端点）；生产 `lunar-submission-created`、消费 `lunar-submission-judged`。
 - 当前实现（2026-10-06）：`submission_schema` 落库（submissions + outbox_events，独立 Flyway 历史表 `submission_history`）；五项校验实现三项——会话有效 + 竞赛进行中（contest 服务间判定 `/api/v1/internal/contests/{id}/session`）、语言白名单 + 判题限制（problem 服务间查询）；「题目属于竞赛」依赖随机分配表、「次数未超限」阈值待确认，均标 TODO 不假装校验；幂等=同键同指纹返首次、异指纹 409；提交与 Outbox（信封含 traceId）同一事务；判决回写更新状态并写 `lunar-submission-judged` Outbox；9 个单测 + 真机闭环通过。
-- 下一步：RocketMQ Outbox 发布器与消费（judged 改走 MQ）；题目归属校验（随机分配表落地后）；提交频率阈值确认后启用 SUBMISSION_LIMIT_EXCEEDED。
+- 事件总线（2026-10-07）：`OutboxPublisher`（2s 周期扫未发布事件行 → RocketMQTemplate 投递 → 标记 published_at，失败留待重试）；`JudgedConsumer` 消费 `lunar-submission-judged` 更新成绩读模型（终态保护幂等吞重复）。
+- 下一步：题目归属校验（随机分配表落地后）；提交频率阈值确认后启用 SUBMISSION_LIMIT_EXCEEDED；judged 事件携带 per-case 明细（部分分）。
 
 ## judge-service
 
@@ -110,7 +111,8 @@ anti-cheat ──(plagiarism-requested)──> plagiarism-worker（独立部署�
 - 数据与基础设施：`judge_schema`；Redis 评测短期锁；go-judge 节点（独立 Linux，通过 `GO_JUDGE_BASE_URL` 配置）。
 - 对外接口：`POST /api/v1/judge/submissions`（已实现，走 Mock 引擎）；生产 `lunar-submission-judged`、消费 `lunar-submission-created`。
 - 当前实现：`JudgeServiceApplication`、`JudgeController`、`MockJudgeEngine`（mock profile）；`GoJudgeAdapter`（`infra/`，设置 `GO_JUDGE_BASE_URL` 即启用且优先于 mock）翻译 go-judge `POST /run` 协议并归一化 verdict，内置 C/C++/Java/Python 语言模板，10 个适配器单测通过；go-judge 容器由 `docker/compose.judge.yml` 提供。唯一启用 spring-boot-maven-plugin 的模块。
-- 下一步：go-judge 容器实测（含镜像工具链确认）、评测任务表 + RocketMQ 消费 `lunar-submission-created` 的异步状态机（实现顺序第 4/5 步）。
+- 事件总线（2026-10-07）：`SubmissionCreatedConsumer` 消费 `lunar-submission-created` → JudgeEngine 执行 → 发布 `lunar-submission-judged`（verdict 归一化，ACCEPTED=100 分）；Mock 引擎模拟"提交即判对"供全链路演示，真实引擎 `GO_JUDGE_BASE_URL` 启用；测试点经事件传输待服务间接口落地（真实引擎缺测试点返回 SYSTEM_ERROR）；新增 application.yml（rocketmq 配置，SERVER_PORT 仍需显式设置）。积压消息在消费组上线后自动补消费（观测验证）。
+- 下一步：judge_task 表与异步状态机（重试/超时补偿）；测试点服务间接口（真实引擎取测试点）；go-judge 工具链实测。
 
 ## anti-cheat-service
 

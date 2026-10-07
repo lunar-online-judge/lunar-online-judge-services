@@ -8,7 +8,7 @@
 |---|---|---|---|---|
 | PostgreSQL | `postgres:16` | 5432 | 唯一业务事实源，多 schema 隔离 | Compose 已提供；驱动 + Flyway 已引入（auth） |
 | Redis | `redis:7-alpine` | 6379 | 短期状态：令牌、幂等、限流、心跳、锁 | Compose 已提供；Starter 未接入 |
-| RocketMQ | `apache/rocketmq:5.3.1` | 9876 | 服务间异步事件总线（7 个 Topic） | Compose 已提供；Starter 未接入 |
+| RocketMQ | `apache/rocketmq:5.3.1` | 9876 | 服务间异步事件总线（7 个 Topic） | 已接入：submission/judge 生产与消费 lunar-submission-created/judged（rocketmq-spring 2.3.0） |
 | Nacos | `nacos/nacos-server:v2.4.2` | 8848 / 9848 | 服务发现与配置中心（预留） | Compose 已提供；Starter 未接入 |
 | MinIO | `minio/minio:latest` | 9000 / 9001 | 截图对象存储 | Compose 已提供；SDK 未接入 |
 | OpenResty | `openresty/openresty:1.29.2.4-0-alpine` | 80 | 边缘反向代理：唯一对外入口，转发 gateway | Compose 已提供；回源宿主机 gateway，gateway 未实现路由 |

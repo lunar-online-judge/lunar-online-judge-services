@@ -16,5 +16,10 @@ spring:
       resourceserver:
         jwt:
           jwk-set-uri: ${AUTH_JWK_SET_URI:http://localhost:8081/api/v1/auth/jwks}
+rocketmq:
+  name-server: ${ROCKETMQ_NAMESRV_ADDR:localhost:9876}
+  producer:
+    group: submission_producer_group
+
 server:
   port: ${SERVER_PORT:8084}

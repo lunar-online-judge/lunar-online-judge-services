@@ -24,6 +24,7 @@
         <mybatis-plus.version>3.5.17</mybatis-plus.version>
         <springdoc.version>2.8.17</springdoc.version>
         <nacos.version>2025.0.0.0</nacos.version>
+        <rocketmq-spring.version>2.3.0</rocketmq-spring.version>
         <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
     </properties>
 
@@ -59,6 +60,11 @@
                 <groupId>com.baomidou</groupId>
                 <artifactId>mybatis-plus-jsqlparser</artifactId>
                 <version>${mybatis-plus.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>org.apache.rocketmq</groupId>
+                <artifactId>rocketmq-spring-boot-starter</artifactId>
+                <version>${rocketmq-spring.version}</version>
             </dependency>
             <dependency>
                 <groupId>org.springdoc</groupId>

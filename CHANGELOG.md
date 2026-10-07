@@ -13,6 +13,20 @@
 - Redis 接入（登录限流迁移、令牌吊销、幂等键、会话心跳）
 - 题目归属竞赛校验（依赖随机分配表）与提交频率阈值（待 exam-process §10 确认）
 
+## [0.2.0] - 2026-10-07
+
+### 新增
+
+- **RocketMQ 事件总线接通，评测链路端到端自动化**
+  - submission-service：`OutboxPublisher` 定时扫描未发布事件行投递 RocketMQ（成功后标记，失败重试）；`JudgedConsumer` 消费 `lunar-submission-judged` 更新成绩读模型（终态保护幂等吞重复消息）
+  - judge-service：`SubmissionCreatedConsumer` 消费 `lunar-submission-created` → JudgeEngine 执行 → 发布 `lunar-submission-judged`（verdict 归一化，ACCEPTED=100 分）
+  - Mock 引擎升级为"提交即判对"，无 go-judge 亦可全链路演示；真机验证：提交后无需人工干预，状态自动流转至 ACCEPTED，积压消息在消费组上线后自动补消费
+  - rocketmq-spring-boot-starter 2.3.0 接入 submission/judge；judge-service 新增 application.yml（rocketmq 配置）
+
+### 修复
+
+- 无（本切片为纯新增）
+
 ## [0.1.0] - 2026-10-06
 
 开发期首个可用切片：认证、考试生命周期、学生管理、考生会话、公告、题库、提交与评测适配
