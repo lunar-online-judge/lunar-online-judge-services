@@ -17,6 +17,11 @@
 
 ### 新增
 
+- **anti-cheat-service 风险事件与人工审核**
+  - 考生客户端上报（severity 服务端规则表计算，不采信上报值；未知类型保守 MEDIUM）
+  - 分页查询（竞赛/学生/等级/审核状态过滤）；审核状态机 OPEN→ACKNOWLEDGED→CONFIRMED/DISMISSED（条件更新防并发、终态保护、动作留痕）
+  - 事件入库即写 `lunar-risk-event-created` Outbox（gateway WebSocket 告警的未来消费方）
+  - 服务端口固定 8086；gateway 新增 monitor 路由
 - **gateway-service 统一入口落地**
   - 技术选型定为 Spring Cloud Gateway（响应式）：需 WebSocket 入口能力与限流/重试生态
   - 路由四前缀：auth / contests / problems / submissions（上游地址 `*_SERVICE_URL` 可覆盖），JWT 与 `X-Request-Id` 透传

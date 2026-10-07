@@ -43,6 +43,8 @@ HTTP 前缀统一为 `/api/v1`。各服务经 gateway 对外暴露；客户端�
 | `PROBLEM_NOT_FOUND` | 题目不存在 | 404 |
 | `PROBLEM_VERSION_NOT_FOUND` | 题目版本不存在（含未发布） | 404 |
 | `PROBLEM_VERSION_IMMUTABLE` | 版本已发布不可修改（改动须创建新版本） | 409 |
+| `MONITOR_EVENT_NOT_FOUND` | 风险事件不存在 | 404 |
+| `MONITOR_INVALID_TRANSITION` | 审核流转非法（重复终审/未知动作） | 409 |
 | `SUBMISSION_LIMIT_EXCEEDED` | 提交次数超限 | 429 |
 | `SUBMISSION_LANGUAGE_NOT_ALLOWED` | 语言不在白名单 | 400 |
 | `SUBMISSION_DUPLICATE` | 幂等键重复且请求内容不一致 | 409 |
@@ -136,8 +138,9 @@ HTTP 前缀统一为 `/api/v1`。各服务经 gateway 对外暴露；客户端�
 | contest | DELETE | `/api/v1/contests/{contestId}/students/{studentId}` | 规划 |
 | media | POST | `/api/v1/contests/{contestId}/sessions/{sessionId}/monitor-token` | 规划 |
 | media | POST | `/api/v1/monitor/screenshot` | 规划 |
-| anti-cheat | GET | `/api/v1/monitor/events` | 规划 |
-| anti-cheat | POST | `/api/v1/monitor/events/{eventId}/review` | 规划 |
+| anti-cheat | POST | `/api/v1/monitor/events` | 已实现（考生上报，severity 服务端规则表计算） |
+| anti-cheat | GET | `/api/v1/monitor/events` | 已实现（监考/管理分页查询：竞赛/学生/等级/审核状态过滤） |
+| anti-cheat | POST | `/api/v1/monitor/events/{eventId}/review` | 已实现（审核状态机 OPEN→ACKNOWLEDGED→CONFIRMED/DISMISSED） |
 | audit | GET | `/api/v1/audit/media-access` | 规划 |
 
 ## 认证（auth-service）
@@ -216,6 +219,8 @@ PROVISIONAL -> UNDER_REVIEW -> FINAL
 评测结果可以即时返回，最终成绩由考试规则决定是否在查重和风控审核后发布。当前未设计学生申诉接口，申诉能力暂不实现。
 
 ## 实时监考
+
+风险事件（2026-10-06 已实现）：`POST /api/v1/monitor/events` 由考生客户端自动上报（studentId = JWT sub），severity 由服务端规则表计算（不采信上报值）；v1 规则：HIGH=DEBUGGER_DETECTED/INJECTION_ATTEMPT/UNAUTHORIZED_MODULE，MEDIUM=SUSPICIOUS_PROCESS/MEDIA_STREAM_LOST/JUDGE_LIMIT_VIOLATION，LOW=FOCUS_LOST/CAMERA_MISSING/CLIPBOARD_ACCESS，未知类型保守 MEDIUM；事件入库即写 `lunar-risk-event-created` Outbox（gateway WebSocket 告警的未来消费方）。查询与审核（2026-10-06 已实现）：分页过滤 + 审核状态机 OPEN→ACKNOWLEDGED→CONFIRMED/DISMISSED（条件更新防并发）；单一事件不能自动判定作弊，处置必须人工审核并留痕（审核人/时间/备注，audit-service 建成后迁移）。
 
 - `POST /api/v1/contests/{contestId}/sessions/{sessionId}/monitor-token`：签发带竞赛、会话、屏幕/摄像头策略和时间窗口的 WebRTC 信令令牌；
 - `POST /api/v1/monitor/screenshot`：风险/定时/手动截图请求；

@@ -12,7 +12,7 @@
 | problem-service | 8083 | 题目、题面、测试点、判题限制、语言白名单、题目版本 | `problem_schema` | Mock 接口 |
 | submission-service | 8084 | 接收提交、幂等校验、提交状态、成绩读模型 | `submission_schema` | Mock 接口 |
 | judge-service | 8080* | 评测调度：消费提交事件、适配 go-judge、verdict 归一化 | `judge_schema` | MockJudgeEngine 可运行 |
-| anti-cheat-service | 8080* | 风险事件、风险分数、查重任务、人工审核 | `anti_cheat_schema` | 仅占位 POM，无代码 |
+| anti-cheat-service | 8086 | 风险事件、风险分数、查重任务、人工审核 | `anti_cheat_schema` | 风险事件上报/查询/审核已实现（2026-10-07） |
 | media-service | 8080* | 监考令牌、WebRTC 信令、截图策略与存取授权 | `media_schema` | 仅占位 POM，无代码 |
 | audit-service | 8080* | 管理操作与敏感访问审计 | `audit_schema` | 仅占位 POM，无代码 |
 
@@ -122,8 +122,8 @@ anti-cheat ──(plagiarism-requested)──> plagiarism-worker（独立部署�
 - 不负责：不能直接修改已发布成绩；单一风险事件不能自动判定作弊，处罚必须走独立人工裁决并审计。
 - 数据与基础设施：`anti_cheat_schema`；风险事件检索首期直接查 PostgreSQL（Elasticsearch 暂不使用）。
 - 对外接口：规划 `GET/POST /api/v1/monitor/events*`（风险事件查询与审核，见 `docs/api.md`）；消费 `lunar-submission-created`、`lunar-risk-event-created`、`lunar-screenshot-created`、`lunar-plagiarism-completed`；生产 `lunar-risk-event-created`（与 media 共同）、`lunar-screenshot-requested`、`lunar-plagiarism-requested`。
-- 当前实现：只有占位 POM。
-- 下一步：风险事件模型与审核状态机（实现顺序第 7 步）。
+- 当前实现（2026-10-06/07）：`anti_cheat_schema.risk_events` 落库 + Outbox（`lunar-risk-event-created` → gateway 告警的未来消费方）；上报（考生客户端，severity 服务端规则表计算、未知类型保守 MEDIUM）；分页查询（竞赛/学生/等级/审核状态过滤）；审核状态机 OPEN→ACKNOWLEDGED→CONFIRMED/DISMISSED（条件更新防并发，终态保护，动作留痕日志待 audit 迁移）；9 个单测 + 真机闭环通过。
+- 下一步：查重任务（JPlag，随 submission 聚合）；告警推送 gateway（WebSocket 阶段）；规则表可配置化；审核动作迁移 audit-service。
 
 ## media-service
 
