@@ -45,7 +45,7 @@ public class MonitorController {
     @GetMapping("/events")
     @PreAuthorize("hasAnyRole('TEACHER', 'ADMIN')")
     public ResponseEntity<ApiResponse<RiskEventService.ReviewPage>> list(
-            @RequestParam String contestId,
+            @RequestParam(required = false) String contestId,
             @RequestParam(required = false) String studentId,
             @RequestParam(required = false) String severity,
             @RequestParam(required = false) String reviewStatus,

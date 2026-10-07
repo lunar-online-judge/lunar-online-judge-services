@@ -42,6 +42,24 @@ public class ProblemController {
     }
 
     /** 题目详情（考生视角）：当前发布版本的题面/样例/限制/语言；无测试点。 */
+    /** 分页列表（管理端）：keyword 模糊匹配标题。 */
+    @GetMapping
+    public ResponseEntity<ApiResponse<java.util.Map<String, Object>>> list(
+            @RequestParam(defaultValue = "1") long page,
+            @RequestParam(defaultValue = "20") long pageSize,
+            @RequestParam(required = false) String keyword,
+            @RequestHeader(value = RequestIdFilter.HEADER, required = false) String requestId) {
+        var result = problemService.list(keyword, page, pageSize);
+        java.util.List<java.util.Map<String, Object>> items = result.getRecords().stream()
+                .map(pr -> java.util.Map.<String, Object>of(
+                        "problemId", pr.getId(), "title", pr.getTitle(),
+                        "currentVersionId", pr.getCurrentVersionId() == null ? "" : pr.getCurrentVersionId(),
+                        "createdAt", pr.getCreatedAt().toString()))
+                .toList();
+        return ResponseEntity.ok(ApiResponse.success(requestId, java.util.Map.of(
+                "items", items, "total", result.getTotal(), "page", result.getCurrent(), "pageSize", result.getSize())));
+    }
+
     @GetMapping("/{id}")
     public ResponseEntity<ApiResponse<ProblemService.VersionView>> get(
             @PathVariable String id,

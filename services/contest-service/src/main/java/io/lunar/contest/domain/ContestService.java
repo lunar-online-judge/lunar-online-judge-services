@@ -2,6 +2,7 @@ package io.lunar.contest.domain;
 
 import io.lunar.contest.infra.ContestEntity;
 import io.lunar.contest.infra.ContestMapper;
+import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.baomidou.mybatisplus.core.conditions.update.LambdaUpdateWrapper;
 import org.springframework.stereotype.Component;
 
@@ -42,6 +43,18 @@ public class ContestService {
             throw new ContestException.NotFound();
         }
         return entity;
+    }
+
+    /** 分页列表（管理端）：按创建时间倒序，可选状态过滤。 */
+    public com.baomidou.mybatisplus.extension.plugins.pagination.Page<ContestEntity> list(String status, long page, long pageSize) {
+        com.baomidou.mybatisplus.extension.plugins.pagination.Page<ContestEntity> p =
+                new com.baomidou.mybatisplus.extension.plugins.pagination.Page<>(page, pageSize);
+        LambdaQueryWrapper<ContestEntity> query = new LambdaQueryWrapper<ContestEntity>()
+                .orderByDesc(ContestEntity::getCreatedAt);
+        if (status != null && !status.isBlank()) {
+            query.eq(ContestEntity::getStatus, status);
+        }
+        return contestMapper.selectPage(p, query);
     }
 
     /** 提交管理员审核：DRAFT -> REVIEWING（老师/管理员）。 */

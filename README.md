@@ -67,6 +67,7 @@ Compose 镜像版本来自 `docker/compose.core.yml`、`docker/compose.platform.
 
 ## 目录
 
+- `admin-web/`：管理后台前端（React 19 + HeroUI，见 `admin-web/README.md`）；
 - `CHANGELOG.md`：版本变更记录（开发期里程碑与已知限制）；
 - `docs/development-guide.md`：**起手开发指南**——阅读顺序、代码约定、auth-service 实现路径、测试与错误码约定（新会话从这里开始）；
 - `docs/architecture.md`：服务边界、数据流和安全边界；

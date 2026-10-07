@@ -124,6 +124,19 @@ public class ProblemService {
     }
 
     /** 题目详情（考生视角）：当前发布版本的题面/样例/限制/语言；无发布版本时 404。绝不返回测试点。 */
+    /** 分页列表（管理端）：按创建时间倒序，keyword 模糊匹配标题。 */
+    public com.baomidou.mybatisplus.extension.plugins.pagination.Page<ProblemEntity> list(String keyword, long page, long pageSize) {
+        com.baomidou.mybatisplus.extension.plugins.pagination.Page<ProblemEntity> p =
+                new com.baomidou.mybatisplus.extension.plugins.pagination.Page<>(page, pageSize);
+        com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper<ProblemEntity> query =
+                new com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper<ProblemEntity>()
+                        .orderByDesc(ProblemEntity::getCreatedAt);
+        if (keyword != null && !keyword.isBlank()) {
+            query.like(ProblemEntity::getTitle, keyword.trim());
+        }
+        return problemMapper.selectPage(p, query);
+    }
+
     public VersionView getCurrentPublished(String problemId) {
         ProblemEntity problem = requireProblem(problemId);
         if (problem.getCurrentVersionId() == null) {

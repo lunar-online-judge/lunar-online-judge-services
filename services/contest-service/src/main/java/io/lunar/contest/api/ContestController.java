@@ -46,6 +46,20 @@ public class ContestController {
         return ResponseEntity.ok(ApiResponse.success(requestId, ContestResponse.of(entity)));
     }
 
+    /** 分页列表（管理端）：按创建时间倒序，可选状态过滤。 */
+    @GetMapping
+    public ResponseEntity<ApiResponse<java.util.Map<String, Object>>> list(
+            @RequestParam(defaultValue = "1") long page,
+            @RequestParam(defaultValue = "20") long pageSize,
+            @RequestParam(required = false) String status,
+            @RequestHeader(value = RequestIdFilter.HEADER, required = false) String requestId) {
+        var result = contestService.list(status, page, pageSize);
+        java.util.List<ContestResponse> items = result.getRecords().stream()
+                .map(ContestResponse::of).toList();
+        return ResponseEntity.ok(ApiResponse.success(requestId, java.util.Map.of(
+                "items", items, "total", result.getTotal(), "page", result.getCurrent(), "pageSize", result.getSize())));
+    }
+
     @GetMapping("/{id}")
     public ResponseEntity<ApiResponse<ContestResponse>> get(@PathVariable String id,
                                                             @RequestHeader(value = RequestIdFilter.HEADER, required = false) String requestId) {
