@@ -10,7 +10,7 @@
 |---|---|---:|---|
 | 运行时 | Java | 21 | 根 POM 的编译目标 |
 | 应用框架 | Spring Boot | 3.5.16 | 根 POM parent，实际生效 |
-| 微服务基础 | Spring Cloud BOM | 2025.0.3 | 已导入 BOM，具体 Cloud Starter 按模块接入 |
+| 微服务基础 | Spring Cloud BOM | 2025.0.3 | gateway-service 已实际引入 spring-cloud-starter-gateway（响应式网关） |
 | ORM | MyBatis-Plus Spring Boot 3 Starter | 3.5.17 | auth-service 已实际引入 |
 | API 文档 | springdoc OpenAPI WebMVC UI | 2.8.17 | judge-service 已实际引入 |
 | 数据库驱动 | PostgreSQL JDBC | 42.7.13 | auth-service 已实际引入 |

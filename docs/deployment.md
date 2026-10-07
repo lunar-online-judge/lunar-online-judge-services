@@ -14,7 +14,7 @@
 
 | 服务 | 默认端口 | 配置文件 | 说明 |
 |---|---|---|---|
-| gateway-service | 8080（Spring 默认） | 无 `application.yml` | 启动时必须设置 `SERVER_PORT`，否则与其他无配置服务冲突 |
+| gateway-service | 8080 | 有 | Spring Cloud Gateway 路由（上游地址可 env 覆盖）；`/api/v1/internal/**` 不暴露 |
 | auth-service | 8081 | 有 | 依赖 PostgreSQL；`FLYWAY_ENABLED` 控制是否执行迁移 |
 | contest-service | 8082 | 有 | |
 | problem-service | 8083 | 有 | |
@@ -156,7 +156,8 @@ curl -s -i -H "X-Request-Id: test-123" http://localhost:8081/api/v1/auth/jwks | 
 ## 已知限制
 
 - RocketMQ broker 广播地址固定为 `127.0.0.1`（Spring 服务跑在宿主机的前提）；服务容器化后需注释掉 `broker.conf` 中的 `brokerIP1`；开发期 `autoCreateTopicEnable=true`，生产必须改为 `false` 并显式建 Topic；
-- gateway、judge、anti-cheat、media、audit 五个服务没有 `application.yml`，同时本地启动多个时会全部抢占 8080；
+- judge、anti-cheat、media、audit 四个服务没有完整端口配置（judge 已有 rocketmq 配置的 `application.yml` 但端口仍需 `SERVER_PORT`），同时本地启动多个时会全部抢占 8080；
+- gateway 经 OpenResty 暴露后，`/api/v1/internal/**` 无路由不可达——服务间调用必须内网直连，不得绕行网关；
 - 各服务当前都没有健康检查端点（未引入 actuator），Compose 也没有配置健康探测；
 - 登录失败限流目前是 auth-service 的内存实现（重启清零、多实例不共享），Redis Starter 接入后迁移；
 - go-judge 在 Docker Desktop（WSL2）上嵌套 cgroup 受限，本地沙箱联调暂缓（配置保留在 compose.judge.yml），生产 Linux 节点不受影响。

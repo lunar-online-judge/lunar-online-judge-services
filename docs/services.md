@@ -6,7 +6,7 @@
 
 | 服务 | 默认端口 | 一句话职责 | 数据归属 | 当前状态 |
 |---|---|---|---|---|
-| gateway-service | 8080* | 统一入口：路由、追踪、限流、鉴权转发、WebSocket | 无独立数据库；Redis 存节点路由/限流计数 | 仅占位 POM，无代码 |
+| gateway-service | 8080 | 统一入口：路由、追踪、鉴权转发、WebSocket | 无独立数据库；Redis 存节点路由/限流计数 | Spring Cloud Gateway 路由已实现（2026-10-07） |
 | auth-service | 8081 | 用户、登录、JWT 签发、RBAC、竞赛授权、服务间身份 | `auth_schema` | Mock 登录接口 |
 | contest-service | 8082 | 竞赛生命周期、报名名单、考生会话、监考策略、排名 | `contest_schema` | Mock 创建竞赛接口 |
 | problem-service | 8083 | 题目、题面、测试点、判题限制、语言白名单、题目版本 | `problem_schema` | Mock 接口 |
@@ -49,8 +49,8 @@ anti-cheat ──(plagiarism-requested)──> plagiarism-worker（独立部署�
 - 不负责：题目、成绩、风控等业务判断；不转发媒体 RTP 数据。
 - 数据与基础设施：无数据库；Redis 保存 WebSocket 节点路由和限流计数（Redis 不是任何业务事实源）。
 - 对外接口：`/api/v1/**` 反向代理与 `/ws/v1/contests/{contestId}` WebSocket；消费 `lunar-submission-judged`、`lunar-risk-event-created`、`lunar-screenshot-created` 推送。
-- 当前实现：只有占位 POM。注意当前是普通 `spring-web` 应用，尚未引入 Spring Cloud Gateway；后续实现网关时需先决定是否切换到响应式网关。
-- 下一步：确定网关技术选型（Spring Cloud Gateway vs 手写过滤器链）、接入路由与 `X-Request-Id`、实现 WebSocket 会话路由。
+- 当前实现（2026-10-07）：**选型已定为 Spring Cloud Gateway（响应式）**——需 WebSocket 入口能力与限流/重试生态；路由四前缀（auth/contests/problems/submissions，上游地址可 env 覆盖），JWT 与 `X-Request-Id` 默认透传（验签在各资源服务）；`/api/v1/internal/**` 刻意不配置路由（经网关不可达，服务间调用走内网直连）；真机验证经 OpenResty:80 → 网关 → 四服务全链路 + internal 隔离 + 未认证 401。纯路由配置无单测（配置即代码）。
+- 下一步：WebSocket 入口（`/ws/v1/**` 路由随会话推送特性）；基础限流（RequestRateLimiter + Redis）；SpringDoc 文档网关聚合（可选）。
 
 ## auth-service
 

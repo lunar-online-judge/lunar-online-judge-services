@@ -39,6 +39,8 @@
 
 与 `docs/architecture.md` §15 一致：**auth-service → 各服务 schema/MyBatis-Plus → contest/problem/submission 领域与状态机 → RocketMQ Outbox → GoJudgeAdapter → WebSocket → 风险与审核 → 查重 → 加固**。
 
+进度（2026-10-07）：auth/contest/problem/submission 核心链路与 RocketMQ 事件总线、gateway 路由已落地（gateway 选型已定 Spring Cloud Gateway）；anti-cheat/media/audit、WebSocket、成绩读模型未启动。
+
 当前焦点是 **auth-service**，实现路径见第 5 节。
 
 ## 5. 第一站：auth-service 实现路径

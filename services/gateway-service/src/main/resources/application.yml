@@ -1,0 +1,30 @@
+spring:
+  application:
+    name: gateway-service
+  cloud:
+    gateway:
+      httpclient:
+        connect-timeout: 2000
+        response-timeout: 30s
+      routes:
+        - id: auth
+          uri: ${AUTH_SERVICE_URL:http://localhost:8081}
+          predicates:
+            - Path=/api/v1/auth/**
+        - id: contests
+          uri: ${CONTEST_SERVICE_URL:http://localhost:8082}
+          predicates:
+            - Path=/api/v1/contests/**
+        - id: problems
+          uri: ${PROBLEM_SERVICE_URL:http://localhost:8083}
+          predicates:
+            - Path=/api/v1/problems/**
+        - id: submissions
+          uri: ${SUBMISSION_SERVICE_URL:http://localhost:8084}
+          predicates:
+            - Path=/api/v1/submissions/**
+      # /api/v1/internal/** 与 /ws/v1/** 刻意不配置路由：
+      # internal 仅限服务间内网直连；WebSocket 入口随会话推送特性落地
+
+server:
+  port: ${SERVER_PORT:8080}

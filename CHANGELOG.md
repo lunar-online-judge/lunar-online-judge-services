@@ -13,6 +13,16 @@
 - Redis 接入（登录限流迁移、令牌吊销、幂等键、会话心跳）
 - 题目归属竞赛校验（依赖随机分配表）与提交频率阈值（待 exam-process §10 确认）
 
+## [0.3.0] - 2026-10-07
+
+### 新增
+
+- **gateway-service 统一入口落地**
+  - 技术选型定为 Spring Cloud Gateway（响应式）：需 WebSocket 入口能力与限流/重试生态
+  - 路由四前缀：auth / contests / problems / submissions（上游地址 `*_SERVICE_URL` 可覆盖），JWT 与 `X-Request-Id` 透传
+  - `/api/v1/internal/**` 刻意不暴露（经网关 404），服务间调用内网直连
+  - 真机验证：OpenResty:80 → 网关 → 四服务全链路、internal 隔离、未认证 401
+
 ## [0.2.0] - 2026-10-07
 
 ### 新增
