@@ -62,8 +62,10 @@ public class MonitorController {
             @PathVariable String eventId,
             @Valid @RequestBody ReviewRequest request,
             Authentication authentication,
-            @RequestHeader(value = RequestIdFilter.HEADER, required = false) String requestId) {
-        var view = riskEventService.review(eventId, request.action(), request.note(), authentication.getName());
+            @RequestHeader(value = RequestIdFilter.HEADER, required = false) String requestId,
+            @RequestHeader(value = "Authorization", required = false) String authorization) {
+        var view = riskEventService.review(eventId, request.action(), request.note(),
+                authentication.getName(), authorization);
         return ResponseEntity.ok(ApiResponse.success(requestId, view));
     }
 

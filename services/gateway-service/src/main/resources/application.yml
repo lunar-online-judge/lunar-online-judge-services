@@ -27,6 +27,10 @@ spring:
           uri: ${ANTICHEAT_SERVICE_URL:http://localhost:8086}
           predicates:
             - Path=/api/v1/monitor/**
+        - id: audit
+          uri: ${AUDIT_SERVICE_URL:http://localhost:8087}
+          predicates:
+            - Path=/api/v1/audit/**
       # /api/v1/internal/** 与 /ws/v1/** 刻意不配置路由：
       # internal 仅限服务间内网直连；WebSocket 入口随会话推送特性落地
 

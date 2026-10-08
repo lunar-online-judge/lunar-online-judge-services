@@ -1,0 +1,19 @@
+spring:
+  application:
+    name: audit-service
+  datasource:
+    url: jdbc:postgresql://${POSTGRES_HOST:localhost}:${POSTGRES_PORT:5433}/${POSTGRES_DB:lunar}?stringtype=unspecified
+    username: ${POSTGRES_USER:lunar}
+    password: ${POSTGRES_PASSWORD:change-me}
+  flyway:
+    enabled: ${FLYWAY_ENABLED:false}
+    schemas: audit_schema
+    table: audit_history
+  security:
+    oauth2:
+      resourceserver:
+        jwt:
+          jwk-set-uri: ${AUTH_JWK_SET_URI:http://localhost:8081/api/v1/auth/jwks}
+
+server:
+  port: ${SERVER_PORT:8087}

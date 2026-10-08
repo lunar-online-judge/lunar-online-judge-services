@@ -23,7 +23,8 @@ class RiskEventServiceTest {
 
     private final RiskEventMapper riskEventMapper = mock(RiskEventMapper.class);
     private final OutboxEventMapper outboxMapper = mock(OutboxEventMapper.class);
-    private final RiskEventService service = new RiskEventService(riskEventMapper, outboxMapper);
+    private final io.lunar.anticheat.infra.AuditClient auditClient = mock(io.lunar.anticheat.infra.AuditClient.class);
+    private final RiskEventService service = new RiskEventService(riskEventMapper, outboxMapper, auditClient);
 
     @BeforeAll
     static void initMpMetadata() {
@@ -77,7 +78,7 @@ class RiskEventServiceTest {
     void reviewOpenCanAcknowledge() {
         when(riskEventMapper.selectById("e1")).thenReturn(event("e1", "OPEN"));
 
-        var view = service.review("e1", "ACKNOWLEDGE", "已阅", "teacher_1");
+        var view = service.review("e1", "ACKNOWLEDGE", "已阅", "teacher_1", "tok");
 
         assertThat(view.reviewStatus()).isEqualTo("ACKNOWLEDGED");
         assertThat(view.reviewedBy()).isEqualTo("teacher_1");
@@ -88,7 +89,7 @@ class RiskEventServiceTest {
     void reviewOpenCanDismissDirectly() {
         when(riskEventMapper.selectById("e1")).thenReturn(event("e1", "OPEN"));
 
-        var view = service.review("e1", "DISMISS", "误报", "teacher_1");
+        var view = service.review("e1", "DISMISS", "误报", "teacher_1", "tok");
 
         assertThat(view.reviewStatus()).isEqualTo("DISMISSED");
     }
@@ -97,7 +98,7 @@ class RiskEventServiceTest {
     void acknowledgedCanConfirm() {
         when(riskEventMapper.selectById("e1")).thenReturn(event("e1", "ACKNOWLEDGED"));
 
-        var view = service.review("e1", "CONFIRM", "证据确凿", "teacher_1");
+        var view = service.review("e1", "CONFIRM", "证据确凿", "teacher_1", "tok");
 
         assertThat(view.reviewStatus()).isEqualTo("CONFIRMED");
     }
@@ -106,9 +107,9 @@ class RiskEventServiceTest {
     void terminalStatusCannotBeReviewedAgain() {
         when(riskEventMapper.selectById("e1")).thenReturn(event("e1", "CONFIRMED"));
 
-        assertThatThrownBy(() -> service.review("e1", "DISMISS", null, "teacher_1"))
+        assertThatThrownBy(() -> service.review("e1", "DISMISS", null, "teacher_1", "tok"))
                 .isInstanceOf(ReviewException.InvalidTransition.class);
-        assertThatThrownBy(() -> service.review("e1", "ACKNOWLEDGE", null, "teacher_1"))
+        assertThatThrownBy(() -> service.review("e1", "ACKNOWLEDGE", null, "teacher_1", "tok"))
                 .isInstanceOf(ReviewException.InvalidTransition.class);
     }
 
@@ -116,7 +117,7 @@ class RiskEventServiceTest {
     void unknownActionRejected() {
         when(riskEventMapper.selectById("e1")).thenReturn(event("e1", "OPEN"));
 
-        assertThatThrownBy(() -> service.review("e1", "DELETE", null, "teacher_1"))
+        assertThatThrownBy(() -> service.review("e1", "DELETE", null, "teacher_1", "tok"))
                 .isInstanceOf(ReviewException.InvalidTransition.class);
     }
 
@@ -124,7 +125,7 @@ class RiskEventServiceTest {
     void unknownEventThrowsNotFound() {
         when(riskEventMapper.selectById("nope")).thenReturn(null);
 
-        assertThatThrownBy(() -> service.review("nope", "ACKNOWLEDGE", null, "teacher_1"))
+        assertThatThrownBy(() -> service.review("nope", "ACKNOWLEDGE", null, "teacher_1", "tok"))
                 .isInstanceOf(ReviewException.NotFound.class);
     }
 

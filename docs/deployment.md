@@ -22,7 +22,7 @@
 | judge-service | 8080（Spring 默认） | 无 | 唯一启用 spring-boot-maven-plugin 的模块，打出可执行 jar |
 | anti-cheat-service | 8086 | 有 | 风险事件/审核（rocketmq + 分页已配） |
 | media-service | 8080（Spring 默认） | 无 | |
-| audit-service | 8080（Spring 默认） | 无 | |
+| audit-service | 8087 | 有 | 审计账本 |
 
 ## 基础设施端口（Docker Compose）
 
@@ -156,7 +156,7 @@ curl -s -i -H "X-Request-Id: test-123" http://localhost:8081/api/v1/auth/jwks | 
 ## 已知限制
 
 - RocketMQ broker 广播地址固定为 `127.0.0.1`（Spring 服务跑在宿主机的前提）；服务容器化后需注释掉 `broker.conf` 中的 `brokerIP1`；开发期 `autoCreateTopicEnable=true`，生产必须改为 `false` 并显式建 Topic；
-- judge、media、audit 三个服务没有完整端口配置（judge 已有 rocketmq 配置的 `application.yml` 但端口仍需 `SERVER_PORT`），同时本地启动多个时会抢占 8080；
+- judge、media 两个服务没有完整端口配置（judge 已有 rocketmq 配置的 `application.yml` 但端口仍需 `SERVER_PORT`），同时本地启动多个时会抢占 8080；
 - gateway 经 OpenResty 暴露后，`/api/v1/internal/**` 无路由不可达——服务间调用必须内网直连，不得绕行网关；
 - 各服务当前都没有健康检查端点（未引入 actuator），Compose 也没有配置健康探测；
 - 登录失败限流目前是 auth-service 的内存实现（重启清零、多实例不共享），Redis Starter 接入后迁移；

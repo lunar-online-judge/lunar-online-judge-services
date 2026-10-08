@@ -1,5 +1,6 @@
 package io.lunar.anticheat.domain;
 
+import io.lunar.anticheat.infra.AuditClient;
 import io.lunar.anticheat.infra.OutboxEventEntity;
 import io.lunar.anticheat.infra.OutboxEventMapper;
 import io.lunar.anticheat.infra.RiskEventEntity;
@@ -40,11 +41,14 @@ public class RiskEventService {
 
     private final RiskEventMapper riskEventMapper;
     private final OutboxEventMapper outboxMapper;
+    private final AuditClient auditClient;
     private final ObjectMapper objectMapper = new ObjectMapper();
 
-    public RiskEventService(RiskEventMapper riskEventMapper, OutboxEventMapper outboxMapper) {
+    public RiskEventService(RiskEventMapper riskEventMapper, OutboxEventMapper outboxMapper,
+                            AuditClient auditClient) {
         this.riskEventMapper = riskEventMapper;
         this.outboxMapper = outboxMapper;
+        this.auditClient = auditClient;
     }
 
     /** 上报风险事件（考生客户端自动上报，studentId = JWT sub）。 */
@@ -94,7 +98,8 @@ public class RiskEventService {
 
     /** 审核动作：ACKNOWLEDGE / CONFIRM / DISMISS（状态机 OPEN → ACKNOWLEDGED → CONFIRMED|DISMISSED）。 */
     @Transactional
-    public RiskEventView review(String eventId, String action, String note, String reviewerId) {
+    public RiskEventView review(String eventId, String action, String note, String reviewerId,
+                                String operatorToken) {
         RiskEventEntity entity = riskEventMapper.selectById(eventId);
         if (entity == null) {
             throw new ReviewException.NotFound();
@@ -121,6 +126,14 @@ public class RiskEventService {
         riskEventMapper.updateById(entity);
         log.info("AUDIT event=RISK_EVENT_REVIEWED riskEventId={} {}->{} by={} note={}",
                 eventId, from, to, reviewerId, note);
+        // 审计账本（尽力而为：audit-service 暂不可用时不阻断审核）
+        try {
+            auditClient.record("RISK_EVENT_REVIEWED", "RISK_EVENT", eventId, entity.getContestId(),
+                    from + "->" + to + (note == null || note.isBlank() ? "" : " note=" + note),
+                    null, operatorToken);
+        } catch (Exception e) {
+            log.warn("审计写入失败（不影响审核结果）：riskEventId={} err={}", eventId, e.getMessage());
+        }
         return toView(entity);
     }
 

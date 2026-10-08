@@ -141,6 +141,8 @@ HTTP 前缀统一为 `/api/v1`。各服务经 gateway 对外暴露；客户端�
 | anti-cheat | POST | `/api/v1/monitor/events` | 已实现（考生上报，severity 服务端规则表计算） |
 | anti-cheat | GET | `/api/v1/monitor/events` | 已实现（监考/管理分页查询：竞赛/学生/等级/审核状态过滤） |
 | anti-cheat | POST | `/api/v1/monitor/events/{eventId}/review` | 已实现（审核状态机 OPEN→ACKNOWLEDGED→CONFIRMED/DISMISSED） |
+| audit | GET | `/api/v1/audit/records` | 已实现（审计账本查询，老师/管理员） |
+| audit | POST | `/api/v1/internal/audit/records` | 已实现（服务间写入，各服务转发操作者令牌） |
 | audit | GET | `/api/v1/audit/media-access` | 规划 |
 
 ## 认证（auth-service）

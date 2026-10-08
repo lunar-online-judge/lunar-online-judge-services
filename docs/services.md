@@ -14,7 +14,7 @@
 | judge-service | 8080* | 评测调度：消费提交事件、适配 go-judge、verdict 归一化 | `judge_schema` | MockJudgeEngine 可运行 |
 | anti-cheat-service | 8086 | 风险事件、风险分数、查重任务、人工审核 | `anti_cheat_schema` | 风险事件上报/查询/审核已实现（2026-10-07） |
 | media-service | 8080* | 监考令牌、WebRTC 信令、截图策略与存取授权 | `media_schema` | 仅占位 POM，无代码 |
-| audit-service | 8080* | 管理操作与敏感访问审计 | `audit_schema` | 仅占位 POM，无代码 |
+| audit-service | 8087 | 管理操作与敏感访问审计 | `audit_schema` | 账本写入/查询已实现（2026-10-08） |
 
 \* 无 `application.yml` 的服务使用 Spring 默认端口 8080，本地同时启动时必须分别设置 `SERVER_PORT`，详见 `docs/deployment.md`。
 
@@ -144,8 +144,9 @@ anti-cheat ──(plagiarism-requested)──> plagiarism-worker（独立部署�
 - 不负责：普通业务接口不能删除审计记录；不记录密码及任何敏感明文。
 - 数据与基础设施：`audit_schema`；风险事件与审计的检索首期直接查 PostgreSQL。
 - 对外接口：规划 `GET /api/v1/audit/media-access`（媒体访问审计查询，见 `docs/api.md`）；消费 `lunar-risk-event-created`、`lunar-screenshot-created`、`lunar-plagiarism-completed` 等留痕事件。
-- 当前实现：只有占位 POM。
-- 下一步：审计表与写入 API（随各服务接入逐步建设）。
+- 当前实现（2026-10-08）：`audit_schema.audit_logs` 追加式账本（仅插入，无更新/删除接口）；服务间写入端点（转发操作者令牌，actor/role 自动记录，系统动作为 SYSTEM）+ 管理端分页查询（动作/操作者/竞赛过滤）；动作清单约定（大写下划线自由字符串）：STUDENT_CREATED、STUDENT_PASSWORD_RESET、RISK_EVENT_REVIEWED 等，新增动作自然写入不因校验丢账。
+- 接入样本：anti-cheat 审核动作已接入（AuditClient 尽力而为，审计服务暂不可用不阻断主流程，条目缺口由服务结构化日志兜底）。
+- 下一步：auth/contest/problem/submission 的既有"先落结构化日志"点逐个迁移到账本（清单见各服务当前实现节）；媒体访问审计（随 media-service）；审计检索深化。
 
 ## 公共模块（非独立服务）
 
