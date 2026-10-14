@@ -180,11 +180,11 @@ class GoJudgeAdapterTest {
 
     /** 每次 /run 调用对应一个响应批次。 */
     private static StubTransport transport(GoJudgeModels.RunResult... batches) {
-        List<List<GoJudgeModels.RunResult>> list = new ArrayList<>(batches.length);
-        for (GoJudgeModels.RunResult r : batches) {
-            list.add(List.of(r));
+        List<List<GoJudgeModels.RunResult>> responseBatches = new ArrayList<>(batches.length);
+        for (GoJudgeModels.RunResult runResult : batches) {
+            responseBatches.add(List.of(runResult));
         }
-        return new StubTransport(list);
+        return new StubTransport(responseBatches);
     }
 
     private static GoJudgeModels.RunResult accepted(Map<String, String> files, Map<String, String> fileIds) {

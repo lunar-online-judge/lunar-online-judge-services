@@ -5,6 +5,19 @@
 
 ## [Unreleased]
 
+### 重构
+
+- **全局异常处理统一到 lunar-common**（原来 6 份重复实现，其中 4 份内嵌在 Controller 里）
+  - 新增 `ApiException` 抽象基类（`code` + `httpStatus`），六个域异常（`AuthException` / `UserException` / `ContestException` / `ProblemException` / `SubmissionException` / `ReviewException`）改为继承它，删掉各自复制的字段与访问器
+  - 新增 `ApiExceptionHandler`（`@RestControllerAdvice`，由 `WebCommonAutoConfiguration` 注册为 Bean）：处理所有 `ApiException` 子类 + `MethodArgumentNotValidException`，错误响应格式全平台一致
+  - 删除 auth / contest / submission 三个独立的 `ApiExceptionHandler` 类，以及 `MonitorController` / `AuditController` / `ProblemController` / `InternalStudentController` 内嵌的 Handler
+  - 新增 `RequestIds.currentRequestId()` 取代 6 份复制的 `currentRequestId()`；新增 `Pagination.DEFAULT_PAGE` / `DEFAULT_PAGE_SIZE` 与 `Role.AUTHORITY_PREFIX` 收敛散落的魔法字面量
+- **按 java-code-style 规范整改全部服务**（`C:\Users\10559\.agents\skills\java-code-style`）
+  - 清除内联全限定名、单字母/无意义变量名（含纯类型名 `entity`）、通配符 import、未使用 import、类型不明显的 `var`、超 120 字符长行
+  - 分页列表与重置密码响应由 `Map<String, Object>` 改为具名 record（JSON 字段与取值不变）；`ContestService.list` / `ProblemService.list` 不再把 MyBatis `Page` 泄漏给调用方
+  - 提取魔法值常量：判题 verdict 与沙箱状态名、题目默认限制、outbox 批量大小、详情截断长度等
+  - 风格扫描器命中 189 处 → 2 处（剩余 2 处为 `ApiResponse` 的 `data` 字段：`docs/api.md` 已定的 wire 契约名，按"项目约定优先"保留）；103 个测试全绿
+
 ### 计划中
 
 - RocketMQ Outbox 发布器与消费（接通 submission → judge 事件链路，替代判决回写过渡端点）
@@ -24,15 +37,6 @@
   - 服务端口 8087；gateway 新增 audit 路由（internal 写入经网关不可达）
 
 ## [0.4.0] - 2026-10-07
-
-### 新增
-
-- **admin-web 管理后台前端（新项目）**
-  - 技术栈：React 19 + React Router 7 + HeroUI 2.7 + Zustand 5 + TanStack Query 5 / Table 8 + Tailwind CSS 3.4（Vite 6 + TS 5.8）
-  - 功能：JWT 登录与角色守卫、概览、考试管理（生命周期流转+学生名单+公告）、题目管理（创建/版本/测试点）、风险事件（轮询+人工审核）
-  - 后端配套列表接口：考试分页（状态过滤）、题目分页（keyword）、监考查询 contestId 可选
-
-## [0.3.0] - 2026-10-07
 
 ### 新增
 

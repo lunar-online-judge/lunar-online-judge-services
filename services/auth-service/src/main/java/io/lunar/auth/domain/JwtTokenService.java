@@ -9,6 +9,7 @@ import org.springframework.stereotype.Component;
 
 import java.time.Duration;
 import java.time.Instant;
+import java.time.temporal.ChronoUnit;
 import java.util.List;
 import java.util.UUID;
 
@@ -32,7 +33,7 @@ public class JwtTokenService {
 
     public IssuedToken issue(String userId, Role role) {
         // JWT 时间声明为秒级精度，这里统一截断，保证返回的 expiresAt 与令牌 exp 一致
-        Instant now = Instant.now().truncatedTo(java.time.temporal.ChronoUnit.SECONDS);
+        Instant now = Instant.now().truncatedTo(ChronoUnit.SECONDS);
         Instant expiresAt = now.plus(accessTtl);
         JwtClaimsSet claims = JwtClaimsSet.builder()
                 .issuer("auth-service")

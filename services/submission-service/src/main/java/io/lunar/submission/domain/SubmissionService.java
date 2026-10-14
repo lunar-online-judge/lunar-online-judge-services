@@ -6,6 +6,7 @@ import io.lunar.submission.infra.SubmissionEntity;
 import io.lunar.submission.infra.SubmissionMapper;
 import io.lunar.submission.infra.UpstreamClient;
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
+import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -73,37 +74,8 @@ public class SubmissionService {
             }
         }
 
-        // 校验一/二：会话有效 + 竞赛进行中（contest 服务间判定，转发学生令牌）
-        Map<String, Object> check;
-        try {
-            check = upstream.checkSession(contestId, operatorToken);
-        } catch (HttpClientErrorException.NotFound e) {
-            throw new SubmissionException.ContestNotRunning("竞赛不存在");
-        }
-        if (check == null) {
-            throw new SubmissionException.ContestNotRunning("提交判定不可用");
-        }
-        if (!Boolean.TRUE.equals(check.get("canSubmit"))) {
-            String sessionStatus = String.valueOf(check.get("sessionStatus"));
-            String contestStatus = String.valueOf(check.get("contestStatus"));
-            if ("ACTIVE".equals(sessionStatus)) {
-                throw new SubmissionException.ContestNotRunning("竞赛状态 " + contestStatus);
-            }
-            throw new SubmissionException.NotSubmittable("会话状态 " + sessionStatus);
-        }
-
-        // 校验三：语言白名单 + 取题目版本与判题限制（problem 服务间查询，考生视角无测试点）
-        Map<String, Object> problem;
-        try {
-            problem = upstream.currentProblemVersion(problemId, operatorToken);
-        } catch (HttpClientErrorException e) {
-            throw new SubmissionException.NotSubmittable("题目不可用");
-        }
-        @SuppressWarnings("unchecked")
-        List<String> allowed = (List<String>) problem.get("allowedLanguages");
-        if (allowed == null || !allowed.contains(language)) {
-            throw new SubmissionException.LanguageNotAllowed();
-        }
+        validateSubmittableSession(contestId, operatorToken);
+        Map<String, Object> problem = loadAllowedProblem(problemId, language, operatorToken);
         String problemVersionId = String.valueOf(problem.get("versionId"));
         Integer timeLimitMs = asInt(problem.get("timeLimitMs"));
         Integer memoryLimitKb = asInt(problem.get("memoryLimitKb"));
@@ -111,27 +83,27 @@ public class SubmissionService {
         // TODO: 校验四「题目属于竞赛」依赖竞赛题目分配表（exam-process §3 随机分配未落地）；
         // TODO: 校验五「提交次数未超限」阈值待确认（exam-process §5），确认前不做硬限制。
 
-        SubmissionEntity entity = new SubmissionEntity();
-        entity.setId(UUID.randomUUID().toString());
-        entity.setContestId(contestId);
-        entity.setProblemId(problemId);
-        entity.setProblemVersionId(problemVersionId);
-        entity.setStudentId(studentId);
-        entity.setLanguage(language);
-        entity.setSourceCode(sourceCode);
-        entity.setSourceHash(sourceHash);
-        entity.setTimeLimitMs(timeLimitMs);
-        entity.setMemoryLimitKb(memoryLimitKb);
-        entity.setStatus("QUEUED");
-        entity.setIdempotencyKey(idempotencyKey == null || idempotencyKey.isBlank() ? null : idempotencyKey);
-        entity.setRequestFingerprint(fingerprint);
-        entity.setCreatedAt(Instant.now());
-        entity.setUpdatedAt(Instant.now());
-        submissionMapper.insert(entity);
+        SubmissionEntity submission = new SubmissionEntity();
+        submission.setId(UUID.randomUUID().toString());
+        submission.setContestId(contestId);
+        submission.setProblemId(problemId);
+        submission.setProblemVersionId(problemVersionId);
+        submission.setStudentId(studentId);
+        submission.setLanguage(language);
+        submission.setSourceCode(sourceCode);
+        submission.setSourceHash(sourceHash);
+        submission.setTimeLimitMs(timeLimitMs);
+        submission.setMemoryLimitKb(memoryLimitKb);
+        submission.setStatus("QUEUED");
+        submission.setIdempotencyKey(idempotencyKey == null || idempotencyKey.isBlank() ? null : idempotencyKey);
+        submission.setRequestFingerprint(fingerprint);
+        submission.setCreatedAt(Instant.now());
+        submission.setUpdatedAt(Instant.now());
+        submissionMapper.insert(submission);
 
         // 同一事务写 Outbox（信封见 docs/api.md"事件信封"）
-        writeOutbox("lunar-submission-created", entity.getId(), traceId, new LinkedHashMap<>(Map.of(
-                "submissionId", entity.getId(),
+        writeOutbox("lunar-submission-created", submission.getId(), traceId, new LinkedHashMap<>(Map.of(
+                "submissionId", submission.getId(),
                 "contestId", contestId,
                 "problemId", problemId,
                 "problemVersionId", problemVersionId,
@@ -141,54 +113,91 @@ public class SubmissionService {
                 "timeLimitMs", timeLimitMs == null ? 0 : timeLimitMs,
                 "memoryLimitKb", memoryLimitKb == null ? 0 : memoryLimitKb)));
         log.info("AUDIT event=SUBMISSION_CREATED submissionId={} contestId={} problemId={} studentId={}",
-                entity.getId(), contestId, problemId, studentId);
-        return toView(entity);
+                submission.getId(), contestId, problemId, studentId);
+        return toView(submission);
     }
 
     public SubmissionView get(String submissionId, String studentId, boolean operator) {
-        SubmissionEntity entity = submissionMapper.selectById(submissionId);
-        if (entity == null) {
+        SubmissionEntity submission = submissionMapper.selectById(submissionId);
+        if (submission == null) {
             throw new SubmissionException.NotFound();
         }
         // 学生只能看自己的提交；老师/管理员可查任意（监考与阅卷）
-        if (!operator && !entity.getStudentId().equals(studentId)) {
+        if (!operator && !submission.getStudentId().equals(studentId)) {
             throw new SubmissionException.NotFound();
         }
-        return toView(entity);
+        return toView(submission);
     }
 
     /** 判决回写（判题链路内部接口；RocketMQ 接入后改为消费 lunar-submission-judged）。 */
     @Transactional
     public SubmissionView applyJudgment(String submissionId, String verdict, Integer score,
                                         Integer passedCases, Integer totalCases, String traceId) {
-        SubmissionEntity entity = submissionMapper.selectById(submissionId);
-        if (entity == null) {
+        SubmissionEntity submission = submissionMapper.selectById(submissionId);
+        if (submission == null) {
             throw new SubmissionException.NotFound();
         }
-        if (TERMINAL_STATUSES.contains(entity.getStatus())) {
-            throw new SubmissionException.InvalidStatusTransition(entity.getStatus());
+        if (TERMINAL_STATUSES.contains(submission.getStatus())) {
+            throw new SubmissionException.InvalidStatusTransition(submission.getStatus());
         }
         if (!TERMINAL_STATUSES.contains(verdict)) {
             throw new SubmissionException.InvalidStatusTransition("未知 verdict " + verdict);
         }
-        entity.setStatus(verdict);
-        entity.setScore(score);
-        entity.setPassedCases(passedCases);
-        entity.setTotalCases(totalCases);
-        entity.setUpdatedAt(Instant.now());
-        submissionMapper.updateById(entity);
+        submission.setStatus(verdict);
+        submission.setScore(score);
+        submission.setPassedCases(passedCases);
+        submission.setTotalCases(totalCases);
+        submission.setUpdatedAt(Instant.now());
+        submissionMapper.updateById(submission);
 
         writeOutbox("lunar-submission-judged", submissionId, traceId, new LinkedHashMap<>(Map.of(
                 "submissionId", submissionId,
-                "contestId", entity.getContestId(),
-                "studentId", entity.getStudentId(),
+                "contestId", submission.getContestId(),
+                "studentId", submission.getStudentId(),
                 "verdict", verdict,
                 "score", score == null ? 0 : score,
                 "passedCases", passedCases == null ? 0 : passedCases,
                 "totalCases", totalCases == null ? 0 : totalCases)));
         log.info("AUDIT event=SUBMISSION_JUDGED submissionId={} verdict={} score={}",
                 submissionId, verdict, score);
-        return toView(entity);
+        return toView(submission);
+    }
+
+    /** 校验一/二：会话有效 + 竞赛进行中（contest 服务间判定，转发学生令牌）。 */
+    private void validateSubmittableSession(String contestId, String operatorToken) {
+        Map<String, Object> sessionCheck;
+        try {
+            sessionCheck = upstream.checkSession(contestId, operatorToken);
+        } catch (HttpClientErrorException.NotFound exception) {
+            throw new SubmissionException.ContestNotRunning("竞赛不存在");
+        }
+        if (sessionCheck == null) {
+            throw new SubmissionException.ContestNotRunning("提交判定不可用");
+        }
+        if (!Boolean.TRUE.equals(sessionCheck.get("canSubmit"))) {
+            String sessionStatus = String.valueOf(sessionCheck.get("sessionStatus"));
+            String contestStatus = String.valueOf(sessionCheck.get("contestStatus"));
+            if ("ACTIVE".equals(sessionStatus)) {
+                throw new SubmissionException.ContestNotRunning("竞赛状态 " + contestStatus);
+            }
+            throw new SubmissionException.NotSubmittable("会话状态 " + sessionStatus);
+        }
+    }
+
+    /** 校验三：语言白名单；返回题目当前版本（含版本 ID 与判题限制，problem 服务间查询，考生视角无测试点）。 */
+    private Map<String, Object> loadAllowedProblem(String problemId, String language, String operatorToken) {
+        Map<String, Object> problem;
+        try {
+            problem = upstream.currentProblemVersion(problemId, operatorToken);
+        } catch (HttpClientErrorException exception) {
+            throw new SubmissionException.NotSubmittable("题目不可用");
+        }
+        @SuppressWarnings("unchecked")
+        List<String> allowedLanguages = (List<String>) problem.get("allowedLanguages");
+        if (allowedLanguages == null || !allowedLanguages.contains(language)) {
+            throw new SubmissionException.LanguageNotAllowed();
+        }
+        return problem;
     }
 
     private void writeOutbox(String eventType, String aggregateId, String traceId, Map<String, Object> payload) {
@@ -204,26 +213,27 @@ public class SubmissionService {
             event.setOccurredAt(Instant.now());
             event.setCreatedAt(Instant.now());
             outboxMapper.insert(event);
-        } catch (com.fasterxml.jackson.core.JsonProcessingException e) {
-            throw new IllegalStateException("事件序列化失败", e);
+        } catch (JsonProcessingException exception) {
+            throw new IllegalStateException("事件序列化失败", exception);
         }
     }
 
-    private static Integer asInt(Object value) {
-        return value instanceof Number n ? n.intValue() : null;
+    private static Integer asInt(Object rawValue) {
+        return rawValue instanceof Number number ? number.intValue() : null;
     }
 
-    private static String sha256(String value) {
+    private static String sha256(String content) {
         try {
             MessageDigest digest = MessageDigest.getInstance("SHA-256");
-            return HexFormat.of().formatHex(digest.digest(value.getBytes(StandardCharsets.UTF_8)));
-        } catch (Exception e) {
-            throw new IllegalStateException("SHA-256 不可用", e);
+            return HexFormat.of().formatHex(digest.digest(content.getBytes(StandardCharsets.UTF_8)));
+        } catch (Exception exception) {
+            throw new IllegalStateException("SHA-256 不可用", exception);
         }
     }
 
-    private static SubmissionView toView(SubmissionEntity e) {
-        return new SubmissionView(e.getId(), e.getContestId(), e.getProblemId(), e.getLanguage(),
-                e.getStatus(), e.getScore(), e.getPassedCases(), e.getTotalCases(), e.getCreatedAt());
+    private static SubmissionView toView(SubmissionEntity submission) {
+        return new SubmissionView(submission.getId(), submission.getContestId(), submission.getProblemId(),
+                submission.getLanguage(), submission.getStatus(), submission.getScore(), submission.getPassedCases(),
+                submission.getTotalCases(), submission.getCreatedAt());
     }
 }

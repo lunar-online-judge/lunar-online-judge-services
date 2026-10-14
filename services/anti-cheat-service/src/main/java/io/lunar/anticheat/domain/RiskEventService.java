@@ -14,6 +14,7 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.time.Instant;
+import java.util.List;
 import java.util.Map;
 import java.util.UUID;
 
@@ -29,6 +30,9 @@ public class RiskEventService {
 
     private static final Logger log = LoggerFactory.getLogger(RiskEventService.class);
 
+    /** 明细入库前的最大长度（超出截断，避免恶意超长上报撑爆存储）。 */
+    private static final int MAX_DETAIL_LENGTH = 2000;
+
     public record ReportedEvent(String eventId, String riskEventId, String eventType, String severity,
                                 Instant occurredAt) {}
 
@@ -37,7 +41,7 @@ public class RiskEventService {
                                 Instant reportedAt, String reviewStatus, String reviewedBy,
                                 Instant reviewedAt, String reviewNote) {}
 
-    public record ReviewPage(java.util.List<RiskEventView> items, long total, long page, long pageSize) {}
+    public record ReviewPage(List<RiskEventView> items, long total, long page, long pageSize) {}
 
     private final RiskEventMapper riskEventMapper;
     private final OutboxEventMapper outboxMapper;
@@ -55,23 +59,24 @@ public class RiskEventService {
     @Transactional
     public ReportedEvent report(String contestId, String studentId, String eventType,
                                 String detail, Instant occurredAt, String problemId, String traceId) {
-        RiskEventEntity entity = new RiskEventEntity();
-        entity.setId(UUID.randomUUID().toString());
-        entity.setContestId(contestId);
-        entity.setStudentId(studentId);
-        entity.setProblemId(problemId);
-        entity.setEventType(eventType);
-        entity.setSeverity(RiskRules.severityOf(eventType));
-        entity.setDetail(detail == null ? null : detail.substring(0, Math.min(detail.length(), 2000)));
-        entity.setOccurredAt(occurredAt == null ? Instant.now() : occurredAt);
-        entity.setReportedAt(Instant.now());
-        entity.setReviewStatus("OPEN");
-        riskEventMapper.insert(entity);
+        RiskEventEntity riskEvent = new RiskEventEntity();
+        riskEvent.setId(UUID.randomUUID().toString());
+        riskEvent.setContestId(contestId);
+        riskEvent.setStudentId(studentId);
+        riskEvent.setProblemId(problemId);
+        riskEvent.setEventType(eventType);
+        riskEvent.setSeverity(RiskRules.severityOf(eventType));
+        riskEvent.setDetail(detail == null ? null : detail.substring(0, Math.min(detail.length(), MAX_DETAIL_LENGTH)));
+        riskEvent.setOccurredAt(occurredAt == null ? Instant.now() : occurredAt);
+        riskEvent.setReportedAt(Instant.now());
+        riskEvent.setReviewStatus("OPEN");
+        riskEventMapper.insert(riskEvent);
 
-        writeOutbox(entity, traceId);
+        writeOutbox(riskEvent, traceId);
         log.info("AUDIT event=RISK_EVENT_REPORTED riskEventId={} contestId={} studentId={} type={} severity={}",
-                entity.getId(), contestId, studentId, eventType, entity.getSeverity());
-        return new ReportedEvent(entity.getId(), entity.getId(), eventType, entity.getSeverity(), entity.getOccurredAt());
+                riskEvent.getId(), contestId, studentId, eventType, riskEvent.getSeverity());
+        return new ReportedEvent(riskEvent.getId(), riskEvent.getId(), eventType, riskEvent.getSeverity(),
+                riskEvent.getOccurredAt());
     }
 
     /** 分页查询（监考/管理视图）：按竞赛、学生、等级、审核状态过滤。 */
@@ -100,11 +105,11 @@ public class RiskEventService {
     @Transactional
     public RiskEventView review(String eventId, String action, String note, String reviewerId,
                                 String operatorToken) {
-        RiskEventEntity entity = riskEventMapper.selectById(eventId);
-        if (entity == null) {
+        RiskEventEntity riskEvent = riskEventMapper.selectById(eventId);
+        if (riskEvent == null) {
             throw new ReviewException.NotFound();
         }
-        String from = entity.getReviewStatus();
+        String from = riskEvent.getReviewStatus();
         String to = switch (action) {
             case "ACKNOWLEDGE" -> "ACKNOWLEDGED";
             case "CONFIRM" -> "CONFIRMED";
@@ -119,51 +124,52 @@ public class RiskEventService {
         if (!legal) {
             throw new ReviewException.InvalidTransition(from, action);
         }
-        entity.setReviewStatus(to);
-        entity.setReviewedBy(reviewerId);
-        entity.setReviewedAt(Instant.now());
-        entity.setReviewNote(note);
-        riskEventMapper.updateById(entity);
+        riskEvent.setReviewStatus(to);
+        riskEvent.setReviewedBy(reviewerId);
+        riskEvent.setReviewedAt(Instant.now());
+        riskEvent.setReviewNote(note);
+        riskEventMapper.updateById(riskEvent);
         log.info("AUDIT event=RISK_EVENT_REVIEWED riskEventId={} {}->{} by={} note={}",
                 eventId, from, to, reviewerId, note);
         // 审计账本（尽力而为：audit-service 暂不可用时不阻断审核）
         try {
-            auditClient.record("RISK_EVENT_REVIEWED", "RISK_EVENT", eventId, entity.getContestId(),
+            auditClient.record("RISK_EVENT_REVIEWED", "RISK_EVENT", eventId, riskEvent.getContestId(),
                     from + "->" + to + (note == null || note.isBlank() ? "" : " note=" + note),
                     null, operatorToken);
-        } catch (Exception e) {
-            log.warn("审计写入失败（不影响审核结果）：riskEventId={} err={}", eventId, e.getMessage());
+        } catch (Exception exception) {
+            log.warn("审计写入失败（不影响审核结果）：riskEventId={} err={}", eventId, exception.getMessage());
         }
-        return toView(entity);
+        return toView(riskEvent);
     }
 
-    private void writeOutbox(RiskEventEntity entity, String traceId) {
+    private void writeOutbox(RiskEventEntity riskEvent, String traceId) {
         try {
             OutboxEventEntity event = new OutboxEventEntity();
             event.setId(UUID.randomUUID().toString());
             event.setEventId(UUID.randomUUID().toString());
             event.setEventType("lunar-risk-event-created");
-            event.setAggregateId(entity.getId());
+            event.setAggregateId(riskEvent.getId());
             event.setSchemaVersion(1);
             event.setTraceId(traceId);
             event.setPayload(objectMapper.writeValueAsString(Map.of(
-                    "riskEventId", entity.getId(),
-                    "contestId", entity.getContestId(),
-                    "studentId", entity.getStudentId(),
-                    "eventType", entity.getEventType(),
-                    "severity", entity.getSeverity(),
-                    "occurredAt", entity.getOccurredAt().toString())));
+                    "riskEventId", riskEvent.getId(),
+                    "contestId", riskEvent.getContestId(),
+                    "studentId", riskEvent.getStudentId(),
+                    "eventType", riskEvent.getEventType(),
+                    "severity", riskEvent.getSeverity(),
+                    "occurredAt", riskEvent.getOccurredAt().toString())));
             event.setOccurredAt(Instant.now());
             event.setCreatedAt(Instant.now());
             outboxMapper.insert(event);
-        } catch (Exception e) {
-            throw new IllegalStateException("风险事件 Outbox 序列化失败", e);
+        } catch (Exception exception) {
+            throw new IllegalStateException("风险事件 Outbox 序列化失败", exception);
         }
     }
 
-    private RiskEventView toView(RiskEventEntity e) {
-        return new RiskEventView(e.getId(), e.getContestId(), e.getStudentId(), e.getProblemId(),
-                e.getEventType(), e.getSeverity(), e.getDetail(), e.getOccurredAt(), e.getReportedAt(),
-                e.getReviewStatus(), e.getReviewedBy(), e.getReviewedAt(), e.getReviewNote());
+    private RiskEventView toView(RiskEventEntity riskEvent) {
+        return new RiskEventView(riskEvent.getId(), riskEvent.getContestId(), riskEvent.getStudentId(),
+                riskEvent.getProblemId(), riskEvent.getEventType(), riskEvent.getSeverity(), riskEvent.getDetail(),
+                riskEvent.getOccurredAt(), riskEvent.getReportedAt(), riskEvent.getReviewStatus(),
+                riskEvent.getReviewedBy(), riskEvent.getReviewedAt(), riskEvent.getReviewNote());
     }
 }

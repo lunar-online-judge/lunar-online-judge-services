@@ -8,6 +8,7 @@ import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import org.springframework.stereotype.Component;
 
 import java.time.Instant;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
@@ -43,16 +44,16 @@ public class AnnouncementService {
     public AnnouncementView publish(String contestId, String content, boolean important,
                                     boolean requireConfirmation, String operatorId) {
         contestService.get(contestId);
-        AnnouncementEntity entity = new AnnouncementEntity();
-        entity.setId(UUID.randomUUID().toString());
-        entity.setContestId(contestId);
-        entity.setContent(content);
-        entity.setImportant(important);
-        entity.setRequireConfirmation(requireConfirmation);
-        entity.setCreatedBy(operatorId);
-        entity.setCreatedAt(Instant.now());
-        announcementMapper.insert(entity);
-        return toView(entity, null, null);
+        AnnouncementEntity announcement = new AnnouncementEntity();
+        announcement.setId(UUID.randomUUID().toString());
+        announcement.setContestId(contestId);
+        announcement.setContent(content);
+        announcement.setImportant(important);
+        announcement.setRequireConfirmation(requireConfirmation);
+        announcement.setCreatedBy(operatorId);
+        announcement.setCreatedAt(Instant.now());
+        announcementMapper.insert(announcement);
+        return toView(announcement, null, null);
     }
 
     /** 老师/管理员视角：全部公告，不含送达/确认信息。 */
@@ -60,7 +61,7 @@ public class AnnouncementService {
         return announcementMapper.selectList(new LambdaQueryWrapper<AnnouncementEntity>()
                         .eq(AnnouncementEntity::getContestId, contestId)
                         .orderByDesc(AnnouncementEntity::getCreatedAt))
-                .stream().map(e -> toView(e, null, null)).toList();
+                .stream().map(announcement -> toView(announcement, null, null)).toList();
     }
 
     /** 考生视角：拉取即送达（require_confirmation 的公告记录 delivered_at），并附带自己的确认时间。 */
@@ -80,7 +81,7 @@ public class AnnouncementService {
                 .stream()
                 .collect(Collectors.toMap(AnnouncementConfirmEntity::getAnnouncementId, Function.identity()));
 
-        List<AnnouncementView> views = new java.util.ArrayList<>();
+        List<AnnouncementView> views = new ArrayList<>();
         for (AnnouncementEntity announcement : announcements) {
             AnnouncementConfirmEntity confirm = confirms.get(announcement.getId());
             Instant deliveredAt = confirm == null ? null : confirm.getDeliveredAt();
@@ -125,9 +126,10 @@ public class AnnouncementService {
         }
     }
 
-    private AnnouncementView toView(AnnouncementEntity e, Instant deliveredAt, Instant confirmedAt) {
-        return new AnnouncementView(e.getId(), e.getContent(),
-                Boolean.TRUE.equals(e.getImportant()), Boolean.TRUE.equals(e.getRequireConfirmation()),
-                e.getCreatedBy(), e.getCreatedAt(), deliveredAt, confirmedAt);
+    private AnnouncementView toView(AnnouncementEntity announcement, Instant deliveredAt, Instant confirmedAt) {
+        return new AnnouncementView(announcement.getId(), announcement.getContent(),
+                Boolean.TRUE.equals(announcement.getImportant()),
+                Boolean.TRUE.equals(announcement.getRequireConfirmation()),
+                announcement.getCreatedBy(), announcement.getCreatedAt(), deliveredAt, confirmedAt);
     }
 }

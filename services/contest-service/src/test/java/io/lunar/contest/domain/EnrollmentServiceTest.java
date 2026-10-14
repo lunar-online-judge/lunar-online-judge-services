@@ -5,6 +5,9 @@ import io.lunar.contest.infra.CandidateEntity;
 import io.lunar.contest.infra.CandidateMapper;
 import io.lunar.contest.infra.ContestEntity;
 import io.lunar.contest.infra.ContestMapper;
+import com.baomidou.mybatisplus.core.MybatisConfiguration;
+import com.baomidou.mybatisplus.core.metadata.TableInfoHelper;
+import org.apache.ibatis.builder.MapperBuilderAssistant;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -16,9 +19,9 @@ import java.util.Map;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
-import static org.mockito.ArgumentMatchers.anyString;
-import static org.mockito.ArgumentMatchers.isNull;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 class EnrollmentServiceTest {
@@ -32,10 +35,9 @@ class EnrollmentServiceTest {
     @BeforeAll
     static void initMpMetadata() {
         // LambdaQueryWrapper 依赖 MP 的实体元数据缓存；纯单测需手动初始化
-        com.baomidou.mybatisplus.core.metadata.TableInfoHelper.initTableInfo(
-                new org.apache.ibatis.builder.MapperBuilderAssistant(
-                        new com.baomidou.mybatisplus.core.MybatisConfiguration(), ""),
-                io.lunar.contest.infra.CandidateEntity.class);
+        TableInfoHelper.initTableInfo(
+                new MapperBuilderAssistant(new MybatisConfiguration(), ""),
+                CandidateEntity.class);
     }
 
     @BeforeEach
@@ -47,16 +49,16 @@ class EnrollmentServiceTest {
     }
 
     private static CandidateEntity candidate(String studentId, String studentNo, String status) {
-        CandidateEntity c = new CandidateEntity();
-        c.setId("rel_1");
-        c.setContestId("c1");
-        c.setStudentId(studentId);
-        c.setStudentNoSnapshot(studentNo);
-        c.setUsernameSnapshot("student_" + studentNo);
-        c.setDisplayNameSnapshot("学生" + studentNo);
-        c.setStatus(status);
-        c.setEnrolledAt(Instant.now());
-        return c;
+        CandidateEntity candidate = new CandidateEntity();
+        candidate.setId("rel_1");
+        candidate.setContestId("c1");
+        candidate.setStudentId(studentId);
+        candidate.setStudentNoSnapshot(studentNo);
+        candidate.setUsernameSnapshot("student_" + studentNo);
+        candidate.setDisplayNameSnapshot("学生" + studentNo);
+        candidate.setStatus(status);
+        candidate.setEnrolledAt(Instant.now());
+        return candidate;
     }
 
     @Test
@@ -66,12 +68,13 @@ class EnrollmentServiceTest {
         when(authClient.createStudent("20260001", "student_20260001", "张三", "init-pass-123", "tok"))
                 .thenReturn(Map.of("studentId", "stu_1", "username", "student_20260001"));
 
-        var view = service.add("c1", "20260001", "student_20260001", "张三", "init-pass-123", "tok", "teacher_1");
+        EnrollmentService.CandidateView view =
+                service.add("c1", "20260001", "student_20260001", "张三", "init-pass-123", "tok", "teacher_1");
 
         assertThat(view.studentId()).isEqualTo("stu_1");
         assertThat(view.enrollmentStatus()).isEqualTo("ENROLLED");
         ArgumentCaptor<CandidateEntity> captor = ArgumentCaptor.forClass(CandidateEntity.class);
-        org.mockito.Mockito.verify(candidateMapper).insert(captor.capture());
+        verify(candidateMapper).insert(captor.capture());
         assertThat(captor.getValue().getStudentNoSnapshot()).isEqualTo("20260001");
         assertThat(captor.getValue().getAddedByTeacherId()).isEqualTo("teacher_1");
     }
@@ -83,10 +86,11 @@ class EnrollmentServiceTest {
                 .thenReturn(Map.of("studentId", "stu_exists", "username", "student_20260001",
                         "displayName", "老账号"));
 
-        var view = service.add("c1", "20260001", "student_20260001", "张三", "init-pass-123", "tok", "teacher_1");
+        EnrollmentService.CandidateView view =
+                service.add("c1", "20260001", "student_20260001", "张三", "init-pass-123", "tok", "teacher_1");
 
         assertThat(view.studentId()).isEqualTo("stu_exists");
-        org.mockito.Mockito.verify(authClient, org.mockito.Mockito.never()).createStudent(any(), any(), any(), any(), any());
+        verify(authClient, never()).createStudent(any(), any(), any(), any(), any());
     }
 
     @Test
@@ -106,10 +110,11 @@ class EnrollmentServiceTest {
         when(authClient.findStudent("20260001", "student_20260001", "tok"))
                 .thenReturn(Map.of("studentId", "stu_1", "username", "student_20260001"));
 
-        var view = service.add("c1", "20260001", "student_20260001", "张三", "init-pass-123", "tok", "teacher_1");
+        EnrollmentService.CandidateView view =
+                service.add("c1", "20260001", "student_20260001", "张三", "init-pass-123", "tok", "teacher_1");
 
         assertThat(view.enrollmentStatus()).isEqualTo("ENROLLED");
-        org.mockito.Mockito.verify(candidateMapper).updateById(removed);
+        verify(candidateMapper).updateById(removed);
     }
 
     @Test
@@ -127,7 +132,7 @@ class EnrollmentServiceTest {
         service.remove("c1", "stu_1", "teacher_1");
 
         ArgumentCaptor<CandidateEntity> captor = ArgumentCaptor.forClass(CandidateEntity.class);
-        org.mockito.Mockito.verify(candidateMapper).updateById(captor.capture());
+        verify(candidateMapper).updateById(captor.capture());
         assertThat(captor.getValue().getStatus()).isEqualTo("REMOVED");
         assertThat(captor.getValue().getRemovedAt()).isNotNull();
     }

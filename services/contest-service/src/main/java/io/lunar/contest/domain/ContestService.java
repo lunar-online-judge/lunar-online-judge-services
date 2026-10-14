@@ -4,9 +4,11 @@ import io.lunar.contest.infra.ContestEntity;
 import io.lunar.contest.infra.ContestMapper;
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.baomidou.mybatisplus.core.conditions.update.LambdaUpdateWrapper;
+import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import org.springframework.stereotype.Component;
 
 import java.time.Instant;
+import java.util.List;
 import java.util.UUID;
 
 /**
@@ -16,6 +18,9 @@ import java.util.UUID;
 @Component
 public class ContestService {
 
+    /** 管理端列表分页：items 为当前页竞赛。 */
+    public record ContestPage(List<ContestEntity> items, long total, long page, long pageSize) {}
+
     private final ContestMapper contestMapper;
 
     public ContestService(ContestMapper contestMapper) {
@@ -23,38 +28,38 @@ public class ContestService {
     }
 
     public ContestEntity create(String name, String description, Instant startAt, Instant endAt, String createdBy) {
-        ContestEntity entity = new ContestEntity();
-        entity.setId(UUID.randomUUID().toString());
-        entity.setName(name);
-        entity.setDescription(description);
-        entity.setStatus(ContestStatus.DRAFT.name());
-        entity.setStartAt(startAt);
-        entity.setEndAt(endAt);
-        entity.setCreatedBy(createdBy);
-        entity.setCreatedAt(Instant.now());
-        entity.setUpdatedAt(Instant.now());
-        contestMapper.insert(entity);
-        return entity;
+        ContestEntity contest = new ContestEntity();
+        contest.setId(UUID.randomUUID().toString());
+        contest.setName(name);
+        contest.setDescription(description);
+        contest.setStatus(ContestStatus.DRAFT.name());
+        contest.setStartAt(startAt);
+        contest.setEndAt(endAt);
+        contest.setCreatedBy(createdBy);
+        contest.setCreatedAt(Instant.now());
+        contest.setUpdatedAt(Instant.now());
+        contestMapper.insert(contest);
+        return contest;
     }
 
     public ContestEntity get(String id) {
-        ContestEntity entity = contestMapper.selectById(id);
-        if (entity == null) {
+        ContestEntity contest = contestMapper.selectById(id);
+        if (contest == null) {
             throw new ContestException.NotFound();
         }
-        return entity;
+        return contest;
     }
 
     /** 分页列表（管理端）：按创建时间倒序，可选状态过滤。 */
-    public com.baomidou.mybatisplus.extension.plugins.pagination.Page<ContestEntity> list(String status, long page, long pageSize) {
-        com.baomidou.mybatisplus.extension.plugins.pagination.Page<ContestEntity> p =
-                new com.baomidou.mybatisplus.extension.plugins.pagination.Page<>(page, pageSize);
+    public ContestPage list(String status, long page, long pageSize) {
+        Page<ContestEntity> pageRequest = new Page<>(page, pageSize);
         LambdaQueryWrapper<ContestEntity> query = new LambdaQueryWrapper<ContestEntity>()
                 .orderByDesc(ContestEntity::getCreatedAt);
         if (status != null && !status.isBlank()) {
             query.eq(ContestEntity::getStatus, status);
         }
-        return contestMapper.selectPage(p, query);
+        Page<ContestEntity> result = contestMapper.selectPage(pageRequest, query);
+        return new ContestPage(result.getRecords(), result.getTotal(), result.getCurrent(), result.getSize());
     }
 
     /** 提交管理员审核：DRAFT -> REVIEWING（老师/管理员）。 */

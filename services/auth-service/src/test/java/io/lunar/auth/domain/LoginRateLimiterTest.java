@@ -2,6 +2,7 @@ package io.lunar.auth.domain;
 
 import org.junit.jupiter.api.Test;
 
+import java.time.Clock;
 import java.time.Duration;
 import java.time.Instant;
 import java.time.ZoneId;
@@ -12,13 +13,13 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 class LoginRateLimiterTest {
 
-    private static final class SettableClock extends java.time.Clock {
+    private static final class SettableClock extends Clock {
         Instant instant = Instant.parse("2026-10-05T00:00:00Z");
 
-        void advance(Duration d) { instant = instant.plus(d); }
+        void advance(Duration duration) { instant = instant.plus(duration); }
 
         @Override public ZoneId getZone() { return ZoneOffset.UTC; }
-        @Override public java.time.Clock withZone(ZoneId zone) { return this; }
+        @Override public Clock withZone(ZoneId zone) { return this; }
         @Override public Instant instant() { return instant; }
     }
 

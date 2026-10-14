@@ -1,22 +1,16 @@
 package io.lunar.auth.domain;
 
+import io.lunar.common.api.ApiException;
+
 /**
  * 认证域异常基类：携带 api.md 错误码注册表中的稳定 code 与对应 HTTP 状态，
- * 由 api/ 的异常处理器统一转换为 ApiResponse.failure。
+ * 由 lunar-common 的全局异常处理器统一转换为 ApiResponse.failure。
  */
-public class AuthException extends RuntimeException {
-
-    private final String code;
-    private final int httpStatus;
+public class AuthException extends ApiException {
 
     private AuthException(String code, int httpStatus, String message) {
-        super(message);
-        this.code = code;
-        this.httpStatus = httpStatus;
+        super(code, httpStatus, message);
     }
-
-    public String code() { return code; }
-    public int httpStatus() { return httpStatus; }
 
     /** 401：用户不存在与密码错误返回同一码，防账号枚举。 */
     public static final class InvalidCredentials extends AuthException {

@@ -7,6 +7,7 @@ import io.lunar.problem.infra.ProblemVersionMapper;
 import io.lunar.problem.infra.TestcaseEntity;
 import io.lunar.problem.infra.TestcaseMapper;
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
+import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -23,6 +24,15 @@ import java.util.UUID;
 @Service
 public class ProblemService {
 
+    private static final String STATUS_DRAFT = "DRAFT";
+    private static final String STATUS_PUBLISHED = "PUBLISHED";
+
+    /** 未显式指定时的默认限制（题面不传限制字段时使用）。 */
+    private static final int DEFAULT_TIME_LIMIT_MS = 2000;
+    private static final int DEFAULT_MEMORY_LIMIT_KB = 262144;
+    private static final int DEFAULT_OUTPUT_LIMIT_KB = 65536;
+    private static final String DEFAULT_ALLOWED_LANGUAGES = "c,cpp,java,python";
+
     public record TestcasePayload(String name, String inputContent, String expectedOutput) {}
 
     public record ProblemView(String problemId, String title, String currentVersionId) {}
@@ -33,6 +43,11 @@ public class ProblemService {
                               String createdBy, Instant createdAt, Instant publishedAt) {}
 
     public record TestcaseView(String name, String inputContent, String expectedOutput) {}
+
+    /** 管理端列表行：不含题面与测试点，避免列表接口拉大字段。 */
+    public record ProblemSummary(String problemId, String title, String currentVersionId, Instant createdAt) {}
+
+    public record ProblemPage(List<ProblemSummary> items, long total, long page, long pageSize) {}
 
     private final ProblemMapper problemMapper;
     private final ProblemVersionMapper versionMapper;
@@ -92,10 +107,11 @@ public class ProblemService {
                 testcases, operatorId);
         // 未显式传测试点时复制基础版本的测试点
         if (testcases == null || testcases.isEmpty()) {
-            List<TestcaseEntity> baseCases = testcaseMapper.selectList(
+            List<TestcaseEntity> baseTestcases = testcaseMapper.selectList(
                     new LambdaQueryWrapper<TestcaseEntity>().eq(TestcaseEntity::getVersionId, baseVersionId));
-            for (TestcaseEntity tc : baseCases) {
-                insertTestcase(created.getId(), tc.getName(), tc.getInputContent(), tc.getExpectedOutput());
+            for (TestcaseEntity testcase : baseTestcases) {
+                insertTestcase(created.getId(), testcase.getName(), testcase.getInputContent(),
+                        testcase.getExpectedOutput());
             }
         }
         return toView(created);
@@ -109,10 +125,10 @@ public class ProblemService {
         if (version == null || !problemId.equals(version.getProblemId())) {
             throw new ProblemException.VersionNotFound();
         }
-        if (!"DRAFT".equals(version.getStatus())) {
+        if (!STATUS_DRAFT.equals(version.getStatus())) {
             throw new ProblemException.VersionImmutable();
         }
-        version.setStatus("PUBLISHED");
+        version.setStatus(STATUS_PUBLISHED);
         version.setPublishedAt(Instant.now());
         versionMapper.updateById(version);
 
@@ -123,20 +139,26 @@ public class ProblemService {
         return toView(version);
     }
 
-    /** 题目详情（考生视角）：当前发布版本的题面/样例/限制/语言；无发布版本时 404。绝不返回测试点。 */
     /** 分页列表（管理端）：按创建时间倒序，keyword 模糊匹配标题。 */
-    public com.baomidou.mybatisplus.extension.plugins.pagination.Page<ProblemEntity> list(String keyword, long page, long pageSize) {
-        com.baomidou.mybatisplus.extension.plugins.pagination.Page<ProblemEntity> p =
-                new com.baomidou.mybatisplus.extension.plugins.pagination.Page<>(page, pageSize);
-        com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper<ProblemEntity> query =
-                new com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper<ProblemEntity>()
-                        .orderByDesc(ProblemEntity::getCreatedAt);
+    public ProblemPage list(String keyword, long page, long pageSize) {
+        Page<ProblemEntity> pageRequest = new Page<>(page, pageSize);
+        LambdaQueryWrapper<ProblemEntity> query = new LambdaQueryWrapper<ProblemEntity>()
+                .orderByDesc(ProblemEntity::getCreatedAt);
         if (keyword != null && !keyword.isBlank()) {
             query.like(ProblemEntity::getTitle, keyword.trim());
         }
-        return problemMapper.selectPage(p, query);
+        Page<ProblemEntity> result = problemMapper.selectPage(pageRequest, query);
+        List<ProblemSummary> items = result.getRecords().stream()
+                .map(problem -> new ProblemSummary(problem.getId(), problem.getTitle(),
+                        problem.getCurrentVersionId() == null ? "" : problem.getCurrentVersionId(),
+                        problem.getCreatedAt()))
+                .toList();
+        return new ProblemPage(items, result.getTotal(), result.getCurrent(), result.getSize());
     }
 
+    /**
+     * 题目详情（考生视角）：当前发布版本的题面/样例/限制/语言；无发布版本时 404。绝不返回测试点。
+     */
     public VersionView getCurrentPublished(String problemId) {
         ProblemEntity problem = requireProblem(problemId);
         if (problem.getCurrentVersionId() == null) {
@@ -168,7 +190,8 @@ public class ProblemService {
         return testcaseMapper.selectList(new LambdaQueryWrapper<TestcaseEntity>()
                         .eq(TestcaseEntity::getVersionId, versionId)
                         .orderByAsc(TestcaseEntity::getName))
-                .stream().map(tc -> new TestcaseView(tc.getName(), tc.getInputContent(), tc.getExpectedOutput()))
+                .stream().map(testcase -> new TestcaseView(testcase.getName(), testcase.getInputContent(),
+                        testcase.getExpectedOutput()))
                 .toList();
     }
 
@@ -193,38 +216,40 @@ public class ProblemService {
         version.setStatement(statement);
         version.setSampleInput(sampleInput);
         version.setSampleOutput(sampleOutput);
-        version.setTimeLimitMs(timeLimitMs != null ? timeLimitMs : 2000);
-        version.setMemoryLimitKb(memoryLimitKb != null ? memoryLimitKb : 262144);
-        version.setOutputLimitKb(outputLimitKb != null ? outputLimitKb : 65536);
-        version.setAllowedLanguages(allowedLanguages != null ? allowedLanguages : "c,cpp,java,python");
-        version.setStatus("DRAFT");
+        version.setTimeLimitMs(timeLimitMs != null ? timeLimitMs : DEFAULT_TIME_LIMIT_MS);
+        version.setMemoryLimitKb(memoryLimitKb != null ? memoryLimitKb : DEFAULT_MEMORY_LIMIT_KB);
+        version.setOutputLimitKb(outputLimitKb != null ? outputLimitKb : DEFAULT_OUTPUT_LIMIT_KB);
+        version.setAllowedLanguages(
+                allowedLanguages != null ? allowedLanguages : DEFAULT_ALLOWED_LANGUAGES);
+        version.setStatus(STATUS_DRAFT);
         version.setCreatedBy(operatorId);
         version.setCreatedAt(Instant.now());
         versionMapper.insert(version);
         if (testcases != null) {
-            for (TestcasePayload tc : testcases) {
-                insertTestcase(version.getId(), tc.name(), tc.inputContent(), tc.expectedOutput());
+            for (TestcasePayload testcase : testcases) {
+                insertTestcase(version.getId(), testcase.name(), testcase.inputContent(), testcase.expectedOutput());
             }
         }
         return version;
     }
 
-    private void insertTestcase(String versionId, String name, String input, String expectedOutput) {
-        TestcaseEntity tc = new TestcaseEntity();
-        tc.setId(UUID.randomUUID().toString());
-        tc.setVersionId(versionId);
-        tc.setName(name);
-        tc.setInputContent(input);
-        tc.setExpectedOutput(expectedOutput);
-        testcaseMapper.insert(tc);
+    private void insertTestcase(String versionId, String name, String inputContent, String expectedOutput) {
+        TestcaseEntity testcase = new TestcaseEntity();
+        testcase.setId(UUID.randomUUID().toString());
+        testcase.setVersionId(versionId);
+        testcase.setName(name);
+        testcase.setInputContent(inputContent);
+        testcase.setExpectedOutput(expectedOutput);
+        testcaseMapper.insert(testcase);
     }
 
-    private VersionView toView(ProblemVersionEntity v) {
-        List<String> languages = v.getAllowedLanguages() == null ? List.of()
-                : List.of(v.getAllowedLanguages().split(","));
-        return new VersionView(v.getId(), v.getProblemId(), v.getVersionNo(), v.getTitle(), v.getStatement(),
-                v.getSampleInput(), v.getSampleOutput(), v.getTimeLimitMs(), v.getMemoryLimitKb(),
-                v.getOutputLimitKb(), languages, v.getStatus(), v.getCreatedBy(), v.getCreatedAt(),
-                v.getPublishedAt());
+    private VersionView toView(ProblemVersionEntity version) {
+        List<String> languages = version.getAllowedLanguages() == null ? List.of()
+                : List.of(version.getAllowedLanguages().split(","));
+        return new VersionView(version.getId(), version.getProblemId(), version.getVersionNo(), version.getTitle(),
+                version.getStatement(), version.getSampleInput(), version.getSampleOutput(),
+                version.getTimeLimitMs(), version.getMemoryLimitKb(), version.getOutputLimitKb(),
+                languages, version.getStatus(), version.getCreatedBy(), version.getCreatedAt(),
+                version.getPublishedAt());
     }
 }

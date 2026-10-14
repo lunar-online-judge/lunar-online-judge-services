@@ -8,7 +8,12 @@ import io.lunar.common.web.RequestIdFilter;
 import jakarta.validation.Valid;
 import jakarta.validation.constraints.NotBlank;
 import org.springframework.http.ResponseEntity;
-import org.springframework.web.bind.annotation.*;
+import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.PostMapping;
+import org.springframework.web.bind.annotation.RequestBody;
+import org.springframework.web.bind.annotation.RequestHeader;
+import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RestController;
 
 import java.time.Instant;
 import java.util.Map;
@@ -16,6 +21,8 @@ import java.util.Map;
 @RestController
 @RequestMapping("/api/v1/auth")
 public class AuthController {
+
+    private static final String TOKEN_TYPE_BEARER = "Bearer";
 
     private final AuthService authService;
     private final JwksService jwksService;
@@ -27,10 +34,11 @@ public class AuthController {
 
     /** 契约见 docs/api.md"登录"；requestId 由 RequestIdFilter 包装后恒可读。 */
     @PostMapping("/login")
-    public ResponseEntity<ApiResponse<LoginResponse>> login(@Valid @RequestBody LoginRequest request,
-                                                            @RequestHeader(value = RequestIdFilter.HEADER, required = false) String requestId) {
+    public ResponseEntity<ApiResponse<LoginResponse>> login(
+            @Valid @RequestBody LoginRequest request,
+            @RequestHeader(value = RequestIdFilter.HEADER, required = false) String requestId) {
         AuthService.LoginResult result = authService.login(request.username(), request.password());
-        LoginResponse body = new LoginResponse(result.userId(), result.accessToken(), "Bearer",
+        LoginResponse body = new LoginResponse(result.userId(), result.accessToken(), TOKEN_TYPE_BEARER,
                 result.expiresAt(), result.role(), result.passwordChangeRequired());
         return ResponseEntity.ok(ApiResponse.success(requestId, body));
     }

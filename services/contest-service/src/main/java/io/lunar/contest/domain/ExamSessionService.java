@@ -128,7 +128,7 @@ public class ExamSessionService {
 
     /** 服务间提交校验（供 submission-service）：会话 ACTIVE + 竞赛状态/时间窗口 + 名单 ENROLLED。 */
     public SubmissionCheck checkCanSubmit(String contestId, String studentId) {
-        io.lunar.contest.infra.ContestEntity contest = contestMapper.selectById(contestId);
+        ContestEntity contest = contestMapper.selectById(contestId);
         if (contest == null) {
             throw new ContestException.NotFound();
         }

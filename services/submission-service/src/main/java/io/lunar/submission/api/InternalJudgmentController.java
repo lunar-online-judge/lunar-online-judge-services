@@ -7,7 +7,12 @@ import jakarta.validation.Valid;
 import jakarta.validation.constraints.NotBlank;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.access.prepost.PreAuthorize;
-import org.springframework.web.bind.annotation.*;
+import org.springframework.web.bind.annotation.PathVariable;
+import org.springframework.web.bind.annotation.PostMapping;
+import org.springframework.web.bind.annotation.RequestBody;
+import org.springframework.web.bind.annotation.RequestHeader;
+import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RestController;
 
 /**
  * 判题结果回写（服务间，过渡实现）：当前由 judge-service / 管理员调用；
@@ -29,8 +34,8 @@ public class InternalJudgmentController {
             @PathVariable String id,
             @Valid @RequestBody JudgmentRequest request,
             @RequestHeader(value = RequestIdFilter.HEADER, required = false) String requestId) {
-        var view = submissionService.applyJudgment(id, request.verdict(), request.score(),
-                request.passedCases(), request.totalCases(), requestId);
+        SubmissionService.SubmissionView view = submissionService.applyJudgment(id, request.verdict(),
+                request.score(), request.passedCases(), request.totalCases(), requestId);
         return ResponseEntity.ok(ApiResponse.success(requestId, view));
     }
 

@@ -8,5 +8,5 @@ public record JudgeSubmissionCommand(
         String sourceCode,
         Map<String, String> testFiles,
         long cpuTimeLimitMs,
-        long memoryLimitKb) {
-}
+        long memoryLimitKb
+) { }

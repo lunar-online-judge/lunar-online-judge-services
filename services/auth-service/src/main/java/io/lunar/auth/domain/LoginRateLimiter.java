@@ -1,5 +1,6 @@
 package io.lunar.auth.domain;
 
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Component;
 
@@ -23,7 +24,7 @@ public class LoginRateLimiter {
     private final Clock clock;
     private final Map<String, State> states = new ConcurrentHashMap<>();
 
-    @org.springframework.beans.factory.annotation.Autowired
+    @Autowired
     public LoginRateLimiter(@Value("${auth.login.max-failures:5}") int maxFailures,
                             @Value("${auth.login.lock-minutes:5}") long lockMinutes) {
         this(maxFailures, Duration.ofMinutes(lockMinutes), Clock.systemUTC());
@@ -44,8 +45,8 @@ public class LoginRateLimiter {
     }
 
     public void recordFailure(String username) {
-        states.compute(username, (k, state) -> {
-            int failures = (state == null ? 0 : state.failures()) + 1;
+        states.compute(username, (usernameKey, currentState) -> {
+            int failures = (currentState == null ? 0 : currentState.failures()) + 1;
             Instant lockedUntil = failures >= maxFailures ? clock.instant().plus(lockDuration) : null;
             return new State(failures, lockedUntil);
         });

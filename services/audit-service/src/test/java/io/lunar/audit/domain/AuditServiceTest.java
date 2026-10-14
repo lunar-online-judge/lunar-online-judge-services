@@ -2,6 +2,10 @@ package io.lunar.audit.domain;
 
 import io.lunar.audit.infra.AuditLogEntity;
 import io.lunar.audit.infra.AuditLogMapper;
+import com.baomidou.mybatisplus.core.MybatisConfiguration;
+import com.baomidou.mybatisplus.core.metadata.TableInfoHelper;
+import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
+import org.apache.ibatis.builder.MapperBuilderAssistant;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
@@ -21,9 +25,9 @@ class AuditServiceTest {
 
     @BeforeAll
     static void initMpMetadata() {
-        com.baomidou.mybatisplus.core.metadata.TableInfoHelper.initTableInfo(
-                new org.apache.ibatis.builder.MapperBuilderAssistant(
-                        new com.baomidou.mybatisplus.core.MybatisConfiguration(), ""),
+        TableInfoHelper.initTableInfo(
+                new MapperBuilderAssistant(
+                        new MybatisConfiguration(), ""),
                 AuditLogEntity.class);
     }
 
@@ -34,14 +38,14 @@ class AuditServiceTest {
 
         ArgumentCaptor<AuditLogEntity> captor = ArgumentCaptor.forClass(AuditLogEntity.class);
         verify(mapper).insert(captor.capture());
-        AuditLogEntity e = captor.getValue();
-        assertThat(e.getAction()).isEqualTo("RISK_EVENT_REVIEWED");
-        assertThat(e.getActorId()).isEqualTo("teacher_1");
-        assertThat(e.getActorRole()).isEqualTo("TEACHER");
-        assertThat(e.getTargetId()).isEqualTo("evt_1");
-        assertThat(e.getContestId()).isEqualTo("c1");
-        assertThat(e.getDetail()).isEqualTo("OPEN->CONFIRMED");
-        assertThat(e.getTraceId()).isEqualTo("trace-1");
+        AuditLogEntity auditLog = captor.getValue();
+        assertThat(auditLog.getAction()).isEqualTo("RISK_EVENT_REVIEWED");
+        assertThat(auditLog.getActorId()).isEqualTo("teacher_1");
+        assertThat(auditLog.getActorRole()).isEqualTo("TEACHER");
+        assertThat(auditLog.getTargetId()).isEqualTo("evt_1");
+        assertThat(auditLog.getContestId()).isEqualTo("c1");
+        assertThat(auditLog.getDetail()).isEqualTo("OPEN->CONFIRMED");
+        assertThat(auditLog.getTraceId()).isEqualTo("trace-1");
         assertThat(view.id()).isNotBlank();
     }
 
@@ -57,7 +61,7 @@ class AuditServiceTest {
 
     @Test
     void queryAppliesFiltersAndPagination() {
-        var page = new com.baomidou.mybatisplus.extension.plugins.pagination.Page<AuditLogEntity>(1, 20, 0);
+        var page = new Page<AuditLogEntity>(1, 20, 0);
         page.setRecords(List.of());
         when(mapper.selectPage(any(), any())).thenReturn(page);
 

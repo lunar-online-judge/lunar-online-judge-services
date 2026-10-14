@@ -1,10 +1,14 @@
 package io.lunar.auth.api;
 
+import io.lunar.auth.config.SecurityConfig;
 import io.lunar.auth.domain.StudentAccountService;
 import io.lunar.auth.domain.UserException;
+import io.lunar.common.web.WebCommonAutoConfiguration;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.mockito.Mockito;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.boot.autoconfigure.ImportAutoConfiguration;
 import org.springframework.boot.test.autoconfigure.web.servlet.WebMvcTest;
 import org.springframework.context.annotation.Import;
 import org.springframework.http.MediaType;
@@ -25,8 +29,10 @@ import static org.springframework.test.web.servlet.request.MockMvcRequestBuilder
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
+/** 错误响应断言走 lunar-common 的自动配置（与运行时同一条装配路径），而非手工 import 处理器。 */
 @WebMvcTest(InternalStudentController.class)
-@Import(io.lunar.auth.config.SecurityConfig.class)
+@Import(SecurityConfig.class)
+@ImportAutoConfiguration(WebCommonAutoConfiguration.class)
 class InternalStudentControllerTest {
 
     @Autowired MockMvc mockMvc;
@@ -128,7 +134,7 @@ class InternalStudentControllerTest {
 
     @Test
     void resetPasswordReturnsPasswordChangeRequired() throws Exception {
-        org.mockito.Mockito.doNothing()
+        Mockito.doNothing()
                 .when(studentAccountService).resetStudentPassword(eq("stu_1"), eq("temp-pass-456"), eq("teacher_1"));
 
         mockMvc.perform(post("/api/v1/internal/students/stu_1/password-reset")

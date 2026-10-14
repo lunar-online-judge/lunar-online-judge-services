@@ -11,12 +11,16 @@ import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Component;
 
 import java.time.Instant;
+import java.util.List;
 
 /** Outbox 发布器：lunar-risk-event-created 等事件投递 RocketMQ（gateway 告警的未来消费方）。 */
 @Component
 public class OutboxPublisher {
 
     private static final Logger log = LoggerFactory.getLogger(OutboxPublisher.class);
+
+    /** 单轮发布的最大事件数，避免一次拉取过多拖垮调度线程。 */
+    private static final int PUBLISH_BATCH_SIZE = 100;
 
     private final OutboxEventMapper outboxMapper;
     private final RocketMQTemplate rocketMQTemplate;
@@ -28,10 +32,10 @@ public class OutboxPublisher {
 
     @Scheduled(fixedDelayString = "${outbox.publish-interval-ms:2000}")
     public void publishPending() {
-        var pending = outboxMapper.selectList(new LambdaQueryWrapper<OutboxEventEntity>()
+        List<OutboxEventEntity> pending = outboxMapper.selectList(new LambdaQueryWrapper<OutboxEventEntity>()
                 .isNull(OutboxEventEntity::getPublishedAt)
                 .orderByAsc(OutboxEventEntity::getCreatedAt)
-                .last("limit 100"));
+                .last("limit " + PUBLISH_BATCH_SIZE));
         for (OutboxEventEntity event : pending) {
             try {
                 rocketMQTemplate.syncSend(event.getEventType(),
@@ -42,9 +46,9 @@ public class OutboxPublisher {
                 event.setPublishedAt(Instant.now());
                 outboxMapper.updateById(event);
                 log.info("Outbox published eventId={} type={}", event.getEventId(), event.getEventType());
-            } catch (Exception e) {
+            } catch (Exception exception) {
                 log.warn("Outbox publish failed eventId={} type={}：留待下一轮重试",
-                        event.getEventId(), event.getEventType());
+                        event.getEventId(), event.getEventType(), exception);
             }
         }
     }

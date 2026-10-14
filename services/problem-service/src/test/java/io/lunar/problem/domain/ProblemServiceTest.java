@@ -1,13 +1,15 @@
 package io.lunar.problem.domain;
 
+import com.baomidou.mybatisplus.core.MybatisConfiguration;
+import com.baomidou.mybatisplus.core.metadata.TableInfoHelper;
 import io.lunar.problem.infra.ProblemEntity;
 import io.lunar.problem.infra.ProblemMapper;
 import io.lunar.problem.infra.ProblemVersionEntity;
 import io.lunar.problem.infra.ProblemVersionMapper;
 import io.lunar.problem.infra.TestcaseEntity;
 import io.lunar.problem.infra.TestcaseMapper;
+import org.apache.ibatis.builder.MapperBuilderAssistant;
 import org.junit.jupiter.api.BeforeAll;
-import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
 
@@ -19,6 +21,7 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
@@ -31,33 +34,41 @@ class ProblemServiceTest {
 
     @BeforeAll
     static void initMpMetadata() {
-        for (Class<?> entity : List.of(ProblemVersionEntity.class, TestcaseEntity.class)) {
-            com.baomidou.mybatisplus.core.metadata.TableInfoHelper.initTableInfo(
-                    new org.apache.ibatis.builder.MapperBuilderAssistant(
-                            new com.baomidou.mybatisplus.core.MybatisConfiguration(), ""),
-                    entity);
+        // MyBatis-Plus 的 Lambda 条件构造需要实体元数据，纯单测下手工初始化
+        for (Class<?> entityType : List.of(ProblemVersionEntity.class, TestcaseEntity.class)) {
+            TableInfoHelper.initTableInfo(new MapperBuilderAssistant(new MybatisConfiguration(), ""), entityType);
         }
     }
 
-    private static ProblemVersionEntity version(String id, String problemId, int no, String status) {
-        ProblemVersionEntity v = new ProblemVersionEntity();
-        v.setId(id);
-        v.setProblemId(problemId);
-        v.setVersionNo(no);
-        v.setTitle("A+B");
-        v.setStatement("求和");
-        v.setTimeLimitMs(2000);
-        v.setMemoryLimitKb(262144);
-        v.setOutputLimitKb(65536);
-        v.setAllowedLanguages("c,cpp,java");
-        v.setStatus(status);
-        v.setCreatedAt(Instant.now());
-        return v;
+    private static ProblemVersionEntity problemVersion(String id, String problemId, int versionNo, String status) {
+        ProblemVersionEntity version = new ProblemVersionEntity();
+        version.setId(id);
+        version.setProblemId(problemId);
+        version.setVersionNo(versionNo);
+        version.setTitle("A+B");
+        version.setStatement("求和");
+        version.setTimeLimitMs(2000);
+        version.setMemoryLimitKb(262144);
+        version.setOutputLimitKb(65536);
+        version.setAllowedLanguages("c,cpp,java");
+        version.setStatus(status);
+        version.setCreatedAt(Instant.now());
+        return version;
+    }
+
+    private static TestcaseEntity testcase(String name, String input, String output) {
+        TestcaseEntity testcase = new TestcaseEntity();
+        testcase.setId("t" + name);
+        testcase.setVersionId("v1");
+        testcase.setName(name);
+        testcase.setInputContent(input);
+        testcase.setExpectedOutput(output);
+        return testcase;
     }
 
     @Test
     void createInsertsProblemVersionAndTestcases() {
-        var view = service.create("A+B", "求和", "1 2", "3", 1000, 131072, 32768, "c,cpp",
+        ProblemService.ProblemView view = service.create("A+B", "求和", "1 2", "3", 1000, 131072, 32768, "c,cpp",
                 List.of(new ProblemService.TestcasePayload("01", "1 2", "3"),
                         new ProblemService.TestcasePayload("02", "3 4", "7")),
                 "teacher_1");
@@ -65,7 +76,7 @@ class ProblemServiceTest {
         assertThat(view.problemId()).isNotBlank();
         verify(problemMapper).insert(any(ProblemEntity.class));
         verify(versionMapper).insert(any(ProblemVersionEntity.class));
-        verify(testcaseMapper, org.mockito.Mockito.times(2)).insert(any(TestcaseEntity.class));
+        verify(testcaseMapper, times(2)).insert(any(TestcaseEntity.class));
     }
 
     @Test
@@ -84,11 +95,12 @@ class ProblemServiceTest {
         ProblemEntity problem = new ProblemEntity();
         problem.setId("p1");
         when(problemMapper.selectById("p1")).thenReturn(problem);
-        when(versionMapper.selectById("v1")).thenReturn(version("v1", "p1", 1, "PUBLISHED"));
-        when(versionMapper.selectList(any())).thenReturn(List.of(version("v1", "p1", 1, "PUBLISHED")));
-        when(testcaseMapper.selectList(any())).thenReturn(List.of(tc("01", "1 2", "3")));
+        when(versionMapper.selectById("v1")).thenReturn(problemVersion("v1", "p1", 1, "PUBLISHED"));
+        when(versionMapper.selectList(any())).thenReturn(List.of(problemVersion("v1", "p1", 1, "PUBLISHED")));
+        when(testcaseMapper.selectList(any())).thenReturn(List.of(testcase("01", "1 2", "3")));
 
-        var view = service.createNewVersion("p1", "v1", null, "新题面", null, null, null, null, null, null, null, "teacher_1");
+        ProblemService.VersionView view = service.createNewVersion("p1", "v1", null, "新题面",
+                null, null, null, null, null, null, null, "teacher_1");
 
         assertThat(view.versionNo()).isEqualTo(2);
         assertThat(view.statement()).isEqualTo("新题面");
@@ -104,9 +116,9 @@ class ProblemServiceTest {
         ProblemEntity problem = new ProblemEntity();
         problem.setId("p1");
         when(problemMapper.selectById("p1")).thenReturn(problem);
-        when(versionMapper.selectById("v1")).thenReturn(version("v1", "p1", 1, "DRAFT"));
+        when(versionMapper.selectById("v1")).thenReturn(problemVersion("v1", "p1", 1, "DRAFT"));
 
-        var view = service.publishVersion("p1", "v1");
+        ProblemService.VersionView view = service.publishVersion("p1", "v1");
 
         assertThat(view.status()).isEqualTo("PUBLISHED");
         ArgumentCaptor<ProblemEntity> captor = ArgumentCaptor.forClass(ProblemEntity.class);
@@ -119,7 +131,7 @@ class ProblemServiceTest {
         ProblemEntity problem = new ProblemEntity();
         problem.setId("p1");
         when(problemMapper.selectById("p1")).thenReturn(problem);
-        when(versionMapper.selectById("v1")).thenReturn(version("v1", "p1", 1, "PUBLISHED"));
+        when(versionMapper.selectById("v1")).thenReturn(problemVersion("v1", "p1", 1, "PUBLISHED"));
 
         assertThatThrownBy(() -> service.publishVersion("p1", "v1"))
                 .isInstanceOf(ProblemException.VersionImmutable.class);
@@ -142,9 +154,9 @@ class ProblemServiceTest {
         problem.setId("p1");
         problem.setCurrentVersionId("v1");
         when(problemMapper.selectById("p1")).thenReturn(problem);
-        when(versionMapper.selectById("v1")).thenReturn(version("v1", "p1", 1, "PUBLISHED"));
+        when(versionMapper.selectById("v1")).thenReturn(problemVersion("v1", "p1", 1, "PUBLISHED"));
 
-        var view = service.getCurrentPublished("p1");
+        ProblemService.VersionView view = service.getCurrentPublished("p1");
 
         assertThat(view.title()).isEqualTo("A+B");
         assertThat(view.allowedLanguages()).containsExactly("c", "cpp", "java");
@@ -157,19 +169,9 @@ class ProblemServiceTest {
         ProblemEntity problem = new ProblemEntity();
         problem.setId("p1");
         when(problemMapper.selectById("p1")).thenReturn(problem);
-        when(versionMapper.selectById("v9")).thenReturn(version("v9", "p2", 1, "DRAFT"));
+        when(versionMapper.selectById("v9")).thenReturn(problemVersion("v9", "p2", 1, "DRAFT"));
 
         assertThatThrownBy(() -> service.listTestcases("p1", "v9"))
                 .isInstanceOf(ProblemException.VersionNotFound.class);
-    }
-
-    private static TestcaseEntity tc(String name, String input, String output) {
-        TestcaseEntity t = new TestcaseEntity();
-        t.setId("t" + name);
-        t.setVersionId("v1");
-        t.setName(name);
-        t.setInputContent(input);
-        t.setExpectedOutput(output);
-        return t;
     }
 }

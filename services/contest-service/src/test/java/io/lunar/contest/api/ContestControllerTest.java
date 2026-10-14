@@ -1,11 +1,17 @@
 package io.lunar.contest.api;
 
-import io.lunar.contest.infra.ContestEntity;
+import io.lunar.common.web.WebCommonAutoConfiguration;
+import io.lunar.contest.config.SecurityConfig;
+import io.lunar.contest.domain.AnnouncementService;
 import io.lunar.contest.domain.ContestException;
 import io.lunar.contest.domain.ContestService;
+import io.lunar.contest.domain.ContestStatus;
+import io.lunar.contest.domain.EnrollmentService;
+import io.lunar.contest.infra.ContestEntity;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.boot.autoconfigure.ImportAutoConfiguration;
 import org.springframework.boot.test.autoconfigure.web.servlet.WebMvcTest;
 import org.springframework.context.annotation.Import;
 import org.springframework.security.oauth2.jwt.Jwt;
@@ -26,30 +32,32 @@ import static org.springframework.test.web.servlet.request.MockMvcRequestBuilder
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
+/** 错误响应断言走 lunar-common 的自动配置（与运行时同一条装配路径），而非手工 import 处理器。 */
 @WebMvcTest(ContestController.class)
-@Import({io.lunar.contest.config.SecurityConfig.class, ApiExceptionHandler.class})
+@Import(SecurityConfig.class)
+@ImportAutoConfiguration(WebCommonAutoConfiguration.class)
 class ContestControllerTest {
 
     @Autowired MockMvc mockMvc;
 
     @MockitoBean ContestService contestService;
-    @MockitoBean io.lunar.contest.domain.EnrollmentService enrollmentService;
-    @MockitoBean io.lunar.contest.domain.AnnouncementService announcementService;
+    @MockitoBean EnrollmentService enrollmentService;
+    @MockitoBean AnnouncementService announcementService;
     @MockitoBean JwtDecoder jwtDecoder;
 
-    private static final ContestEntity ENTITY = entity("c1", "DRAFT");
+    private static final ContestEntity CONTEST = contest("c1", "DRAFT");
 
-    private static ContestEntity entity(String id, String status) {
-        ContestEntity e = new ContestEntity();
-        e.setId(id);
-        e.setName("考试A");
-        e.setStatus(status);
-        e.setStartAt(Instant.parse("2026-11-01T02:00:00Z"));
-        e.setEndAt(Instant.parse("2026-11-01T04:00:00Z"));
-        e.setCreatedBy("user_1");
-        e.setCreatedAt(Instant.now());
-        e.setUpdatedAt(Instant.now());
-        return e;
+    private static ContestEntity contest(String id, String status) {
+        ContestEntity contest = new ContestEntity();
+        contest.setId(id);
+        contest.setName("考试A");
+        contest.setStatus(status);
+        contest.setStartAt(Instant.parse("2026-11-01T02:00:00Z"));
+        contest.setEndAt(Instant.parse("2026-11-01T04:00:00Z"));
+        contest.setCreatedBy("user_1");
+        contest.setCreatedAt(Instant.now());
+        contest.setUpdatedAt(Instant.now());
+        return contest;
     }
 
     @BeforeEach
@@ -74,7 +82,8 @@ class ContestControllerTest {
     void createWithoutTokenIs401() throws Exception {
         mockMvc.perform(post("/api/v1/contests")
                         .contentType(APPLICATION_JSON)
-                        .content("{\"name\":\"考试A\",\"startAt\":\"2026-11-01T02:00:00Z\",\"endAt\":\"2026-11-01T04:00:00Z\"}"))
+                        .content("{\"name\":\"考试A\",\"startAt\":\"2026-11-01T02:00:00Z\","
+                                + "\"endAt\":\"2026-11-01T04:00:00Z\"}"))
                 .andExpect(status().isUnauthorized());
     }
 
@@ -82,12 +91,13 @@ class ContestControllerTest {
     void teacherCanCreateContest() throws Exception {
         decoderRoles("TEACHER");
         when(contestService.create(anyString(), any(), any(Instant.class), any(Instant.class), eq("user_1")))
-                .thenReturn(ENTITY);
+                .thenReturn(CONTEST);
 
         mockMvc.perform(post("/api/v1/contests")
                         .header("Authorization", "Bearer token-value")
                         .contentType(APPLICATION_JSON)
-                        .content("{\"name\":\"考试A\",\"startAt\":\"2026-11-01T02:00:00Z\",\"endAt\":\"2026-11-01T04:00:00Z\"}"))
+                        .content("{\"name\":\"考试A\",\"startAt\":\"2026-11-01T02:00:00Z\","
+                                + "\"endAt\":\"2026-11-01T04:00:00Z\"}"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.data.status").value("DRAFT"))
                 .andExpect(jsonPath("$.data.createdBy").value("user_1"));
@@ -98,13 +108,14 @@ class ContestControllerTest {
         mockMvc.perform(post("/api/v1/contests")
                         .header("Authorization", "Bearer token-value")
                         .contentType(APPLICATION_JSON)
-                        .content("{\"name\":\"考试A\",\"startAt\":\"2026-11-01T02:00:00Z\",\"endAt\":\"2026-11-01T04:00:00Z\"}"))
+                        .content("{\"name\":\"考试A\",\"startAt\":\"2026-11-01T02:00:00Z\","
+                                + "\"endAt\":\"2026-11-01T04:00:00Z\"}"))
                 .andExpect(status().isForbidden());
     }
 
     @Test
     void onlyAdminCanPublish() throws Exception {
-        when(contestService.publish("c1")).thenReturn(entity("c1", "PUBLISHED"));
+        when(contestService.publish("c1")).thenReturn(contest("c1", "PUBLISHED"));
 
         // 老师不行
         decoderRoles("TEACHER");
@@ -132,7 +143,7 @@ class ContestControllerTest {
     void invalidTransitionReturns409WithStableCode() throws Exception {
         decoderRoles("ADMIN");
         when(contestService.submitForReview("c1")).thenThrow(new ContestException.InvalidTransition(
-                io.lunar.contest.domain.ContestStatus.PUBLISHED, io.lunar.contest.domain.ContestStatus.REVIEWING));
+                ContestStatus.PUBLISHED, ContestStatus.REVIEWING));
 
         mockMvc.perform(post("/api/v1/contests/c1/review").header("Authorization", "Bearer token-value"))
                 .andExpect(status().isConflict())

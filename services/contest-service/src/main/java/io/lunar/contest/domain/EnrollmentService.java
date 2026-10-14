@@ -87,7 +87,8 @@ public class EnrollmentService {
             existing.setEnrolledAt(Instant.now());
             existing.setRemovedAt(null);
             candidateMapper.updateById(existing);
-            log.info("AUDIT event=STUDENT_REENROLLED contestId={} studentId={} by={}", contestId, studentId, operatorId);
+            log.info("AUDIT event=STUDENT_REENROLLED contestId={} studentId={} by={}",
+                    contestId, studentId, operatorId);
             return toView(existing);
         }
 
@@ -126,7 +127,8 @@ public class EnrollmentService {
                               String operatorToken, String operatorId) {
         requireEnrolled(contestId, studentId);
         authClient.resetPassword(studentId, temporaryPassword, operatorToken);
-        log.info("AUDIT event=STUDENT_PASSWORD_RESET contestId={} studentId={} by={}", contestId, studentId, operatorId);
+        log.info("AUDIT event=STUDENT_PASSWORD_RESET contestId={} studentId={} by={}",
+                contestId, studentId, operatorId);
     }
 
     /** 移出名单：软删除（status=REMOVED），学生账号与历史数据保留。 */
@@ -150,8 +152,9 @@ public class EnrollmentService {
     }
 
     /** 名单视图取快照列（权威值在 auth_schema.users，快照用于报名当时的名单展示与审计）。 */
-    private CandidateView toView(CandidateEntity c) {
-        return new CandidateView(c.getStudentId(), c.getStudentNoSnapshot(), c.getUsernameSnapshot(),
-                c.getDisplayNameSnapshot(), c.getStatus(), c.getAddedByTeacherId(), c.getEnrolledAt());
+    private CandidateView toView(CandidateEntity candidate) {
+        return new CandidateView(candidate.getStudentId(), candidate.getStudentNoSnapshot(),
+                candidate.getUsernameSnapshot(), candidate.getDisplayNameSnapshot(), candidate.getStatus(),
+                candidate.getAddedByTeacherId(), candidate.getEnrolledAt());
     }
 }

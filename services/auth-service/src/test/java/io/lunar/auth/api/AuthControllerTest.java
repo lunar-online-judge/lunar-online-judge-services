@@ -1,14 +1,18 @@
 package io.lunar.auth.api;
 
+import io.lunar.auth.config.SecurityConfig;
 import io.lunar.auth.domain.AuthException;
 import io.lunar.auth.domain.AuthService;
 import io.lunar.auth.domain.JwksService;
 import io.lunar.common.security.Role;
+import io.lunar.common.web.WebCommonAutoConfiguration;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.boot.autoconfigure.ImportAutoConfiguration;
 import org.springframework.boot.test.autoconfigure.web.servlet.WebMvcTest;
 import org.springframework.context.annotation.Import;
 import org.springframework.http.MediaType;
+import org.springframework.security.oauth2.jwt.JwtDecoder;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.test.web.servlet.MockMvc;
 
@@ -22,15 +26,17 @@ import static org.springframework.test.web.servlet.request.MockMvcRequestBuilder
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
+/** 错误响应断言走 lunar-common 的自动配置（与运行时同一条装配路径），而非手工 import 处理器。 */
 @WebMvcTest(AuthController.class)
-@Import({io.lunar.auth.config.SecurityConfig.class, io.lunar.auth.api.ApiExceptionHandler.class})
+@Import(SecurityConfig.class)
+@ImportAutoConfiguration(WebCommonAutoConfiguration.class)
 class AuthControllerTest {
 
     @Autowired MockMvc mockMvc;
 
     @MockitoBean AuthService authService;
     @MockitoBean JwksService jwksService;
-    @MockitoBean org.springframework.security.oauth2.jwt.JwtDecoder jwtDecoder;
+    @MockitoBean JwtDecoder jwtDecoder;
 
     private static final AuthService.LoginResult RESULT = new AuthService.LoginResult(
             "user_1", "jwt-token-value", Instant.parse("2026-10-05T12:30:00Z"), Role.CANDIDATE, true);

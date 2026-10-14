@@ -35,7 +35,34 @@ public class GoJudgeAdapter implements JudgeEngine {
     private static final long MAX_CPU_MS = 300_000;
     private static final int RUN_PROC_LIMIT = 128;
     private static final int MAX_MESSAGE_LENGTH = 2000;
+    private static final long NANOS_PER_MILLI = 1_000_000L;
+    private static final long BYTES_PER_KB = 1024L;
     private static final List<String> SANDBOX_ENV = List.of("PATH=/usr/local/bin:/usr/bin:/bin");
+
+    /** clockLimit 相对 cpuLimit 的宽裕量（毫秒），避免调度抖动把正常程序判成超时。 */
+    private static final long CLOCK_LIMIT_GRACE_MS = 1000;
+
+    /** go-judge fd 采集名：stdout/stderr 内容经 files 回传。 */
+    private static final String FD_STDOUT = "stdout";
+    private static final String FD_STDERR = "stderr";
+
+    /** go-judge /run 响应 status 取值（协议字符串，禁改）。 */
+    private static final String GO_JUDGE_ACCEPTED = "Accepted";
+    private static final String GO_JUDGE_TIME_LIMIT_EXCEEDED = "Time Limit Exceeded";
+    private static final String GO_JUDGE_MEMORY_LIMIT_EXCEEDED = "Memory Limit Exceeded";
+    private static final String GO_JUDGE_OUTPUT_LIMIT_EXCEEDED = "Output Limit Exceeded";
+    private static final String GO_JUDGE_NONZERO_EXIT_STATUS = "Nonzero Exit Status";
+    private static final String GO_JUDGE_SIGNALLED = "Signalled";
+
+    /** 平台 verdict 码（下发给 submission-service 的契约值，禁改）。 */
+    private static final String VERDICT_ACCEPTED = "ACCEPTED";
+    private static final String VERDICT_WRONG_ANSWER = "WRONG_ANSWER";
+    private static final String VERDICT_COMPILE_ERROR = "COMPILE_ERROR";
+    private static final String VERDICT_TLE = "TLE";
+    private static final String VERDICT_MLE = "MLE";
+    private static final String VERDICT_OLE = "OLE";
+    private static final String VERDICT_RE = "RE";
+    private static final String VERDICT_SYSTEM_ERROR = "SYSTEM_ERROR";
 
     private final GoJudgeTransport transport;
     private final Map<String, JudgeResult> results = new ConcurrentHashMap<>();
@@ -80,8 +107,9 @@ public class GoJudgeAdapter implements JudgeEngine {
         }
         try {
             return runTestcases(engineId, template, command, testcases);
-        } catch (Exception e) {
-            return systemError(engineId, "go-judge 调用失败: " + e.getMessage());
+        } catch (Exception exception) {
+            // 整段调用边界的兜底：任何底层异常都归一化为 SYSTEM_ERROR，消息携带原始异常信息
+            return systemError(engineId, "go-judge 调用失败: " + exception.getMessage());
         }
     }
 
@@ -89,13 +117,13 @@ public class GoJudgeAdapter implements JudgeEngine {
                                      JudgeSubmissionCommand command, List<TestCase> testcases) {
         String programFileId = null;
         if (template.compileArgs != null) {
-            GoJudgeModels.RunResult compile = transport.run(new GoJudgeModels.RunRequest(engineId,
+            GoJudgeModels.RunResult compileResult = transport.run(new GoJudgeModels.RunRequest(engineId,
                     List.of(compileCmd(template, command.sourceCode())))).get(0);
-            programFileId = compile.fileIds() == null ? null
-                    : compile.fileIds().get(template.compileOutputs.get(0));
-            if (!"Accepted".equals(compile.status()) || programFileId == null) {
-                return new JudgeResult(engineId, "COMPILE_ERROR", null, null,
-                        truncate(compileStderr(compile)));
+            programFileId = compileResult.fileIds() == null ? null
+                    : compileResult.fileIds().get(template.compileOutputs.get(0));
+            if (!GO_JUDGE_ACCEPTED.equals(compileResult.status()) || programFileId == null) {
+                return new JudgeResult(engineId, VERDICT_COMPILE_ERROR, null, null,
+                        truncate(compileStderr(compileResult)));
             }
         }
 
@@ -103,21 +131,21 @@ public class GoJudgeAdapter implements JudgeEngine {
         Long maxTimeNs = null;
         Long maxMemoryBytes = null;
         for (int i = 0; i < testcases.size(); i++) {
-            TestCase tc = testcases.get(i);
-            GoJudgeModels.RunResult r = transport.run(new GoJudgeModels.RunRequest(engineId,
-                    List.of(runCmd(template, command, tc, programFileId)))).get(0);
-            maxTimeNs = max(maxTimeNs, r.time());
-            maxMemoryBytes = max(maxMemoryBytes, r.memory());
-            String fail = failVerdictOf(r, tc);
-            if (fail != null) {
-                String detail = "测试点 " + (i + 1) + "：" + failDetailOf(fail, r) + "（通过 "
+            TestCase testcase = testcases.get(i);
+            GoJudgeModels.RunResult runResult = transport.run(new GoJudgeModels.RunRequest(engineId,
+                    List.of(runCmd(template, command, testcase, programFileId)))).get(0);
+            maxTimeNs = max(maxTimeNs, runResult.time());
+            maxMemoryBytes = max(maxMemoryBytes, runResult.memory());
+            String failVerdict = failVerdictOf(runResult, testcase);
+            if (failVerdict != null) {
+                String detail = "测试点 " + (i + 1) + "：" + failDetailOf(failVerdict, runResult) + "（通过 "
                         + passed + "/" + testcases.size() + "）";
-                return new JudgeResult(engineId, fail, timeMsOf(maxTimeNs), memoryKbOf(maxMemoryBytes),
+                return new JudgeResult(engineId, failVerdict, timeMsOf(maxTimeNs), memoryKbOf(maxMemoryBytes),
                         truncate(detail));
             }
             passed++;
         }
-        return new JudgeResult(engineId, "ACCEPTED", timeMsOf(maxTimeNs), memoryKbOf(maxMemoryBytes),
+        return new JudgeResult(engineId, VERDICT_ACCEPTED, timeMsOf(maxTimeNs), memoryKbOf(maxMemoryBytes),
                 "通过 " + passed + "/" + testcases.size() + " 测试点");
     }
 
@@ -130,58 +158,58 @@ public class GoJudgeAdapter implements JudgeEngine {
     }
 
     private GoJudgeModels.Cmd runCmd(LanguageTemplate template, JudgeSubmissionCommand command,
-                                     TestCase tc, String programFileId) {
+                                     TestCase testcase, String programFileId) {
         Map<String, GoJudgeModels.CopyInFile> copyIn = template.compileArgs != null
                 ? Map.of(template.compileOutputs.get(0), new GoJudgeModels.CopyInFile(null, programFileId))
                 : Map.of(template.sourceFileName, new GoJudgeModels.CopyInFile(command.sourceCode(), null));
         long cpuMs = Math.min(command.cpuTimeLimitMs(), MAX_CPU_MS);
-        // clockLimit 要比 cpuLimit 宽裕，避免调度抖动把正常程序判成超时
-        long clockNs = (cpuMs + 1000) * 1_000_000L;
+        long clockNs = (cpuMs + CLOCK_LIMIT_GRACE_MS) * NANOS_PER_MILLI;
         return new GoJudgeModels.Cmd(template.runArgs, SANDBOX_ENV,
-                List.of(stdinFd(tc.input()), stdoutFd(), stderrFd()),
-                cpuMs * 1_000_000L, clockNs, command.memoryLimitKb() * 1024L, RUN_PROC_LIMIT,
+                List.of(stdinFd(testcase.input()), stdoutFd(), stderrFd()),
+                cpuMs * NANOS_PER_MILLI, clockNs, command.memoryLimitKb() * BYTES_PER_KB, RUN_PROC_LIMIT,
                 copyIn, null, null);
     }
 
     /** go-judge 状态 → 平台 verdict；返回 null 表示该测试点通过。 */
-    private String failVerdictOf(GoJudgeModels.RunResult r, TestCase tc) {
-        return switch (r.status() == null ? "" : r.status()) {
-            case "Accepted" -> matches(r.files() == null ? null : r.files().get("stdout"), tc.expected())
-                    ? null : "WRONG_ANSWER";
-            case "Time Limit Exceeded" -> "TLE";
-            case "Memory Limit Exceeded" -> "MLE";
-            case "Output Limit Exceeded" -> "OLE";
-            case "Nonzero Exit Status", "Signalled" -> "RE";
-            default -> "SYSTEM_ERROR";
+    private String failVerdictOf(GoJudgeModels.RunResult runResult, TestCase testcase) {
+        return switch (runResult.status() == null ? "" : runResult.status()) {
+            case GO_JUDGE_ACCEPTED -> matches(runResult.files() == null ? null
+                    : runResult.files().get(FD_STDOUT), testcase.expected()) ? null : VERDICT_WRONG_ANSWER;
+            case GO_JUDGE_TIME_LIMIT_EXCEEDED -> VERDICT_TLE;
+            case GO_JUDGE_MEMORY_LIMIT_EXCEEDED -> VERDICT_MLE;
+            case GO_JUDGE_OUTPUT_LIMIT_EXCEEDED -> VERDICT_OLE;
+            case GO_JUDGE_NONZERO_EXIT_STATUS, GO_JUDGE_SIGNALLED -> VERDICT_RE;
+            default -> VERDICT_SYSTEM_ERROR;
         };
     }
 
-    private String failDetailOf(String verdict, GoJudgeModels.RunResult r) {
+    private String failDetailOf(String verdict, GoJudgeModels.RunResult runResult) {
         return switch (verdict) {
-            case "WRONG_ANSWER" -> "输出不匹配";
-            case "TLE" -> "超时（cpu " + timeMsOf(r.time()) + "ms）";
-            case "MLE" -> "超内存（" + memoryKbOf(r.memory()) + "KB）";
-            case "OLE" -> "输出超限";
-            case "RE" -> "运行时错误（exit=" + r.exitStatus() + "）" + stderrSnippet(r);
-            default -> "沙箱异常: " + r.status() + (r.error() == null ? "" : " " + r.error());
+            case VERDICT_WRONG_ANSWER -> "输出不匹配";
+            case VERDICT_TLE -> "超时（cpu " + timeMsOf(runResult.time()) + "ms）";
+            case VERDICT_MLE -> "超内存（" + memoryKbOf(runResult.memory()) + "KB）";
+            case VERDICT_OLE -> "输出超限";
+            case VERDICT_RE -> "运行时错误（exit=" + runResult.exitStatus() + "）" + stderrSnippet(runResult);
+            default -> "沙箱异常: " + runResult.status()
+                    + (runResult.error() == null ? "" : " " + runResult.error());
         };
     }
 
-    private String compileStderr(GoJudgeModels.RunResult r) {
-        String stderr = r.files() == null ? null : r.files().get("stderr");
+    private String compileStderr(GoJudgeModels.RunResult runResult) {
+        String stderr = runResult.files() == null ? null : runResult.files().get(FD_STDERR);
         if (stderr == null || stderr.isBlank()) {
-            stderr = r.error() == null ? "" : r.error();
+            stderr = runResult.error() == null ? "" : runResult.error();
         }
         return "编译失败：" + stderr.strip();
     }
 
-    private String stderrSnippet(GoJudgeModels.RunResult r) {
-        String stderr = r.files() == null ? null : r.files().get("stderr");
+    private String stderrSnippet(GoJudgeModels.RunResult runResult) {
+        String stderr = runResult.files() == null ? null : runResult.files().get(FD_STDERR);
         return stderr == null || stderr.isBlank() ? "" : "：" + stderr.strip();
     }
 
     private JudgeResult systemError(String engineId, String message) {
-        return new JudgeResult(engineId, "SYSTEM_ERROR", null, null, truncate(message));
+        return new JudgeResult(engineId, VERDICT_SYSTEM_ERROR, null, null, truncate(message));
     }
 
     /**
@@ -192,21 +220,21 @@ public class GoJudgeAdapter implements JudgeEngine {
         if (testFiles == null || testFiles.isEmpty()) {
             return List.of();
         }
-        Map<String, String> expected = new HashMap<>();
+        Map<String, String> expectedOutputs = new HashMap<>();
         Map<String, String> inputs = new TreeMap<>();
-        for (Map.Entry<String, String> e : testFiles.entrySet()) {
-            String name = e.getKey();
+        for (Map.Entry<String, String> testFileEntry : testFiles.entrySet()) {
+            String name = testFileEntry.getKey();
             if (name.endsWith(".out") || name.endsWith(".ans")) {
-                expected.put(baseName(name), e.getValue());
+                expectedOutputs.put(baseName(name), testFileEntry.getValue());
             } else if (name.endsWith(".in")) {
-                inputs.put(name, e.getValue());
+                inputs.put(name, testFileEntry.getValue());
             }
         }
         List<TestCase> cases = new ArrayList<>();
-        for (Map.Entry<String, String> e : inputs.entrySet()) {
-            String exp = expected.get(baseName(e.getKey()));
-            if (exp != null) {
-                cases.add(new TestCase(e.getValue(), exp));
+        for (Map.Entry<String, String> inputEntry : inputs.entrySet()) {
+            String expectedOutput = expectedOutputs.get(baseName(inputEntry.getKey()));
+            if (expectedOutput != null) {
+                cases.add(new TestCase(inputEntry.getValue(), expectedOutput));
             }
         }
         return List.copyOf(cases);
@@ -217,8 +245,8 @@ public class GoJudgeAdapter implements JudgeEngine {
         return normalize(actual).equals(normalize(expected));
     }
 
-    static String normalize(String s) {
-        String[] lines = (s == null ? "" : s).replace("\r\n", "\n").replace('\r', '\n')
+    static String normalize(String text) {
+        String[] lines = (text == null ? "" : text).replace("\r\n", "\n").replace('\r', '\n')
                 .split("\n", -1);
         List<String> kept = new ArrayList<>(lines.length);
         for (String line : lines) {
@@ -231,12 +259,12 @@ public class GoJudgeAdapter implements JudgeEngine {
         return String.join("\n", kept.subList(0, end));
     }
 
-    private static String stripTrailing(String s) {
-        int end = s.length();
-        while (end > 0 && (s.charAt(end - 1) == ' ' || s.charAt(end - 1) == '\t')) {
+    private static String stripTrailing(String text) {
+        int end = text.length();
+        while (end > 0 && (text.charAt(end - 1) == ' ' || text.charAt(end - 1) == '\t')) {
             end--;
         }
-        return s.substring(0, end);
+        return text.substring(0, end);
     }
 
     private record TestCase(String input, String expected) {}
@@ -246,23 +274,29 @@ public class GoJudgeAdapter implements JudgeEngine {
         return dot < 0 ? fileName : fileName.substring(0, dot);
     }
 
-    private static Long max(Long a, Long b) {
-        if (a == null) return b;
-        if (b == null) return a;
-        return Math.max(a, b);
+    private static Long max(Long left, Long right) {
+        if (left == null) {
+            return right;
+        }
+        if (right == null) {
+            return left;
+        }
+        return Math.max(left, right);
     }
 
     private static Long timeMsOf(Long timeNs) {
-        return timeNs == null ? null : timeNs / 1_000_000L;
+        return timeNs == null ? null : timeNs / NANOS_PER_MILLI;
     }
 
     private static Long memoryKbOf(Long memoryBytes) {
-        return memoryBytes == null ? null : memoryBytes / 1024L;
+        return memoryBytes == null ? null : memoryBytes / BYTES_PER_KB;
     }
 
-    private static String truncate(String s) {
-        if (s == null) return "";
-        return s.length() <= MAX_MESSAGE_LENGTH ? s : s.substring(0, MAX_MESSAGE_LENGTH) + "…";
+    private static String truncate(String text) {
+        if (text == null) {
+            return "";
+        }
+        return text.length() <= MAX_MESSAGE_LENGTH ? text : text.substring(0, MAX_MESSAGE_LENGTH) + "…";
     }
 
     private static GoJudgeModels.Fd stdinFd(String content) {
@@ -270,10 +304,10 @@ public class GoJudgeAdapter implements JudgeEngine {
     }
 
     private static GoJudgeModels.Fd stdoutFd() {
-        return new GoJudgeModels.Fd("stdout", OUTPUT_LIMIT_BYTES, null);
+        return new GoJudgeModels.Fd(FD_STDOUT, OUTPUT_LIMIT_BYTES, null);
     }
 
     private static GoJudgeModels.Fd stderrFd() {
-        return new GoJudgeModels.Fd("stderr", OUTPUT_LIMIT_BYTES, null);
+        return new GoJudgeModels.Fd(FD_STDERR, OUTPUT_LIMIT_BYTES, null);
     }
 }

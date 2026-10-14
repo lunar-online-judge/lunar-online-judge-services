@@ -2,16 +2,21 @@ package io.lunar.audit.api;
 
 import io.lunar.audit.domain.AuditService;
 import io.lunar.common.api.ApiResponse;
+import io.lunar.common.api.Pagination;
+import io.lunar.common.security.Role;
 import io.lunar.common.web.RequestIdFilter;
 import jakarta.validation.Valid;
 import jakarta.validation.constraints.NotBlank;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.security.core.Authentication;
-import org.springframework.web.bind.MethodArgumentNotValidException;
-import org.springframework.web.bind.annotation.*;
-
-import java.util.Map;
+import org.springframework.security.core.GrantedAuthority;
+import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.PostMapping;
+import org.springframework.web.bind.annotation.RequestBody;
+import org.springframework.web.bind.annotation.RequestHeader;
+import org.springframework.web.bind.annotation.RequestParam;
+import org.springframework.web.bind.annotation.RestController;
 
 /**
  * 审计入口：
@@ -34,11 +39,11 @@ public class AuditController {
             Authentication authentication,
             @RequestHeader(value = RequestIdFilter.HEADER, required = false) String requestId) {
         String actorRole = authentication.getAuthorities().stream()
-                .map(a -> a.toString().replace("ROLE_", ""))
+                .map(GrantedAuthority::getAuthority)
+                .map(authority -> authority.replace(Role.AUTHORITY_PREFIX, ""))
                 .findFirst().orElse(null);
-        var view = auditService.record(request.action(), authentication.getName(), actorRole,
-                request.targetType(), request.targetId(), request.contestId(),
-                request.detail(), requestId);
+        AuditService.AuditRecordView view = auditService.record(request.action(), authentication.getName(), actorRole,
+                request.targetType(), request.targetId(), request.contestId(), request.detail(), requestId);
         return ResponseEntity.ok(ApiResponse.success(requestId, view));
     }
 
@@ -48,8 +53,8 @@ public class AuditController {
             @RequestParam(required = false) String action,
             @RequestParam(required = false) String actorId,
             @RequestParam(required = false) String contestId,
-            @RequestParam(defaultValue = "1") long page,
-            @RequestParam(defaultValue = "20") long pageSize,
+            @RequestParam(defaultValue = Pagination.DEFAULT_PAGE) long page,
+            @RequestParam(defaultValue = Pagination.DEFAULT_PAGE_SIZE) long pageSize,
             @RequestHeader(value = RequestIdFilter.HEADER, required = false) String requestId) {
         return ResponseEntity.ok(ApiResponse.success(requestId,
                 auditService.query(action, actorId, contestId, page, pageSize)));
@@ -57,21 +62,4 @@ public class AuditController {
 
     public record RecordRequest(@NotBlank String action, String targetType, String targetId,
                                 String contestId, String detail) {}
-
-    @RestControllerAdvice
-    public static class Handler {
-        @ExceptionHandler(MethodArgumentNotValidException.class)
-        public ResponseEntity<ApiResponse<Void>> validation(MethodArgumentNotValidException e) {
-            return ResponseEntity.badRequest()
-                    .body(ApiResponse.failure(currentRequestId(), "VALIDATION_FAILED", "参数校验失败"));
-        }
-
-        private static String currentRequestId() {
-            if (org.springframework.web.context.request.RequestContextHolder.getRequestAttributes()
-                    instanceof org.springframework.web.context.request.ServletRequestAttributes attributes) {
-                return attributes.getRequest().getHeader(RequestIdFilter.HEADER);
-            }
-            return null;
-        }
-    }
 }

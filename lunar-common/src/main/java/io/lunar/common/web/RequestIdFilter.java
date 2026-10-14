@@ -8,6 +8,11 @@ import jakarta.servlet.http.HttpServletResponse;
 import org.springframework.web.filter.OncePerRequestFilter;
 
 import java.io.IOException;
+import java.util.Collections;
+import java.util.Enumeration;
+import java.util.LinkedHashSet;
+import java.util.List;
+import java.util.Set;
 import java.util.UUID;
 
 /**
@@ -21,8 +26,9 @@ public class RequestIdFilter extends OncePerRequestFilter {
     @Override
     protected void doFilterInternal(HttpServletRequest request, HttpServletResponse response, FilterChain chain)
             throws ServletException, IOException {
-        String incoming = request.getHeader(HEADER);
-        final String requestId = incoming == null || incoming.isBlank() ? UUID.randomUUID().toString() : incoming;
+        String incomingRequestId = request.getHeader(HEADER);
+        String requestId = incomingRequestId == null || incomingRequestId.isBlank()
+                ? UUID.randomUUID().toString() : incomingRequestId;
         response.setHeader(HEADER, requestId);
         chain.doFilter(new HttpServletRequestWrapper(request) {
             @Override
@@ -31,19 +37,21 @@ public class RequestIdFilter extends OncePerRequestFilter {
             }
 
             @Override
-            public java.util.Enumeration<String> getHeaders(String name) {
+            public Enumeration<String> getHeaders(String name) {
                 return HEADER.equals(name)
-                        ? java.util.Collections.enumeration(java.util.List.of(requestId))
+                        ? Collections.enumeration(List.of(requestId))
                         : super.getHeaders(name);
             }
 
             @Override
-            public java.util.Enumeration<String> getHeaderNames() {
-                java.util.Set<String> names = new java.util.LinkedHashSet<>();
-                java.util.Enumeration<String> original = super.getHeaderNames();
-                while (original.hasMoreElements()) names.add(original.nextElement());
-                names.add(HEADER);
-                return java.util.Collections.enumeration(names);
+            public Enumeration<String> getHeaderNames() {
+                Set<String> headerNames = new LinkedHashSet<>();
+                Enumeration<String> originalNames = super.getHeaderNames();
+                while (originalNames.hasMoreElements()) {
+                    headerNames.add(originalNames.nextElement());
+                }
+                headerNames.add(HEADER);
+                return Collections.enumeration(headerNames);
             }
         }, response);
     }

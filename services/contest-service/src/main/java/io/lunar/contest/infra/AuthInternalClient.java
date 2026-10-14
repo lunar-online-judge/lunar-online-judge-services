@@ -3,6 +3,7 @@ package io.lunar.contest.infra;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.http.MediaType;
 import org.springframework.stereotype.Component;
+import org.springframework.web.client.HttpClientErrorException;
 import org.springframework.web.client.RestClient;
 
 import java.util.Map;
@@ -39,7 +40,7 @@ public class AuthInternalClient {
                     .header("Authorization", bearer(operatorToken))
                     .retrieve()
                     .body(Map.class));
-        } catch (org.springframework.web.client.HttpClientErrorException.NotFound e) {
+        } catch (HttpClientErrorException.NotFound e) {
             return null;
         }
     }

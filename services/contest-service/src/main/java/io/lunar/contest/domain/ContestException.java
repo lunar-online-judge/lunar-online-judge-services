@@ -1,19 +1,13 @@
 package io.lunar.contest.domain;
 
-/** 竞赛域异常：携带 api.md 错误码注册表的稳定 code 与 HTTP 状态，由 api/ 统一转换。 */
-public class ContestException extends RuntimeException {
+import io.lunar.common.api.ApiException;
 
-    private final String code;
-    private final int httpStatus;
+/** 竞赛域异常：携带 api.md 错误码注册表的稳定 code 与 HTTP 状态，由全局异常处理器统一转换。 */
+public class ContestException extends ApiException {
 
     private ContestException(String code, int httpStatus, String message) {
-        super(message);
-        this.code = code;
-        this.httpStatus = httpStatus;
+        super(code, httpStatus, message);
     }
-
-    public String code() { return code; }
-    public int httpStatus() { return httpStatus; }
 
     /** 404：竞赛不存在。 */
     public static final class NotFound extends ContestException {

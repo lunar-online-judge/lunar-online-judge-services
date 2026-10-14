@@ -24,8 +24,8 @@ public class UpstreamClient {
     }
 
     private static String bearer(String token) {
-        String raw = token == null ? "" : token.replaceFirst("(?i)^Bearer\\s+", "");
-        return "Bearer " + raw;
+        String rawToken = token == null ? "" : token.replaceFirst("(?i)^Bearer\\s+", "");
+        return "Bearer " + rawToken;
     }
 
     @SuppressWarnings("unchecked")

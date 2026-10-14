@@ -18,6 +18,8 @@ HTTP 前缀统一为 `/api/v1`。各服务经 gateway 对外暴露；客户端�
 {"requestId":"...","data":null,"error":{"code":"...","message":"..."}}
 ```
 
+异常 → 错误响应的转换统一由 `lunar-common` 的 `ApiExceptionHandler` 完成（`WebCommonAutoConfiguration` 注册，全平台唯一）：各服务的域异常继承 `ApiException`（携带 `code` 与 `httpStatus`），抛出即得上述结构；参数校验失败统一映射为 400 `VALIDATION_FAILED`。服务内不再自建 `@RestControllerAdvice`，也不把 Handler 内嵌进 Controller。
+
 ### 错误码
 
 错误码大写下划线命名，`<域>_<原因>`；新增先登记再使用。初始注册表：

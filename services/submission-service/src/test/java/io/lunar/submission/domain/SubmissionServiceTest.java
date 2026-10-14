@@ -5,12 +5,18 @@ import io.lunar.submission.infra.OutboxEventMapper;
 import io.lunar.submission.infra.SubmissionEntity;
 import io.lunar.submission.infra.SubmissionMapper;
 import io.lunar.submission.infra.UpstreamClient;
+import com.baomidou.mybatisplus.core.MybatisConfiguration;
+import com.baomidou.mybatisplus.core.metadata.TableInfoHelper;
+import org.apache.ibatis.builder.MapperBuilderAssistant;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
 
+import java.nio.charset.StandardCharsets;
+import java.security.MessageDigest;
 import java.time.Instant;
+import java.util.HexFormat;
 import java.util.List;
 import java.util.Map;
 
@@ -31,11 +37,8 @@ class SubmissionServiceTest {
 
     @BeforeAll
     static void initMpMetadata() {
-        for (Class<?> entity : List.of(SubmissionEntity.class, OutboxEventEntity.class)) {
-            com.baomidou.mybatisplus.core.metadata.TableInfoHelper.initTableInfo(
-                    new org.apache.ibatis.builder.MapperBuilderAssistant(
-                            new com.baomidou.mybatisplus.core.MybatisConfiguration(), ""),
-                    entity);
+        for (Class<?> entityType : List.of(SubmissionEntity.class, OutboxEventEntity.class)) {
+            TableInfoHelper.initTableInfo(new MapperBuilderAssistant(new MybatisConfiguration(), ""), entityType);
         }
     }
 
@@ -49,31 +52,32 @@ class SubmissionServiceTest {
                 "timeLimitMs", 1000, "memoryLimitKb", 131072));
     }
 
-    private static String sha256(String value) {
+    private static String sha256(String content) {
         try {
-            var digest = java.security.MessageDigest.getInstance("SHA-256");
-            return java.util.HexFormat.of().formatHex(digest.digest(value.getBytes(java.nio.charset.StandardCharsets.UTF_8)));
-        } catch (Exception e) {
-            throw new IllegalStateException(e);
+            MessageDigest digest = MessageDigest.getInstance("SHA-256");
+            return HexFormat.of().formatHex(digest.digest(content.getBytes(StandardCharsets.UTF_8)));
+        } catch (Exception exception) {
+            throw new IllegalStateException(exception);
         }
     }
 
     private static SubmissionEntity existing(String fingerprint) {
-        SubmissionEntity e = new SubmissionEntity();
-        e.setId("sub_existing");
-        e.setContestId("c1");
-        e.setProblemId("p1");
-        e.setStudentId("stu_1");
-        e.setLanguage("cpp");
-        e.setStatus("QUEUED");
-        e.setRequestFingerprint(fingerprint);
-        e.setCreatedAt(Instant.now());
-        return e;
+        SubmissionEntity submission = new SubmissionEntity();
+        submission.setId("sub_existing");
+        submission.setContestId("c1");
+        submission.setProblemId("p1");
+        submission.setStudentId("stu_1");
+        submission.setLanguage("cpp");
+        submission.setStatus("QUEUED");
+        submission.setRequestFingerprint(fingerprint);
+        submission.setCreatedAt(Instant.now());
+        return submission;
     }
 
     @Test
     void submitWritesSubmissionAndOutboxInOneCall() {
-        var view = service.submit("c1", "p1", "cpp", "int main(){}", "key-1", "trace-1", "stu_1", "Bearer t");
+        SubmissionService.SubmissionView view = service.submit("c1", "p1", "cpp", "int main(){}",
+                "key-1", "trace-1", "stu_1", "Bearer t");
 
         assertThat(view.status()).isEqualTo("QUEUED");
         assertThat(view.submissionId()).isNotBlank();
@@ -91,7 +95,8 @@ class SubmissionServiceTest {
         String fingerprint = sha256("p1|cpp|" + sha256("int main(){}"));
         when(submissionMapper.selectOne(any())).thenReturn(existing(fingerprint));
 
-        var view = service.submit("c1", "p1", "cpp", "int main(){}", "key-1", null, "stu_1", "Bearer t");
+        SubmissionService.SubmissionView view = service.submit("c1", "p1", "cpp", "int main(){}", "key-1", null,
+                "stu_1", "Bearer t");
 
         assertThat(view.submissionId()).isEqualTo("sub_existing");
         verify(submissionMapper, never()).insert(any(SubmissionEntity.class));
@@ -132,10 +137,11 @@ class SubmissionServiceTest {
 
     @Test
     void judgmentUpdatesStatusAndWritesOutbox() {
-        SubmissionEntity entity = existing(null);
-        when(submissionMapper.selectById("sub_existing")).thenReturn(entity);
+        SubmissionEntity submission = existing(null);
+        when(submissionMapper.selectById("sub_existing")).thenReturn(submission);
 
-        var view = service.applyJudgment("sub_existing", "ACCEPTED", 100, 3, 3, "trace-2");
+        SubmissionService.SubmissionView view = service.applyJudgment("sub_existing", "ACCEPTED", 100, 3,
+                3, "trace-2");
 
         assertThat(view.status()).isEqualTo("ACCEPTED");
         assertThat(view.score()).isEqualTo(100);
@@ -146,9 +152,9 @@ class SubmissionServiceTest {
 
     @Test
     void judgmentOnTerminalStatusRejected() {
-        SubmissionEntity entity = existing(null);
-        entity.setStatus("ACCEPTED");
-        when(submissionMapper.selectById("sub_existing")).thenReturn(entity);
+        SubmissionEntity submission = existing(null);
+        submission.setStatus("ACCEPTED");
+        when(submissionMapper.selectById("sub_existing")).thenReturn(submission);
 
         assertThatThrownBy(() -> service.applyJudgment("sub_existing", "WRONG_ANSWER", 0, 0, 3, null))
                 .isInstanceOf(SubmissionException.InvalidStatusTransition.class);
@@ -156,8 +162,8 @@ class SubmissionServiceTest {
 
     @Test
     void studentCannotReadOthersSubmission() {
-        SubmissionEntity entity = existing(null);
-        when(submissionMapper.selectById("sub_existing")).thenReturn(entity);
+        SubmissionEntity submission = existing(null);
+        when(submissionMapper.selectById("sub_existing")).thenReturn(submission);
 
         assertThatThrownBy(() -> service.get("sub_existing", "stu_2", false))
                 .isInstanceOf(SubmissionException.NotFound.class);

@@ -7,6 +7,7 @@ import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import org.springframework.stereotype.Service;
 
 import java.time.Instant;
+import java.util.List;
 import java.util.UUID;
 
 /**
@@ -21,7 +22,7 @@ public class AuditService {
                                   String targetType, String targetId, String contestId,
                                   String detail, String traceId, Instant occurredAt) {}
 
-    public record AuditPage(java.util.List<AuditRecordView> items, long total, long page, long pageSize) {}
+    public record AuditPage(List<AuditRecordView> items, long total, long page, long pageSize) {}
 
     private final AuditLogMapper auditLogMapper;
 
@@ -33,20 +34,20 @@ public class AuditService {
     public AuditRecordView record(String action, String actorId, String actorRole,
                                   String targetType, String targetId, String contestId,
                                   String detail, String traceId) {
-        AuditLogEntity entity = new AuditLogEntity();
-        entity.setId(UUID.randomUUID().toString());
-        entity.setAction(action);
-        entity.setActorId(actorId);
-        entity.setActorRole(actorRole == null ? (actorId == null ? "SYSTEM" : null) : actorRole);
-        entity.setTargetType(targetType);
-        entity.setTargetId(targetId);
-        entity.setContestId(contestId);
-        entity.setDetail(detail);
-        entity.setTraceId(traceId);
-        entity.setOccurredAt(Instant.now());
-        entity.setCreatedAt(Instant.now());
-        auditLogMapper.insert(entity);
-        return toView(entity);
+        AuditLogEntity auditLog = new AuditLogEntity();
+        auditLog.setId(UUID.randomUUID().toString());
+        auditLog.setAction(action);
+        auditLog.setActorId(actorId);
+        auditLog.setActorRole(actorRole == null ? (actorId == null ? "SYSTEM" : null) : actorRole);
+        auditLog.setTargetType(targetType);
+        auditLog.setTargetId(targetId);
+        auditLog.setContestId(contestId);
+        auditLog.setDetail(detail);
+        auditLog.setTraceId(traceId);
+        auditLog.setOccurredAt(Instant.now());
+        auditLog.setCreatedAt(Instant.now());
+        auditLogMapper.insert(auditLog);
+        return toView(auditLog);
     }
 
     /** 分页查询：按时间倒序，可选动作/操作者/竞赛过滤。 */
@@ -67,9 +68,10 @@ public class AuditService {
                 result.getTotal(), result.getCurrent(), result.getSize());
     }
 
-    private AuditRecordView toView(AuditLogEntity e) {
-        return new AuditRecordView(e.getId(), e.getAction(), e.getActorId(), e.getActorRole(),
-                e.getTargetType(), e.getTargetId(), e.getContestId(), e.getDetail(),
-                e.getTraceId(), e.getOccurredAt());
+    private AuditRecordView toView(AuditLogEntity auditLog) {
+        return new AuditRecordView(auditLog.getId(), auditLog.getAction(), auditLog.getActorId(),
+                auditLog.getActorRole(), auditLog.getTargetType(), auditLog.getTargetId(),
+                auditLog.getContestId(), auditLog.getDetail(), auditLog.getTraceId(),
+                auditLog.getOccurredAt());
     }
 }

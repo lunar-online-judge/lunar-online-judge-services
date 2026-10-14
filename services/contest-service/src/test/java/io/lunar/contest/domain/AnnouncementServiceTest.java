@@ -6,6 +6,9 @@ import io.lunar.contest.infra.AnnouncementEntity;
 import io.lunar.contest.infra.AnnouncementMapper;
 import io.lunar.contest.infra.ContestEntity;
 import io.lunar.contest.infra.ContestMapper;
+import com.baomidou.mybatisplus.core.MybatisConfiguration;
+import com.baomidou.mybatisplus.core.metadata.TableInfoHelper;
+import org.apache.ibatis.builder.MapperBuilderAssistant;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
@@ -31,22 +34,21 @@ class AnnouncementServiceTest {
 
     static {
         // LambdaQueryWrapper 依赖 MP 的实体元数据缓存；纯单测需手动初始化
-        com.baomidou.mybatisplus.core.metadata.TableInfoHelper.initTableInfo(
-                new org.apache.ibatis.builder.MapperBuilderAssistant(
-                        new com.baomidou.mybatisplus.core.MybatisConfiguration(), ""),
-                io.lunar.contest.infra.AnnouncementConfirmEntity.class);
+        TableInfoHelper.initTableInfo(
+                new MapperBuilderAssistant(new MybatisConfiguration(), ""),
+                AnnouncementConfirmEntity.class);
     }
 
     private static AnnouncementEntity announcement(String id, boolean requireConfirmation) {
-        AnnouncementEntity a = new AnnouncementEntity();
-        a.setId(id);
-        a.setContestId("c1");
-        a.setContent("注意考试时间");
-        a.setImportant(true);
-        a.setRequireConfirmation(requireConfirmation);
-        a.setCreatedBy("teacher_1");
-        a.setCreatedAt(Instant.now());
-        return a;
+        AnnouncementEntity announcement = new AnnouncementEntity();
+        announcement.setId(id);
+        announcement.setContestId("c1");
+        announcement.setContent("注意考试时间");
+        announcement.setImportant(true);
+        announcement.setRequireConfirmation(requireConfirmation);
+        announcement.setCreatedBy("teacher_1");
+        announcement.setCreatedAt(Instant.now());
+        return announcement;
     }
 
     @BeforeEach
@@ -59,7 +61,7 @@ class AnnouncementServiceTest {
 
     @Test
     void publishInsertsAnnouncementWithOperator() {
-        var view = service.publish("c1", "注意考试时间", true, true, "teacher_1");
+        AnnouncementService.AnnouncementView view = service.publish("c1", "注意考试时间", true, true, "teacher_1");
 
         ArgumentCaptor<AnnouncementEntity> captor = ArgumentCaptor.forClass(AnnouncementEntity.class);
         verify(announcementMapper).insert(captor.capture());
@@ -81,7 +83,7 @@ class AnnouncementServiceTest {
                 announcement("a1", true), announcement("a2", false)));
         when(confirmMapper.selectList(any())).thenReturn(List.of());
 
-        var views = service.listForCandidate("c1", "stu_1");
+        List<AnnouncementService.AnnouncementView> views = service.listForCandidate("c1", "stu_1");
 
         assertThat(views).hasSize(2);
         // 仅 require_confirmation 的公告记录送达
@@ -102,7 +104,7 @@ class AnnouncementServiceTest {
         delivered.setDeliveredAt(Instant.now());
         when(confirmMapper.selectList(any())).thenReturn(List.of(delivered));
 
-        var views = service.listForCandidate("c1", "stu_1");
+        List<AnnouncementService.AnnouncementView> views = service.listForCandidate("c1", "stu_1");
 
         verify(confirmMapper, never()).insert(any(AnnouncementConfirmEntity.class));
         assertThat(views.get(0).deliveredAt()).isEqualTo(delivered.getDeliveredAt());

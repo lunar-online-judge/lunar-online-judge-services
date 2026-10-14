@@ -37,7 +37,7 @@ public class AuthKeyConfig {
     private static final Logger log = LoggerFactory.getLogger(AuthKeyConfig.class);
 
     /** 完整 RSA 密钥（含私钥），签发与公钥分发的唯一来源。 */
-    record KeyMaterial(RSAKey rsaKey, java.security.interfaces.RSAPublicKey publicKey) {}
+    record KeyMaterial(RSAKey rsaKey, RSAPublicKey publicKey) {}
 
     @Bean
     public KeyMaterial keyMaterial(@Value("${auth.jwt.private-key:}") String privateKeyPem,
@@ -60,7 +60,7 @@ public class AuthKeyConfig {
 
     /** 验签自身签发的令牌（服务间接口 /api/v1/internal/** 的鉴权基础）。 */
     @Bean
-    public org.springframework.security.oauth2.jwt.JwtDecoder jwtDecoder(KeyMaterial keyMaterial) {
+    public JwtDecoder jwtDecoder(KeyMaterial keyMaterial) {
         return NimbusJwtDecoder.withPublicKey(keyMaterial.publicKey()).build();
     }
 

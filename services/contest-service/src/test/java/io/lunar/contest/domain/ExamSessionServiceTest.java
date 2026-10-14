@@ -6,17 +6,18 @@ import io.lunar.contest.infra.ContestEntity;
 import io.lunar.contest.infra.ContestMapper;
 import io.lunar.contest.infra.SessionEntity;
 import io.lunar.contest.infra.SessionMapper;
+import com.baomidou.mybatisplus.core.MybatisConfiguration;
+import com.baomidou.mybatisplus.core.metadata.TableInfoHelper;
+import org.apache.ibatis.builder.MapperBuilderAssistant;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
 
 import java.time.Instant;
-import java.util.UUID;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
-import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.isNull;
 import static org.mockito.Mockito.mock;
@@ -33,13 +34,11 @@ class ExamSessionServiceTest {
 
     @BeforeAll
     static void initMpMetadata() {
-        com.baomidou.mybatisplus.core.metadata.TableInfoHelper.initTableInfo(
-                new org.apache.ibatis.builder.MapperBuilderAssistant(
-                        new com.baomidou.mybatisplus.core.MybatisConfiguration(), ""),
+        TableInfoHelper.initTableInfo(
+                new MapperBuilderAssistant(new MybatisConfiguration(), ""),
                 SessionEntity.class);
-        com.baomidou.mybatisplus.core.metadata.TableInfoHelper.initTableInfo(
-                new org.apache.ibatis.builder.MapperBuilderAssistant(
-                        new com.baomidou.mybatisplus.core.MybatisConfiguration(), ""),
+        TableInfoHelper.initTableInfo(
+                new MapperBuilderAssistant(new MybatisConfiguration(), ""),
                 CandidateEntity.class);
     }
 
@@ -66,19 +65,19 @@ class ExamSessionServiceTest {
     }
 
     private static SessionEntity session(String id, String status) {
-        SessionEntity s = new SessionEntity();
-        s.setId(id);
-        s.setContestId("c1");
-        s.setStudentId("stu_1");
-        s.setStatus(status);
-        s.setStartedAt(PAST);
-        s.setLastHeartbeatAt(PAST);
-        return s;
+        SessionEntity session = new SessionEntity();
+        session.setId(id);
+        session.setContestId("c1");
+        session.setStudentId("stu_1");
+        session.setStatus(status);
+        session.setStartedAt(PAST);
+        session.setLastHeartbeatAt(PAST);
+        return session;
     }
 
     @Test
     void enterCreatesActiveSession() {
-        var view = service.enter("c1", "stu_1");
+        ExamSessionService.SessionView view = service.enter("c1", "stu_1");
 
         assertThat(view.status()).isEqualTo("ACTIVE");
         assertThat(view.remainingSeconds()).isGreaterThan(0);
@@ -123,7 +122,7 @@ class ExamSessionServiceTest {
     void enterRestoresExpiredSession() {
         when(sessionMapper.selectOne(any())).thenReturn(session("s1", "EXPIRED"));
 
-        var view = service.enter("c1", "stu_1");
+        ExamSessionService.SessionView view = service.enter("c1", "stu_1");
 
         assertThat(view.status()).isEqualTo("ACTIVE");
         assertThat(view.sessionId()).isEqualTo("s1"); // 同一会话恢复，剩余时间保留
@@ -142,7 +141,7 @@ class ExamSessionServiceTest {
     void enterActiveSessionIsIdempotentHeartbeat() {
         when(sessionMapper.selectOne(any())).thenReturn(session("s1", "ACTIVE"));
 
-        var view = service.enter("c1", "stu_1");
+        ExamSessionService.SessionView view = service.enter("c1", "stu_1");
 
         assertThat(view.sessionId()).isEqualTo("s1");
         ArgumentCaptor<SessionEntity> captor = ArgumentCaptor.forClass(SessionEntity.class);
@@ -162,7 +161,7 @@ class ExamSessionServiceTest {
     void heartbeatRefreshesActiveSession() {
         when(sessionMapper.selectOne(any())).thenReturn(session("s1", "ACTIVE"));
 
-        var view = service.heartbeat("c1", "stu_1");
+        ExamSessionService.SessionView view = service.heartbeat("c1", "stu_1");
 
         assertThat(view.remainingSeconds()).isGreaterThan(0);
         verify(sessionMapper).updateById(any(SessionEntity.class));
@@ -195,20 +194,20 @@ class ExamSessionServiceTest {
     }
 
     private static CandidateEntity candidate(String studentId, String studentNo, String status) {
-        CandidateEntity c = new CandidateEntity();
-        c.setContestId("c1");
-        c.setStudentId(studentId);
-        c.setStudentNoSnapshot(studentNo);
-        c.setStatus(status);
-        return c;
+        CandidateEntity candidate = new CandidateEntity();
+        candidate.setContestId("c1");
+        candidate.setStudentId(studentId);
+        candidate.setStudentNoSnapshot(studentNo);
+        candidate.setStatus(status);
+        return candidate;
     }
 
     private static ContestEntity contest(String status, Instant startAt, Instant endAt) {
-        ContestEntity c = new ContestEntity();
-        c.setId("c1");
-        c.setStatus(status);
-        c.setStartAt(startAt);
-        c.setEndAt(endAt);
-        return c;
+        ContestEntity contest = new ContestEntity();
+        contest.setId("c1");
+        contest.setStatus(status);
+        contest.setStartAt(startAt);
+        contest.setEndAt(endAt);
+        return contest;
     }
 }

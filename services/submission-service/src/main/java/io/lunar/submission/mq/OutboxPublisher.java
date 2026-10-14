@@ -11,6 +11,7 @@ import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Component;
 
 import java.time.Instant;
+import java.util.List;
 
 /**
  * Outbox 发布器（docs/architecture.md §8 第 4 步）：扫描未发布事件行，
@@ -32,7 +33,7 @@ public class OutboxPublisher {
 
     @Scheduled(fixedDelayString = "${outbox.publish-interval-ms:2000}")
     public void publishPending() {
-        var pending = outboxMapper.selectList(new LambdaQueryWrapper<OutboxEventEntity>()
+        List<OutboxEventEntity> pending = outboxMapper.selectList(new LambdaQueryWrapper<OutboxEventEntity>()
                 .isNull(OutboxEventEntity::getPublishedAt)
                 .orderByAsc(OutboxEventEntity::getCreatedAt)
                 .last("limit 100"));
@@ -46,9 +47,9 @@ public class OutboxPublisher {
                 event.setPublishedAt(Instant.now());
                 outboxMapper.updateById(event);
                 log.info("Outbox published eventId={} type={}", event.getEventId(), event.getEventType());
-            } catch (Exception e) {
+            } catch (Exception exception) {
                 log.warn("Outbox publish failed eventId={} type={}：留待下一轮重试",
-                        event.getEventId(), event.getEventType());
+                        event.getEventId(), event.getEventType(), exception);
             }
         }
     }

@@ -1,6 +1,9 @@
 package io.lunar.judge.engine;
 
-import io.lunar.common.judge.*;
+import io.lunar.common.judge.JudgeEngine;
+import io.lunar.common.judge.JudgeResult;
+import io.lunar.common.judge.JudgeSubmissionCommand;
+import io.lunar.common.judge.JudgeSubmissionResult;
 import org.springframework.context.annotation.Profile;
 import org.springframework.stereotype.Component;
 

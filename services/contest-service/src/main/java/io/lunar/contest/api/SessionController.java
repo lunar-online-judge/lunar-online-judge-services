@@ -6,7 +6,11 @@ import io.lunar.contest.domain.ExamSessionService;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.security.core.Authentication;
-import org.springframework.web.bind.annotation.*;
+import org.springframework.web.bind.annotation.PathVariable;
+import org.springframework.web.bind.annotation.PostMapping;
+import org.springframework.web.bind.annotation.RequestHeader;
+import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RestController;
 
 /**
  * 考生会话入口（docs/exam-process.md §6）：
@@ -30,7 +34,7 @@ public class SessionController {
             @PathVariable String contestId,
             Authentication authentication,
             @RequestHeader(value = RequestIdFilter.HEADER, required = false) String requestId) {
-        var view = examSessionService.enter(contestId, authentication.getName());
+        ExamSessionService.SessionView view = examSessionService.enter(contestId, authentication.getName());
         return ResponseEntity.ok(ApiResponse.success(requestId, view));
     }
 
@@ -41,7 +45,7 @@ public class SessionController {
             @PathVariable String contestId,
             Authentication authentication,
             @RequestHeader(value = RequestIdFilter.HEADER, required = false) String requestId) {
-        var view = examSessionService.heartbeat(contestId, authentication.getName());
+        ExamSessionService.SessionView view = examSessionService.heartbeat(contestId, authentication.getName());
         return ResponseEntity.ok(ApiResponse.success(requestId, view));
     }
 }

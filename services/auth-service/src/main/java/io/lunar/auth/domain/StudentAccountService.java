@@ -2,6 +2,7 @@ package io.lunar.auth.domain;
 
 import io.lunar.auth.infra.UserEntity;
 import io.lunar.auth.infra.UserMapper;
+import io.lunar.common.security.Role;
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -9,6 +10,7 @@ import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Component;
 
 import java.time.Instant;
+import java.util.UUID;
 
 /**
  * 学生账号管理（服务间接口，供 contest-service 编排调用，docs/architecture.md §2.1.1）：
@@ -45,7 +47,7 @@ public class StudentAccountService {
             query.eq(UserEntity::getUsername, username);
         }
         UserEntity user = userMapper.selectOne(query.last("limit 1"));
-        if (user == null || !"CANDIDATE".equals(user.getRole())) {
+        if (user == null || !Role.CANDIDATE.name().equals(user.getRole())) {
             return null;
         }
         return new CreatedStudent(user.getId(), user.getStudentNo(), user.getUsername(),
@@ -66,23 +68,23 @@ public class StudentAccountService {
             throw new UserException.StudentNoExists();
         }
 
-        UserEntity entity = new UserEntity();
-        entity.setId(java.util.UUID.randomUUID().toString());
-        entity.setUsername(username);
-        entity.setPasswordHash(passwordEncoder.encode(initialPassword));
-        entity.setDisplayName(displayName);
-        entity.setRole("CANDIDATE");
-        entity.setStatus("ACTIVE");
-        entity.setStudentNo(studentNo);
-        entity.setManagedByTeacherId(operatorTeacherId);
-        entity.setPasswordChangeRequired(true);
-        entity.setCreatedAt(Instant.now());
-        entity.setUpdatedAt(Instant.now());
-        userMapper.insert(entity);
+        UserEntity user = new UserEntity();
+        user.setId(UUID.randomUUID().toString());
+        user.setUsername(username);
+        user.setPasswordHash(passwordEncoder.encode(initialPassword));
+        user.setDisplayName(displayName);
+        user.setRole(Role.CANDIDATE.name());
+        user.setStatus("ACTIVE");
+        user.setStudentNo(studentNo);
+        user.setManagedByTeacherId(operatorTeacherId);
+        user.setPasswordChangeRequired(true);
+        user.setCreatedAt(Instant.now());
+        user.setUpdatedAt(Instant.now());
+        userMapper.insert(user);
 
         log.info("AUDIT event=STUDENT_CREATED studentId={} studentNo={} managedBy={}",
-                entity.getId(), studentNo, operatorTeacherId);
-        return new CreatedStudent(entity.getId(), studentNo, username, displayName, true);
+                user.getId(), studentNo, operatorTeacherId);
+        return new CreatedStudent(user.getId(), studentNo, username, displayName, true);
     }
 
     /** 重置学生密码：新临时密码立即哈希，置 passwordChangeRequired；不返回任何密码材料。 */

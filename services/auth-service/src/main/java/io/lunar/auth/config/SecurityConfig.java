@@ -1,12 +1,16 @@
 package io.lunar.auth.config;
 
+import io.lunar.common.security.Role;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
+import org.springframework.http.HttpMethod;
 import org.springframework.security.config.annotation.method.configuration.EnableMethodSecurity;
 import org.springframework.security.config.annotation.web.builders.HttpSecurity;
 import org.springframework.security.config.annotation.web.configuration.EnableWebSecurity;
 import org.springframework.security.config.annotation.web.configurers.AbstractHttpConfigurer;
 import org.springframework.security.config.http.SessionCreationPolicy;
+import org.springframework.security.core.GrantedAuthority;
+import org.springframework.security.core.authority.SimpleGrantedAuthority;
 import org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.security.oauth2.server.resource.authentication.JwtAuthenticationConverter;
@@ -33,10 +37,10 @@ public class SecurityConfig {
     @Bean
     public SecurityFilterChain securityFilterChain(HttpSecurity http) throws Exception {
         http.csrf(AbstractHttpConfigurer::disable)
-                .sessionManagement(s -> s.sessionCreationPolicy(SessionCreationPolicy.STATELESS))
+                .sessionManagement(session -> session.sessionCreationPolicy(SessionCreationPolicy.STATELESS))
                 .authorizeHttpRequests(auth -> auth
-                        .requestMatchers(org.springframework.http.HttpMethod.POST, "/api/v1/auth/login").permitAll()
-                        .requestMatchers(org.springframework.http.HttpMethod.GET, "/api/v1/auth/jwks").permitAll()
+                        .requestMatchers(HttpMethod.POST, "/api/v1/auth/login").permitAll()
+                        .requestMatchers(HttpMethod.GET, "/api/v1/auth/jwks").permitAll()
                         // 服务间接口：学生账号管理（操作者老师/管理员令牌，由 contest 转发）
                         .requestMatchers("/api/v1/internal/students/**").hasAnyRole("TEACHER", "ADMIN")
                         // Swagger/OpenAPI 文档（本地调试用；生产环境需收紧或关闭）
@@ -59,8 +63,7 @@ public class SecurityConfig {
                 return List.of();
             }
             return roles.stream()
-                    .<org.springframework.security.core.GrantedAuthority>map(
-                            role -> new org.springframework.security.core.authority.SimpleGrantedAuthority("ROLE_" + role))
+                    .<GrantedAuthority>map(role -> new SimpleGrantedAuthority(Role.AUTHORITY_PREFIX + role))
                     .collect(Collectors.toList());
         });
         return converter;

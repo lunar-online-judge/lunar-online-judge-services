@@ -1,10 +1,15 @@
 package io.lunar.anticheat.domain;
 
+import io.lunar.anticheat.infra.AuditClient;
 import io.lunar.anticheat.infra.OutboxEventEntity;
 import io.lunar.anticheat.infra.OutboxEventMapper;
 import io.lunar.anticheat.infra.RiskEventEntity;
 import io.lunar.anticheat.infra.RiskEventMapper;
 import com.baomidou.mybatisplus.core.MybatisConfiguration;
+import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
+import com.baomidou.mybatisplus.core.metadata.TableInfoHelper;
+import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
+import org.apache.ibatis.builder.MapperBuilderAssistant;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
@@ -16,6 +21,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
@@ -23,30 +29,30 @@ class RiskEventServiceTest {
 
     private final RiskEventMapper riskEventMapper = mock(RiskEventMapper.class);
     private final OutboxEventMapper outboxMapper = mock(OutboxEventMapper.class);
-    private final io.lunar.anticheat.infra.AuditClient auditClient = mock(io.lunar.anticheat.infra.AuditClient.class);
+    private final AuditClient auditClient = mock(AuditClient.class);
     private final RiskEventService service = new RiskEventService(riskEventMapper, outboxMapper, auditClient);
 
     @BeforeAll
     static void initMpMetadata() {
         for (Class<?> entity : List.of(RiskEventEntity.class, OutboxEventEntity.class)) {
-            com.baomidou.mybatisplus.core.metadata.TableInfoHelper.initTableInfo(
-                    new org.apache.ibatis.builder.MapperBuilderAssistant(
-                            new com.baomidou.mybatisplus.core.MybatisConfiguration(), ""),
+            TableInfoHelper.initTableInfo(
+                    new MapperBuilderAssistant(
+                            new MybatisConfiguration(), ""),
                     entity);
         }
     }
 
     private static RiskEventEntity event(String id, String reviewStatus) {
-        RiskEventEntity e = new RiskEventEntity();
-        e.setId(id);
-        e.setContestId("c1");
-        e.setStudentId("stu_1");
-        e.setEventType("DEBUGGER_DETECTED");
-        e.setSeverity("HIGH");
-        e.setOccurredAt(Instant.now());
-        e.setReportedAt(Instant.now());
-        e.setReviewStatus(reviewStatus);
-        return e;
+        RiskEventEntity riskEvent = new RiskEventEntity();
+        riskEvent.setId(id);
+        riskEvent.setContestId("c1");
+        riskEvent.setStudentId("stu_1");
+        riskEvent.setEventType("DEBUGGER_DETECTED");
+        riskEvent.setSeverity("HIGH");
+        riskEvent.setOccurredAt(Instant.now());
+        riskEvent.setReportedAt(Instant.now());
+        riskEvent.setReviewStatus(reviewStatus);
+        return riskEvent;
     }
 
     @Test
@@ -57,7 +63,7 @@ class RiskEventServiceTest {
         service.report("c1", "stu_1", "SOMETHING_NEW", null, null, null, null);
 
         ArgumentCaptor<RiskEventEntity> captor = ArgumentCaptor.forClass(RiskEventEntity.class);
-        verify(riskEventMapper, org.mockito.Mockito.times(3)).insert(captor.capture());
+        verify(riskEventMapper, times(3)).insert(captor.capture());
         assertThat(captor.getAllValues().get(0).getSeverity()).isEqualTo("HIGH");
         assertThat(captor.getAllValues().get(1).getSeverity()).isEqualTo("LOW");
         assertThat(captor.getAllValues().get(2).getSeverity()).isEqualTo("MEDIUM");
@@ -131,16 +137,16 @@ class RiskEventServiceTest {
 
     @Test
     void listFiltersByContestAndSeverity() {
-        var page = new com.baomidou.mybatisplus.extension.plugins.pagination.Page<RiskEventEntity>(1, 20, 0);
-        page.setRecords(java.util.List.of());
+        var page = new Page<RiskEventEntity>(1, 20, 0);
+        page.setRecords(List.of());
         when(riskEventMapper.selectPage(any(), any())).thenReturn(page);
 
         service.list("c1", null, "HIGH", null, 1, 20);
 
-        ArgumentCaptor<com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper<RiskEventEntity>> captor =
-                ArgumentCaptor.forClass(com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper.class);
+        ArgumentCaptor<LambdaQueryWrapper<RiskEventEntity>> captor =
+                ArgumentCaptor.forClass(LambdaQueryWrapper.class);
         verify(riskEventMapper).selectPage(any(), captor.capture());
         // wrapper 条件由 SQL 保证；此处确认查询执行且分页参数生效
-        org.mockito.Mockito.verify(riskEventMapper).selectPage(any(), any());
+        verify(riskEventMapper).selectPage(any(), any());
     }
 }

@@ -34,15 +34,15 @@ public class JudgedConsumer implements RocketMQListener<String> {
             String submissionId = payload.get("submissionId").asText();
             String verdict = payload.get("verdict").asText();
             Integer score = payload.hasNonNull("score") ? payload.get("score").asInt() : null;
-            Integer passed = payload.hasNonNull("passedCases") ? payload.get("passedCases").asInt() : null;
-            Integer total = payload.hasNonNull("totalCases") ? payload.get("totalCases").asInt() : null;
+            Integer passedCases = payload.hasNonNull("passedCases") ? payload.get("passedCases").asInt() : null;
+            Integer totalCases = payload.hasNonNull("totalCases") ? payload.get("totalCases").asInt() : null;
             String traceId = payload.hasNonNull("traceId") ? payload.get("traceId").asText() : null;
-            submissionService.applyJudgment(submissionId, verdict, score, passed, total, traceId);
+            submissionService.applyJudgment(submissionId, verdict, score, passedCases, totalCases, traceId);
             log.info("Judged consumed submissionId={} verdict={}", submissionId, verdict);
-        } catch (SubmissionException.InvalidStatusTransition e) {
-            log.warn("重复判决消息，按幂等吞掉：{}", e.getMessage());
-        } catch (Exception e) {
-            throw new RuntimeException("judged 消息处理失败，触发重试", e);
+        } catch (SubmissionException.InvalidStatusTransition exception) {
+            log.warn("重复判决消息，按幂等吞掉：{}", exception.getMessage());
+        } catch (Exception exception) {
+            throw new RuntimeException("judged 消息处理失败，触发重试", exception);
         }
     }
 }

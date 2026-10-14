@@ -1,7 +1,9 @@
 package io.lunar.contest.config;
 
+import io.lunar.common.security.Role;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
+import org.springframework.http.HttpMethod;
 import org.springframework.security.config.annotation.method.configuration.EnableMethodSecurity;
 import org.springframework.security.config.annotation.web.builders.HttpSecurity;
 import org.springframework.security.config.annotation.web.configuration.EnableWebSecurity;
@@ -29,11 +31,11 @@ public class SecurityConfig {
     @Bean
     public SecurityFilterChain securityFilterChain(HttpSecurity http) throws Exception {
         http.csrf(AbstractHttpConfigurer::disable)
-                .sessionManagement(s -> s.sessionCreationPolicy(SessionCreationPolicy.STATELESS))
+                .sessionManagement(session -> session.sessionCreationPolicy(SessionCreationPolicy.STATELESS))
                 .authorizeHttpRequests(auth -> auth
-                        .requestMatchers(org.springframework.http.HttpMethod.POST, "/api/v1/contests").hasAnyRole("TEACHER", "ADMIN")
-                        .requestMatchers(org.springframework.http.HttpMethod.POST, "/api/v1/contests/*/review").hasAnyRole("TEACHER", "ADMIN")
-                        .requestMatchers(org.springframework.http.HttpMethod.POST, "/api/v1/contests/*/publish").hasRole("ADMIN")
+                        .requestMatchers(HttpMethod.POST, "/api/v1/contests").hasAnyRole("TEACHER", "ADMIN")
+                        .requestMatchers(HttpMethod.POST, "/api/v1/contests/*/review").hasAnyRole("TEACHER", "ADMIN")
+                        .requestMatchers(HttpMethod.POST, "/api/v1/contests/*/publish").hasRole("ADMIN")
                         // Swagger/OpenAPI 文档（本地调试用；生产环境需收紧或关闭）
                         .requestMatchers("/swagger-ui/**", "/swagger-ui.html", "/v3/api-docs/**").permitAll()
                         .anyRequest().authenticated())
@@ -53,7 +55,7 @@ public class SecurityConfig {
                 return List.of();
             }
             return roles.stream()
-                    .map(role -> (GrantedAuthority) new SimpleGrantedAuthority("ROLE_" + role))
+                    .map(role -> (GrantedAuthority) new SimpleGrantedAuthority(Role.AUTHORITY_PREFIX + role))
                     .collect(Collectors.toList());
         });
         return converter;
