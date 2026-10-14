@@ -18,6 +18,18 @@
   - 提取魔法值常量：判题 verdict 与沙箱状态名、题目默认限制、outbox 批量大小、详情截断长度等
   - 风格扫描器命中 189 处 → 2 处（剩余 2 处为 `ApiResponse` 的 `data` 字段：`docs/api.md` 已定的 wire 契约名，按"项目约定优先"保留）；103 个测试全绿
 
+### 修复
+
+- **判题 verdict 词表漂移导致真机结果被误判**：`GoJudgeAdapter` 输出短名（TLE/MLE/OLE/RE），而 `SubmissionCreatedConsumer` 白名单与 `SubmissionService.TERMINAL_STATUSES` 只认长名，真机下所有超时/超内存/超输出/运行时错误都会被归一成 `SYSTEM_ERROR`（Mock 引擎只产 ACCEPTED，测试与本地演示均未暴露，且消费者此前零测试覆盖）
+  - 词表收敛为 `lunar-common` 的 `JudgeVerdict` 枚举（枚举名即事件与 `submissions.status` 的契约值），成为全平台唯一权威：adapter 直接映射枚举、消费者用 `parse()` 判定、submission 的终态校验由枚举派生；三份手写字符串清单（adapter 的 8 个常量、消费者的白名单 switch、`TERMINAL_STATUSES`）全部删除
+  - `docs/services.md` 中与 `docs/architecture.md` §8、库表列注释相矛盾的 `TLE、MLE、RE、OLE` 表述已改正
+  - 新增 `SubmissionCreatedConsumerTest` 钉住发布契约：契约长名原样通过，短名与 `PENDING` 兜底 `SYSTEM_ERROR`
+  - 无需数据迁移：短名在落库前已被归一，`submissions.status` 中不存在 `TLE` 等取值
+
+- **judge-service 设置 `GO_JUDGE_BASE_URL` 时启动失败**（既有缺陷，全量 API 测试暴露）：`GoJudgeAdapter` 同时有容器装配构造器（带 `@Value`）与单测注入构造器（包级 `GoJudgeTransport`），前者未标注 `@Autowired`，Spring 无法选择 → `Failed to instantiate: No default constructor found`。后果是真实 go-judge 链路从未真正启动过（也解释了 verdict 词表漂移为何长期未被发现）。补 `@Autowired` 后真实引擎可正常启用
+
+- **添加学生响应缺少文档声明的 `passwordChangeRequired`**（全量 API 测试发现）：`docs/api.md"添加学生"` 的响应契约含该字段，实现返回的却是名单视图 `CandidateView`（含加入人/加入时间、无该字段）。现为 `add()` 引入与文档一致的 `EnrollmentResult`（studentId/studentNo/username/displayName/enrollmentStatus/passwordChangeRequired）：新建账号时取 auth 响应值（true），账号复用（学生已在其他竞赛报名）时为 false——本次未下发任何密码；加入人/加入时间仍由名单查询返回，与文档分工一致。`EnrollmentServiceTest` 新增两条断言覆盖新建与复用两种分支
+
 ### 计划中
 
 - RocketMQ Outbox 发布器与消费（接通 submission → judge 事件链路，替代判决回写过渡端点）

@@ -66,13 +66,16 @@ class EnrollmentServiceTest {
         when(candidateMapper.selectOne(any())).thenReturn(null);
         when(authClient.findStudent("20260001", "student_20260001", "tok")).thenReturn(null);
         when(authClient.createStudent("20260001", "student_20260001", "张三", "init-pass-123", "tok"))
-                .thenReturn(Map.of("studentId", "stu_1", "username", "student_20260001"));
+                .thenReturn(Map.of("studentId", "stu_1", "username", "student_20260001",
+                        "passwordChangeRequired", true));
 
-        EnrollmentService.CandidateView view =
+        EnrollmentService.EnrollmentResult view =
                 service.add("c1", "20260001", "student_20260001", "张三", "init-pass-123", "tok", "teacher_1");
 
         assertThat(view.studentId()).isEqualTo("stu_1");
         assertThat(view.enrollmentStatus()).isEqualTo("ENROLLED");
+        // 新建账号下发了临时密码 → 必须改密（docs/api.md"添加学生"契约字段）
+        assertThat(view.passwordChangeRequired()).isTrue();
         ArgumentCaptor<CandidateEntity> captor = ArgumentCaptor.forClass(CandidateEntity.class);
         verify(candidateMapper).insert(captor.capture());
         assertThat(captor.getValue().getStudentNoSnapshot()).isEqualTo("20260001");
@@ -86,10 +89,12 @@ class EnrollmentServiceTest {
                 .thenReturn(Map.of("studentId", "stu_exists", "username", "student_20260001",
                         "displayName", "老账号"));
 
-        EnrollmentService.CandidateView view =
+        EnrollmentService.EnrollmentResult view =
                 service.add("c1", "20260001", "student_20260001", "张三", "init-pass-123", "tok", "teacher_1");
 
         assertThat(view.studentId()).isEqualTo("stu_exists");
+        // 账号复用：本次没有下发任何密码，不应要求改密
+        assertThat(view.passwordChangeRequired()).isFalse();
         verify(authClient, never()).createStudent(any(), any(), any(), any(), any());
     }
 
@@ -110,7 +115,7 @@ class EnrollmentServiceTest {
         when(authClient.findStudent("20260001", "student_20260001", "tok"))
                 .thenReturn(Map.of("studentId", "stu_1", "username", "student_20260001"));
 
-        EnrollmentService.CandidateView view =
+        EnrollmentService.EnrollmentResult view =
                 service.add("c1", "20260001", "student_20260001", "张三", "init-pass-123", "tok", "teacher_1");
 
         assertThat(view.enrollmentStatus()).isEqualTo("ENROLLED");

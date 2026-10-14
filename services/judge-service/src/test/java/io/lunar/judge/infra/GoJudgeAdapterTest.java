@@ -66,11 +66,12 @@ class GoJudgeAdapterTest {
 
     @Test
     void goJudgeStatusesMapToPlatformVerdicts() {
-        assertVerdict("Time Limit Exceeded", "TLE");
-        assertVerdict("Memory Limit Exceeded", "MLE");
-        assertVerdict("Output Limit Exceeded", "OLE");
-        assertVerdict("Nonzero Exit Status", "RE");
-        assertVerdict("Signalled", "RE");
+        // 期望值故意写成字面量而不引用 JudgeVerdict：这里钉的是对外 wire 契约（事件与 submissions.status）
+        assertVerdict("Time Limit Exceeded", "TIME_LIMIT_EXCEEDED");
+        assertVerdict("Memory Limit Exceeded", "MEMORY_LIMIT_EXCEEDED");
+        assertVerdict("Output Limit Exceeded", "OUTPUT_LIMIT_EXCEEDED");
+        assertVerdict("Nonzero Exit Status", "RUNTIME_ERROR");
+        assertVerdict("Signalled", "RUNTIME_ERROR");
         assertVerdict("File Error", "SYSTEM_ERROR");
         assertVerdict("Internal Error", "SYSTEM_ERROR");
     }

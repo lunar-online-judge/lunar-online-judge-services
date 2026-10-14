@@ -30,6 +30,15 @@ public class EnrollmentService {
 
     public record CandidatePage(List<CandidateView> items, long total, long page, long pageSize) {}
 
+    /**
+     * 添加学生响应（docs/api.md"添加学生"）：不含密码或其哈希。
+     * passwordChangeRequired 仅在本次调用新建了 auth 账号且 auth 统一下发临时密码时为 true；
+     * 账号复用（学生已在其他竞赛报名）时为 false——本次没有下发任何密码。
+     * 加入人/加入时间属名单查询契约（见 CandidateView），不在此响应中。
+     */
+    public record EnrollmentResult(String studentId, String studentNo, String username, String displayName,
+                                   String enrollmentStatus, boolean passwordChangeRequired) {}
+
     private final CandidateMapper candidateMapper;
     private final ContestService contestService;
     private final AuthInternalClient authClient;
@@ -43,8 +52,8 @@ public class EnrollmentService {
 
     /** 添加学生：账号不存在则经 auth 创建（或账号已存在则复用），再建立/激活报名关系。 */
     @SuppressWarnings("unchecked")
-    public CandidateView add(String contestId, String studentNo, String username, String displayName,
-                             String initialPassword, String operatorToken, String operatorId) {
+    public EnrollmentResult add(String contestId, String studentNo, String username, String displayName,
+                                String initialPassword, String operatorToken, String operatorId) {
         contestService.get(contestId); // 竞赛必须存在
 
         // 名单中该学号已有效报名 → 拒绝重复（同一 contestId+studentNo 只能有一条有效报名关系）
@@ -58,6 +67,7 @@ public class EnrollmentService {
 
         // auth 端账号：已存在（他场竞赛的学生）则复用，不存在则创建——同一账号可参加多场竞赛
         Map<String, Object> account = authClient.findStudent(studentNo, username, operatorToken);
+        boolean passwordChangeRequired = false;
         String studentId;
         if (account != null) {
             studentId = String.valueOf(account.get("studentId"));
@@ -67,6 +77,8 @@ public class EnrollmentService {
             Map<String, Object> created = authClient.createStudent(studentNo, username, displayName,
                     initialPassword, operatorToken);
             studentId = String.valueOf(created.get("studentId"));
+            // 是否需改密以 auth 的响应为准，不在本服务推断
+            passwordChangeRequired = Boolean.TRUE.equals(created.get("passwordChangeRequired"));
         }
 
         // 同一 studentId 的既有关系（含 REMOVED 软删除行）→ 复用该行
@@ -89,7 +101,7 @@ public class EnrollmentService {
             candidateMapper.updateById(existing);
             log.info("AUDIT event=STUDENT_REENROLLED contestId={} studentId={} by={}",
                     contestId, studentId, operatorId);
-            return toView(existing);
+            return toEnrollmentResult(existing, passwordChangeRequired);
         }
 
         CandidateEntity candidate = new CandidateEntity();
@@ -104,7 +116,7 @@ public class EnrollmentService {
         candidate.setEnrolledAt(Instant.now());
         candidateMapper.insert(candidate);
         log.info("AUDIT event=STUDENT_ENROLLED contestId={} studentId={} by={}", contestId, studentId, operatorId);
-        return toView(candidate);
+        return toEnrollmentResult(candidate, passwordChangeRequired);
     }
 
     /** 分页查询名单；keyword 匹配学号快照。 */
@@ -156,5 +168,12 @@ public class EnrollmentService {
         return new CandidateView(candidate.getStudentId(), candidate.getStudentNoSnapshot(),
                 candidate.getUsernameSnapshot(), candidate.getDisplayNameSnapshot(), candidate.getStatus(),
                 candidate.getAddedByTeacherId(), candidate.getEnrolledAt());
+    }
+
+    /** 添加学生响应视图（docs/api.md"添加学生"）：同样取快照列 + 本次是否下发了待改密的临时密码。 */
+    private EnrollmentResult toEnrollmentResult(CandidateEntity candidate, boolean passwordChangeRequired) {
+        return new EnrollmentResult(candidate.getStudentId(), candidate.getStudentNoSnapshot(),
+                candidate.getUsernameSnapshot(), candidate.getDisplayNameSnapshot(), candidate.getStatus(),
+                passwordChangeRequired);
     }
 }

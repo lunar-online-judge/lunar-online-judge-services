@@ -108,15 +108,16 @@ public class ContestController {
     /** 添加学生：账号不存在则经 auth 创建（存在则复用），并建立报名关系（docs/api.md"添加学生"）。 */
     @PostMapping("/{contestId}/students")
     @PreAuthorize("hasAnyRole('TEACHER', 'ADMIN')")
-    public ResponseEntity<ApiResponse<EnrollmentService.CandidateView>> addStudent(
+    public ResponseEntity<ApiResponse<EnrollmentService.EnrollmentResult>> addStudent(
             @PathVariable String contestId,
             @Valid @RequestBody AddStudentRequest request,
             Authentication authentication,
             @RequestHeader(value = RequestIdFilter.HEADER, required = false) String requestId,
             @RequestHeader(value = "Authorization", required = false) String authorization) {
-        EnrollmentService.CandidateView view = enrollmentService.add(contestId, request.studentNo(), request.username(),
-                request.displayName(), request.initialPassword(), authorization, authentication.getName());
-        return ResponseEntity.ok(ApiResponse.success(requestId, view));
+        EnrollmentService.EnrollmentResult result = enrollmentService.add(contestId, request.studentNo(),
+                request.username(), request.displayName(), request.initialPassword(),
+                authorization, authentication.getName());
+        return ResponseEntity.ok(ApiResponse.success(requestId, result));
     }
 
     /** 分页查询竞赛名单；keyword 模糊匹配学号。 */

@@ -4,6 +4,8 @@ import io.lunar.common.judge.JudgeEngine;
 import io.lunar.common.judge.JudgeResult;
 import io.lunar.common.judge.JudgeSubmissionCommand;
 import io.lunar.common.judge.JudgeSubmissionResult;
+import io.lunar.common.judge.JudgeVerdict;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.context.annotation.Primary;
@@ -13,6 +15,7 @@ import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import java.util.TreeMap;
 import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
@@ -54,19 +57,14 @@ public class GoJudgeAdapter implements JudgeEngine {
     private static final String GO_JUDGE_NONZERO_EXIT_STATUS = "Nonzero Exit Status";
     private static final String GO_JUDGE_SIGNALLED = "Signalled";
 
-    /** 平台 verdict 码（下发给 submission-service 的契约值，禁改）。 */
-    private static final String VERDICT_ACCEPTED = "ACCEPTED";
-    private static final String VERDICT_WRONG_ANSWER = "WRONG_ANSWER";
-    private static final String VERDICT_COMPILE_ERROR = "COMPILE_ERROR";
-    private static final String VERDICT_TLE = "TLE";
-    private static final String VERDICT_MLE = "MLE";
-    private static final String VERDICT_OLE = "OLE";
-    private static final String VERDICT_RE = "RE";
-    private static final String VERDICT_SYSTEM_ERROR = "SYSTEM_ERROR";
-
     private final GoJudgeTransport transport;
     private final Map<String, JudgeResult> results = new ConcurrentHashMap<>();
 
+    /**
+     * 容器装配入口：显式标注 @Autowired——本类另有一个包级可见的 transport 构造器供单测注入，
+     * 两个构造器并存时 Spring 需要明确的注入点，否则会去找默认构造器并启动失败。
+     */
+    @Autowired
     public GoJudgeAdapter(
             @Value("${GO_JUDGE_BASE_URL:http://localhost:5050}") String baseUrl,
             @Value("${GO_JUDGE_CONNECT_TIMEOUT_MS:2000}") long connectTimeoutMs,
@@ -122,7 +120,7 @@ public class GoJudgeAdapter implements JudgeEngine {
             programFileId = compileResult.fileIds() == null ? null
                     : compileResult.fileIds().get(template.compileOutputs.get(0));
             if (!GO_JUDGE_ACCEPTED.equals(compileResult.status()) || programFileId == null) {
-                return new JudgeResult(engineId, VERDICT_COMPILE_ERROR, null, null,
+                return new JudgeResult(engineId, JudgeVerdict.COMPILE_ERROR.name(), null, null,
                         truncate(compileStderr(compileResult)));
             }
         }
@@ -136,17 +134,17 @@ public class GoJudgeAdapter implements JudgeEngine {
                     List.of(runCmd(template, command, testcase, programFileId)))).get(0);
             maxTimeNs = max(maxTimeNs, runResult.time());
             maxMemoryBytes = max(maxMemoryBytes, runResult.memory());
-            String failVerdict = failVerdictOf(runResult, testcase);
-            if (failVerdict != null) {
-                String detail = "测试点 " + (i + 1) + "：" + failDetailOf(failVerdict, runResult) + "（通过 "
+            Optional<JudgeVerdict> failVerdict = failVerdictOf(runResult, testcase);
+            if (failVerdict.isPresent()) {
+                String detail = "测试点 " + (i + 1) + "：" + failDetailOf(failVerdict.get(), runResult) + "（通过 "
                         + passed + "/" + testcases.size() + "）";
-                return new JudgeResult(engineId, failVerdict, timeMsOf(maxTimeNs), memoryKbOf(maxMemoryBytes),
-                        truncate(detail));
+                return new JudgeResult(engineId, failVerdict.get().name(), timeMsOf(maxTimeNs),
+                        memoryKbOf(maxMemoryBytes), truncate(detail));
             }
             passed++;
         }
-        return new JudgeResult(engineId, VERDICT_ACCEPTED, timeMsOf(maxTimeNs), memoryKbOf(maxMemoryBytes),
-                "通过 " + passed + "/" + testcases.size() + " 测试点");
+        return new JudgeResult(engineId, JudgeVerdict.ACCEPTED.name(), timeMsOf(maxTimeNs),
+                memoryKbOf(maxMemoryBytes), "通过 " + passed + "/" + testcases.size() + " 测试点");
     }
 
     private GoJudgeModels.Cmd compileCmd(LanguageTemplate template, String sourceCode) {
@@ -170,27 +168,29 @@ public class GoJudgeAdapter implements JudgeEngine {
                 copyIn, null, null);
     }
 
-    /** go-judge 状态 → 平台 verdict；返回 null 表示该测试点通过。 */
-    private String failVerdictOf(GoJudgeModels.RunResult runResult, TestCase testcase) {
+    /** go-judge 状态 → 平台判题终态（{@link JudgeVerdict} 为唯一权威词表）；empty 表示该测试点通过。 */
+    private Optional<JudgeVerdict> failVerdictOf(GoJudgeModels.RunResult runResult, TestCase testcase) {
         return switch (runResult.status() == null ? "" : runResult.status()) {
             case GO_JUDGE_ACCEPTED -> matches(runResult.files() == null ? null
-                    : runResult.files().get(FD_STDOUT), testcase.expected()) ? null : VERDICT_WRONG_ANSWER;
-            case GO_JUDGE_TIME_LIMIT_EXCEEDED -> VERDICT_TLE;
-            case GO_JUDGE_MEMORY_LIMIT_EXCEEDED -> VERDICT_MLE;
-            case GO_JUDGE_OUTPUT_LIMIT_EXCEEDED -> VERDICT_OLE;
-            case GO_JUDGE_NONZERO_EXIT_STATUS, GO_JUDGE_SIGNALLED -> VERDICT_RE;
-            default -> VERDICT_SYSTEM_ERROR;
+                    : runResult.files().get(FD_STDOUT), testcase.expected())
+                    ? Optional.empty() : Optional.of(JudgeVerdict.WRONG_ANSWER);
+            case GO_JUDGE_TIME_LIMIT_EXCEEDED -> Optional.of(JudgeVerdict.TIME_LIMIT_EXCEEDED);
+            case GO_JUDGE_MEMORY_LIMIT_EXCEEDED -> Optional.of(JudgeVerdict.MEMORY_LIMIT_EXCEEDED);
+            case GO_JUDGE_OUTPUT_LIMIT_EXCEEDED -> Optional.of(JudgeVerdict.OUTPUT_LIMIT_EXCEEDED);
+            case GO_JUDGE_NONZERO_EXIT_STATUS, GO_JUDGE_SIGNALLED -> Optional.of(JudgeVerdict.RUNTIME_ERROR);
+            default -> Optional.of(JudgeVerdict.SYSTEM_ERROR);
         };
     }
 
-    private String failDetailOf(String verdict, GoJudgeModels.RunResult runResult) {
+    private String failDetailOf(JudgeVerdict verdict, GoJudgeModels.RunResult runResult) {
         return switch (verdict) {
-            case VERDICT_WRONG_ANSWER -> "输出不匹配";
-            case VERDICT_TLE -> "超时（cpu " + timeMsOf(runResult.time()) + "ms）";
-            case VERDICT_MLE -> "超内存（" + memoryKbOf(runResult.memory()) + "KB）";
-            case VERDICT_OLE -> "输出超限";
-            case VERDICT_RE -> "运行时错误（exit=" + runResult.exitStatus() + "）" + stderrSnippet(runResult);
-            default -> "沙箱异常: " + runResult.status()
+            case WRONG_ANSWER -> "输出不匹配";
+            case TIME_LIMIT_EXCEEDED -> "超时（cpu " + timeMsOf(runResult.time()) + "ms）";
+            case MEMORY_LIMIT_EXCEEDED -> "超内存（" + memoryKbOf(runResult.memory()) + "KB）";
+            case OUTPUT_LIMIT_EXCEEDED -> "输出超限";
+            case RUNTIME_ERROR -> "运行时错误（exit=" + runResult.exitStatus() + "）" + stderrSnippet(runResult);
+            // ACCEPTED 是"通过"、COMPILE_ERROR 在编译阶段已返回，都不会作为 fail verdict 到达这里
+            case ACCEPTED, COMPILE_ERROR, SYSTEM_ERROR -> "沙箱异常: " + runResult.status()
                     + (runResult.error() == null ? "" : " " + runResult.error());
         };
     }
@@ -209,7 +209,7 @@ public class GoJudgeAdapter implements JudgeEngine {
     }
 
     private JudgeResult systemError(String engineId, String message) {
-        return new JudgeResult(engineId, VERDICT_SYSTEM_ERROR, null, null, truncate(message));
+        return new JudgeResult(engineId, JudgeVerdict.SYSTEM_ERROR.name(), null, null, truncate(message));
     }
 
     /**

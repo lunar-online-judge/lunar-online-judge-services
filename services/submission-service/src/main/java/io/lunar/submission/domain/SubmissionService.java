@@ -1,5 +1,6 @@
 package io.lunar.submission.domain;
 
+import io.lunar.common.judge.JudgeVerdict;
 import io.lunar.submission.infra.OutboxEventEntity;
 import io.lunar.submission.infra.OutboxEventMapper;
 import io.lunar.submission.infra.SubmissionEntity;
@@ -34,9 +35,6 @@ import java.util.UUID;
 public class SubmissionService {
 
     private static final Logger log = LoggerFactory.getLogger(SubmissionService.class);
-    private static final List<String> TERMINAL_STATUSES = List.of(
-            "ACCEPTED", "WRONG_ANSWER", "COMPILE_ERROR", "TIME_LIMIT_EXCEEDED",
-            "MEMORY_LIMIT_EXCEEDED", "RUNTIME_ERROR", "OUTPUT_LIMIT_EXCEEDED", "SYSTEM_ERROR");
 
     public record SubmissionView(String submissionId, String contestId, String problemId, String language,
                                  String status, Integer score, Integer passedCases, Integer totalCases,
@@ -137,13 +135,13 @@ public class SubmissionService {
         if (submission == null) {
             throw new SubmissionException.NotFound();
         }
-        if (TERMINAL_STATUSES.contains(submission.getStatus())) {
+        // 终态集合由 JudgeVerdict 定义（判题结果即终态），不再本地维护字符串清单
+        if (JudgeVerdict.parse(submission.getStatus()).isPresent()) {
             throw new SubmissionException.InvalidStatusTransition(submission.getStatus());
         }
-        if (!TERMINAL_STATUSES.contains(verdict)) {
-            throw new SubmissionException.InvalidStatusTransition("未知 verdict " + verdict);
-        }
-        submission.setStatus(verdict);
+        JudgeVerdict judged = JudgeVerdict.parse(verdict)
+                .orElseThrow(() -> new SubmissionException.InvalidStatusTransition("未知 verdict " + verdict));
+        submission.setStatus(judged.name());
         submission.setScore(score);
         submission.setPassedCases(passedCases);
         submission.setTotalCases(totalCases);
@@ -154,12 +152,12 @@ public class SubmissionService {
                 "submissionId", submissionId,
                 "contestId", submission.getContestId(),
                 "studentId", submission.getStudentId(),
-                "verdict", verdict,
+                "verdict", judged.name(),
                 "score", score == null ? 0 : score,
                 "passedCases", passedCases == null ? 0 : passedCases,
                 "totalCases", totalCases == null ? 0 : totalCases)));
         log.info("AUDIT event=SUBMISSION_JUDGED submissionId={} verdict={} score={}",
-                submissionId, verdict, score);
+                submissionId, judged.name(), score);
         return toView(submission);
     }
 

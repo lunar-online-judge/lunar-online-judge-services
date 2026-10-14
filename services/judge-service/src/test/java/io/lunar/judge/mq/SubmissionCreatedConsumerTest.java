@@ -1,0 +1,57 @@
+package io.lunar.judge.mq;
+
+import io.lunar.common.judge.JudgeEngine;
+import io.lunar.common.judge.JudgeResult;
+import io.lunar.common.judge.JudgeSubmissionResult;
+import org.apache.rocketmq.spring.core.RocketMQTemplate;
+import org.junit.jupiter.api.Test;
+import org.mockito.ArgumentCaptor;
+
+import static org.assertj.core.api.Assertions.assertThat;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.Mockito.clearInvocations;
+import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.when;
+
+/**
+ * 判题结果发布契约：verdict 必须是 JudgeVerdict 的契约值（长名），
+ * 引擎侧的历史短名（TLE/MLE/OLE/RE）与未出结果的 PENDING 一律兜底 SYSTEM_ERROR。
+ */
+class SubmissionCreatedConsumerTest {
+
+    private final JudgeEngine judgeEngine = mock(JudgeEngine.class);
+    private final RocketMQTemplate rocketMQTemplate = mock(RocketMQTemplate.class);
+    private final SubmissionCreatedConsumer consumer = new SubmissionCreatedConsumer(judgeEngine, rocketMQTemplate);
+
+    @Test
+    void knownVerdictsArePublishedAsContractValues() throws Exception {
+        assertThat(judgedPayloadFor("TIME_LIMIT_EXCEEDED")).contains("\"verdict\":\"TIME_LIMIT_EXCEEDED\"");
+        assertThat(judgedPayloadFor("RUNTIME_ERROR")).contains("\"verdict\":\"RUNTIME_ERROR\"");
+        assertThat(judgedPayloadFor("ACCEPTED")).contains("\"verdict\":\"ACCEPTED\"").contains("\"score\":100");
+    }
+
+    @Test
+    void unknownOrNotReadyVerdictsFallBackToSystemError() throws Exception {
+        assertThat(judgedPayloadFor("TLE")).contains("\"verdict\":\"SYSTEM_ERROR\"");
+        assertThat(judgedPayloadFor("RE")).contains("\"verdict\":\"SYSTEM_ERROR\"");
+        assertThat(judgedPayloadFor("PENDING")).contains("\"verdict\":\"SYSTEM_ERROR\"");
+        assertThat(judgedPayloadFor(null)).contains("\"verdict\":\"SYSTEM_ERROR\"");
+    }
+
+    /** 让引擎返回指定 verdict，返回真正投递出去的事件体。 */
+    private String judgedPayloadFor(String engineVerdict) throws Exception {
+        when(judgeEngine.submit(any())).thenReturn(new JudgeSubmissionResult("engine-1", "FINISHED"));
+        when(judgeEngine.query("engine-1"))
+                .thenReturn(new JudgeResult("engine-1", engineVerdict, 12L, 2048L, "engine message"));
+        // 同一个测试方法里会多次调用本方法，先清掉上一次的投递记录
+        clearInvocations(rocketMQTemplate);
+
+        consumer.onMessage("{\"submissionId\":\"sub_1\",\"language\":\"cpp\",\"sourceCode\":\"int main(){}\"}");
+
+        ArgumentCaptor<Object> payload = ArgumentCaptor.forClass(Object.class);
+        verify(rocketMQTemplate).syncSend(eq("lunar-submission-judged"), payload.capture());
+        return payload.getValue().toString();
+    }
+}

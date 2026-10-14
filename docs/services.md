@@ -106,7 +106,7 @@ anti-cheat ──(plagiarism-requested)──> plagiarism-worker（独立部署�
 
 平台评测状态机的唯一拥有者。
 
-- 职责：消费 `lunar-submission-created`，创建 `judge_task(status=DISPATCHING)`；通过 `JudgeEngine` 抽象（定义在 lunar-common）经 `GoJudgeAdapter` 调用独立 Linux 节点上的 go-judge 沙箱；重试、超时补偿、go-judge 不可用时指数退避、超限转 `SYSTEM_ERROR`；verdict 归一化为 10 种标准结果（ACCEPTED、WRONG_ANSWER、COMPILE_ERROR、TLE、MLE、RE、OLE 等）；发布 `lunar-submission-judged`。
+- 职责：消费 `lunar-submission-created`，创建 `judge_task(status=DISPATCHING)`；通过 `JudgeEngine` 抽象（定义在 lunar-common）经 `GoJudgeAdapter` 调用独立 Linux 节点上的 go-judge 沙箱；重试、超时补偿、go-judge 不可用时指数退避、超限转 `SYSTEM_ERROR`；verdict 归一化为 8 种判题终态（唯一权威是 `lunar-common` 的 `JudgeVerdict`：ACCEPTED、WRONG_ANSWER、COMPILE_ERROR、TIME_LIMIT_EXCEEDED、MEMORY_LIMIT_EXCEEDED、RUNTIME_ERROR、OUTPUT_LIMIT_EXCEEDED、SYSTEM_ERROR，与 `submissions.status` 同名同集合）；发布 `lunar-submission-judged`。
 - 不负责：绝不在 Spring 容器内执行用户代码；不向 go-judge 传递数据库凭据、MQ 地址或宿主机路径；源码与测试数据只在评测任务临时目录存在，任务结束即清理。
 - 数据与基础设施：`judge_schema`；Redis 评测短期锁；go-judge 节点（独立 Linux，通过 `GO_JUDGE_BASE_URL` 配置）。
 - 对外接口：`POST /api/v1/judge/submissions`（已实现，走 Mock 引擎）；生产 `lunar-submission-judged`、消费 `lunar-submission-created`。

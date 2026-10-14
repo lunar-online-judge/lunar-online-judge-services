@@ -4,6 +4,7 @@ import io.lunar.common.judge.JudgeEngine;
 import io.lunar.common.judge.JudgeResult;
 import io.lunar.common.judge.JudgeSubmissionCommand;
 import io.lunar.common.judge.JudgeSubmissionResult;
+import io.lunar.common.judge.JudgeVerdict;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.apache.rocketmq.spring.annotation.RocketMQMessageListener;
@@ -26,16 +27,6 @@ import java.util.Map;
 public class SubmissionCreatedConsumer implements RocketMQListener<String> {
 
     private static final Logger log = LoggerFactory.getLogger(SubmissionCreatedConsumer.class);
-
-    /** 标准 verdict 码（对下游 submission-service 的契约值，禁改）。 */
-    private static final String VERDICT_ACCEPTED = "ACCEPTED";
-    private static final String VERDICT_WRONG_ANSWER = "WRONG_ANSWER";
-    private static final String VERDICT_COMPILE_ERROR = "COMPILE_ERROR";
-    private static final String VERDICT_TIME_LIMIT_EXCEEDED = "TIME_LIMIT_EXCEEDED";
-    private static final String VERDICT_MEMORY_LIMIT_EXCEEDED = "MEMORY_LIMIT_EXCEEDED";
-    private static final String VERDICT_RUNTIME_ERROR = "RUNTIME_ERROR";
-    private static final String VERDICT_OUTPUT_LIMIT_EXCEEDED = "OUTPUT_LIMIT_EXCEEDED";
-    private static final String VERDICT_SYSTEM_ERROR = "SYSTEM_ERROR";
 
     /** 事件缺省限制：payload 未携带时的兜底值。 */
     private static final int DEFAULT_TIME_LIMIT_MS = 2000;
@@ -71,11 +62,11 @@ public class SubmissionCreatedConsumer implements RocketMQListener<String> {
             JudgeSubmissionResult submitted = judgeEngine.submit(command);
             JudgeResult result = judgeEngine.query(submitted.engineSubmissionId());
 
-            String verdict = normalize(result.verdict());
-            int score = VERDICT_ACCEPTED.equals(verdict) ? ACCEPTED_SCORE : 0;
+            JudgeVerdict verdict = normalize(result.verdict());
+            int score = verdict == JudgeVerdict.ACCEPTED ? ACCEPTED_SCORE : 0;
             String judged = objectMapper.writeValueAsString(Map.of(
                     "submissionId", submissionId,
-                    "verdict", verdict,
+                    "verdict", verdict.name(),
                     "score", score,
                     "timeMs", result.timeMs() == null ? 0 : result.timeMs(),
                     "memoryKb", result.memoryKb() == null ? 0 : result.memoryKb(),
@@ -89,12 +80,8 @@ public class SubmissionCreatedConsumer implements RocketMQListener<String> {
         }
     }
 
-    /** 引擎 verdict（QUEUED/RUNNING 等）归一化为标准结果，未知一律 SYSTEM_ERROR。 */
-    private static String normalize(String verdict) {
-        return switch (verdict == null ? "" : verdict) {
-            case VERDICT_ACCEPTED, VERDICT_WRONG_ANSWER, VERDICT_COMPILE_ERROR, VERDICT_TIME_LIMIT_EXCEEDED,
-                 VERDICT_MEMORY_LIMIT_EXCEEDED, VERDICT_RUNTIME_ERROR, VERDICT_OUTPUT_LIMIT_EXCEEDED -> verdict;
-            default -> VERDICT_SYSTEM_ERROR;
-        };
+    /** 引擎 verdict 归一化为判题终态：已知取值原样通过，未知（含尚未出结果的 PENDING）兜底 SYSTEM_ERROR。 */
+    private static JudgeVerdict normalize(String verdict) {
+        return JudgeVerdict.parse(verdict).orElse(JudgeVerdict.SYSTEM_ERROR);
     }
 }
