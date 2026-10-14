@@ -10,6 +10,7 @@ import java.util.Map;
  * contest / problem 服务间查询客户端（转发学生令牌）：
  * - contest：会话与竞赛状态提交判定（canSubmit）；
  * - problem：题目当前发布版本（语言白名单、判题限制、版本 ID）——考生视角不返回测试点，符合契约。
+ * 寻址：按服务名经 Nacos 解析实例，CONTEST_BASE_URL / PROBLEM_BASE_URL 可覆盖为固定地址用于排障。
  */
 @Component
 public class UpstreamClient {
@@ -17,10 +18,11 @@ public class UpstreamClient {
     private final RestClient contest;
     private final RestClient problem;
 
-    public UpstreamClient(@Value("${CONTEST_BASE_URL:http://localhost:8082}") String contestBaseUrl,
-                          @Value("${PROBLEM_BASE_URL:http://localhost:8083}") String problemBaseUrl) {
-        this.contest = RestClient.builder().baseUrl(contestBaseUrl).build();
-        this.problem = RestClient.builder().baseUrl(problemBaseUrl).build();
+    public UpstreamClient(RestClient.Builder loadBalancedRestClientBuilder,
+                          @Value("${CONTEST_BASE_URL:http://contest-service}") String contestBaseUrl,
+                          @Value("${PROBLEM_BASE_URL:http://problem-service}") String problemBaseUrl) {
+        this.contest = loadBalancedRestClientBuilder.baseUrl(contestBaseUrl).build();
+        this.problem = loadBalancedRestClientBuilder.baseUrl(problemBaseUrl).build();
     }
 
     private static String bearer(String token) {

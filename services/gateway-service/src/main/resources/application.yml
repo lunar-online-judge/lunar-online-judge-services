@@ -2,33 +2,43 @@ spring:
   application:
     name: gateway-service
   cloud:
+    nacos:
+      discovery:
+        # 注册进 Nacos（docs/middleware.md）；默认不因 Nacos 不可达而启动失败，NACOS_FAIL_FAST=true 可切回严格模式
+        server-addr: ${NACOS_SERVER_ADDR:localhost:8848}
+        # 注册 IP 固定 127.0.0.1：本机多网卡（VMware VMnet / WSL / 虚拟网卡）会被自动探测误选，
+        # 与 RocketMQ brokerIP1=127.0.0.1 同理（docker/rocketmq/broker.conf）；服务容器化后须改为容器可达地址
+        ip: ${NACOS_DISCOVERY_IP:127.0.0.1}
+        fail-fast: ${NACOS_FAIL_FAST:false}
     gateway:
       httpclient:
         connect-timeout: 2000
         response-timeout: 30s
       routes:
+        # uri 走 lb://服务名：由 Nacos 注册表解析实例（spring-cloud-starter-loadbalancer）。
+        # 需要临时钉到固定地址排障时，用对应的 *_SERVICE_URI 环境变量覆盖，例如 AUTH_SERVICE_URI=http://localhost:8081
         - id: auth
-          uri: ${AUTH_SERVICE_URL:http://localhost:8081}
+          uri: ${AUTH_SERVICE_URI:lb://auth-service}
           predicates:
             - Path=/api/v1/auth/**
         - id: contests
-          uri: ${CONTEST_SERVICE_URL:http://localhost:8082}
+          uri: ${CONTEST_SERVICE_URI:lb://contest-service}
           predicates:
             - Path=/api/v1/contests/**
         - id: problems
-          uri: ${PROBLEM_SERVICE_URL:http://localhost:8083}
+          uri: ${PROBLEM_SERVICE_URI:lb://problem-service}
           predicates:
             - Path=/api/v1/problems/**
         - id: submissions
-          uri: ${SUBMISSION_SERVICE_URL:http://localhost:8084}
+          uri: ${SUBMISSION_SERVICE_URI:lb://submission-service}
           predicates:
             - Path=/api/v1/submissions/**
         - id: monitor
-          uri: ${ANTICHEAT_SERVICE_URL:http://localhost:8086}
+          uri: ${ANTICHEAT_SERVICE_URI:lb://anti-cheat-service}
           predicates:
             - Path=/api/v1/monitor/**
         - id: audit
-          uri: ${AUDIT_SERVICE_URL:http://localhost:8087}
+          uri: ${AUDIT_SERVICE_URI:lb://audit-service}
           predicates:
             - Path=/api/v1/audit/**
       # /api/v1/internal/** 与 /ws/v1/** 刻意不配置路由：

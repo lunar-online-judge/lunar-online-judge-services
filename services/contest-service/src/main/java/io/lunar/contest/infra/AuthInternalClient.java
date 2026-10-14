@@ -12,14 +12,16 @@ import java.util.Map;
  * auth-service 学生账号内部接口客户端（/api/v1/internal/students）。
  * 转发操作者的 Bearer 令牌（老师/管理员），auth 端校验操作者身份与角色；
  * 服务间独立身份（客户端凭证）落地后替换转发机制。
+ * 寻址：按服务名（auth-service）经 Nacos 解析实例，AUTH_BASE_URL 可覆盖为固定地址用于排障。
  */
 @Component
 public class AuthInternalClient {
 
     private final RestClient rest;
 
-    public AuthInternalClient(@Value("${AUTH_BASE_URL:http://localhost:8081}") String authBaseUrl) {
-        this.rest = RestClient.builder().baseUrl(authBaseUrl).build();
+    public AuthInternalClient(RestClient.Builder loadBalancedRestClientBuilder,
+                              @Value("${AUTH_BASE_URL:http://auth-service}") String authBaseUrl) {
+        this.rest = loadBalancedRestClientBuilder.baseUrl(authBaseUrl).build();
     }
 
     /** 操作者令牌：入参可能是完整 header（含 Bearer 前缀），统一剥离后由这里重新拼。 */

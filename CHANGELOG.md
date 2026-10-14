@@ -30,12 +30,31 @@
 
 - **添加学生响应缺少文档声明的 `passwordChangeRequired`**（全量 API 测试发现）：`docs/api.md"添加学生"` 的响应契约含该字段，实现返回的却是名单视图 `CandidateView`（含加入人/加入时间、无该字段）。现为 `add()` 引入与文档一致的 `EnrollmentResult`（studentId/studentNo/username/displayName/enrollmentStatus/passwordChangeRequired）：新建账号时取 auth 响应值（true），账号复用（学生已在其他竞赛报名）时为 false——本次未下发任何密码；加入人/加入时间仍由名单查询返回，与文档分工一致。`EnrollmentServiceTest` 新增两条断言覆盖新建与复用两种分支
 
+### 新增
+
+- **服务间通信改走 Nacos 服务发现**（`docs/middleware.md`"Nacos"节）
+  - 8 个服务启动注册到 Nacos `DEFAULT_GROUP`；依赖收敛为根 POM 的 `spring-cloud-alibaba.version=2025.0.0.0`（与 spring-cloud 2025.0.3 同代）+ 各服务 `spring-cloud-starter-alibaba-nacos-discovery`
+  - 网关 6 条路由由 `http://localhost:端口` 改为 `lb://<服务名>`（`*_SERVICE_URI` 可覆盖回固定地址排障），因此 gateway 额外引入 `spring-cloud-starter-loadbalancer`
+  - 服务间三个客户端（`AuthInternalClient` / `UpstreamClient` / `AuditClient`）改为注入 `@LoadBalanced RestClient.Builder`，baseUrl 默认值由 `http://localhost:端口` 改为服务名；该 Builder 由新增的 `LoadBalancedRestClientAutoConfiguration`（lunar-common）统一提供，条件为负载均衡器在类路径，不按服务名寻址的服务整体退避
+  - 注册 IP 固定 `127.0.0.1`（`NACOS_DISCOVERY_IP` 可覆盖）：自动探测会误选本机虚拟网卡（实测 VMware VMnet1 的 192.168.48.1），故与 RocketMQ `brokerIP1=127.0.0.1` 采取同一策略
+  - `fail-fast=false`：Nacos 不可达时服务照常启动（仅不注册），`NACOS_FAIL_FAST=true` 切回严格模式
+  - JWKS 验签链路（`AUTH_JWK_SET_URI`）**保持固定地址**：auth 是唯一签发方且单实例，改造需自建 `JwtDecoder` 替换 Boot 自动配置，收益不抵风险，列为后续项
+  - 实测结论：SCA 客户端 3.0.3 + Nacos 服务端 2.4.2 + public 命名空间**注册与订阅均正常**（SCA 文档对此组合有升级服务端的提示，本项目未触发），因此未升级镜像、未改命名空间
+
+- **登录失败限流迁到 Redis**（`docs/middleware.md`"Redis"节）
+  - auth-service 引入 `spring-boot-starter-data-redis`；`LoginRateLimiter` 由单实例内存 `ConcurrentHashMap` 改为 Redis 存储（`auth:login:fail:*` / `auth:login:lock:*`），公开方法签名不变、`AuthService` 零改动
+  - 计数与锁定用 **Lua 脚本原子执行**（INCR → 首次设 PEXPIRE → 达阈值写锁标记并重置计数）：拆成多条命令时"INCR 成功但没设上 TTL"会留下永不过期的计数键，即旧实现的两个缺陷之一；另一处修复是锁到期后计数随锁定重置，不再"下次失败立刻再锁"
+  - **fail-open**：Redis 不可用时放行登录并打 warn（限流属短期状态层，其不可用不应让全站无法登录）；连接/命令超时设短（500ms / 1000ms）以保证快速失败
+  - 实测：实例 A 连续失败 5 次后，**另一个独立 JVM 实例 B 首次尝试即 429**（内存实现下不可能）；停掉 Redis 后登录 0.13s 返回 200 且日志有 warn，恢复后限流立即生效；锁标记 TTL 与配置的 5 分钟一致
+  - `LoginRateLimiterTest` 改为对真实 Redis 跑（TTL 过期与多实例共享由服务端控制，假时钟覆盖不了），Redis 不可达时跳过而非失败；新增 `LoginRateLimiterContextTest` 装配守卫，把"两个构造器漏标 `@Autowired`"这类启动期失败拦在测试阶段（`GoJudgeAdapter` 踩过同一坑，已实测移除注解后该守卫会失败）
+  - **幂等键与会话状态有意不迁**（理由写入 `docs/middleware.md`）：幂等键以 DB 唯一约束为权威——Redis 抖动或 TTL 过期会导致同键重试新建 submission 并重复触发评测，违反 `docs/api.md` 契约；会话 `status` 是提交通道且 TERMINATED 为终态，Redis 全丢会让超时扫描误判在考会话为 EXPIRED
+
 ### 计划中
 
 - RocketMQ Outbox 发布器与消费（接通 submission → judge 事件链路，替代判决回写过渡端点）
 - gateway-service 路由选型与实现；anti-cheat / media / audit 服务落地
 - WebSocket 推送（考试状态、评测结果、风险告警）
-- Redis 接入（登录限流迁移、令牌吊销、幂等键、会话心跳）
+- Redis 其余用途（令牌吊销、接口频控、会话在线状态镜像、评测短期锁、截图频控）；登录限流已迁，幂等键与会话状态经评估不迁（见上）
 - 题目归属竞赛校验（依赖随机分配表）与提交频率阈值（待 exam-process §10 确认）
 
 ## [0.5.0] - 2026-10-08

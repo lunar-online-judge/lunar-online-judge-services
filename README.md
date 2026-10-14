@@ -17,7 +17,7 @@
 | 数据库迁移 | Flyway Core | 11.20.3 | auth-service 已实际引入；默认由配置控制是否执行 |
 | 安全 | Spring Security Starter | 随 Spring Boot 3.5.16 管理 | auth-service 已实际引入 |
 | 资源服务器 | OAuth2 Resource Server Starter | 随 Spring Boot 3.5.16 管理 | gateway、contest、problem、submission、judge、anti-cheat、media、audit 已引入 |
-| 服务发现预留 | Nacos 版本属性 | 2025.0.0.0 | 根 POM 仅保留属性，尚未引入 Nacos Starter |
+| 服务发现 | Spring Cloud Alibaba Nacos Discovery | 2025.0.0.0 | 8 个服务均已注册到 Nacos；网关路由与服务间调用按服务名寻址 |
 
 ### 已实际引入的 Spring Boot Starter
 
@@ -30,14 +30,11 @@
 
 ### 当前仅纳入编排或设计、尚未接入 Java 依赖的组件
 
-- MyBatis-Plus：目标 ORM，尚未替换当前内存实现；
-- Nacos：目标服务发现/配置中心，尚未加入 Nacos Client；
-- Redis：Docker Compose 基础设施，尚未加入 Spring Data Redis Starter；
-- RocketMQ：架构和 Topic 已设计，尚未加入 RocketMQ Starter；
 - Elasticsearch：暂不使用；风险事件与审计的检索需求首期直接查询 PostgreSQL，后续有需要时再引入；
 - MinIO：截图存储目标，尚未加入 MinIO SDK；
-- go-judge：独立评测执行器，尚未实现 `GoJudgeAdapter`；
 - JPlag：独立查重 worker，尚未接入主 Maven Reactor。
+
+已在用的关键组件（MyBatis-Plus、Nacos 服务发现、Redis、RocketMQ、go-judge）见上表与 `docs/middleware.md`。
 
 ### Docker Compose 基础设施版本
 

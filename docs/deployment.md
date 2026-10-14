@@ -14,7 +14,7 @@
 
 | 服务 | 默认端口 | 配置文件 | 说明 |
 |---|---|---|---|
-| gateway-service | 8080 | 有 | Spring Cloud Gateway 路由（上游地址可 env 覆盖）；`/api/v1/internal/**` 不暴露 |
+| gateway-service | 8080 | 有 | Spring Cloud Gateway 路由（`lb://服务名` 经 Nacos 解析，可用 `*_SERVICE_URI` 覆盖）；`/api/v1/internal/**` 不暴露 |
 | auth-service | 8081 | 有 | 依赖 PostgreSQL；`FLYWAY_ENABLED` 控制是否执行迁移 |
 | contest-service | 8082 | 有 | |
 | problem-service | 8083 | 有 | |
@@ -33,7 +33,7 @@
 | PostgreSQL | 宿主机 5433（容器内 5432） | compose.core.yml | `lunar` / `change-me`，库 `lunar`；宿主 5432 被本机 postgres 服务占用，开发期映射 5433，服务启动需 `POSTGRES_PORT=5433` |
 | Redis | 6379 | compose.core.yml | 无密码（仅本地） |
 | MinIO | 9000（API）/ 9001（控制台） | compose.core.yml | `lunar` / `change-me-now` |
-| Nacos | 8848 / 9848 | compose.platform.yml | standalone 模式 |
+| Nacos | 8848（控制台/HTTP）/ 9848（客户端 gRPC） | compose.platform.yml | standalone 模式；**9848 必须映射**——服务注册与订阅走 gRPC，只开 8848 会报 `Server check fail ... 9848` |
 | RocketMQ NameServer | 9876 | compose.platform.yml | — |
 | RocketMQ Broker | 10909 / 10911 / 10912 | compose.platform.yml | 配置见 `docker/rocketmq/broker.conf` |
 | RocketMQ Dashboard | 8090 | compose.platform.yml | 开发专用管理面板；与 broker 共享网络命名空间（无登录），broker 重启后需一起重启 |
@@ -89,11 +89,17 @@ java -jar services/judge-service/target/judge-service-0.1.0-SNAPSHOT.jar
 # 0. 边缘代理自检（OpenResty 直接返回，不回源）
 curl -s -o /dev/null -w "%{http_code}\n" http://localhost/healthz
 
-# 0.1 边缘 → gateway 回源链路（gateway 尚未实现路由，非 502 即代表代理回源可达）
-curl -s -o /dev/null -w "%{http_code}\n" http://localhost/
+# 0.1 边缘 → gateway 回源链路（经 lb:// 路由到各服务，非 502 即代表代理回源可达）
+curl -s -o /dev/null -w "%{http_code}\n" http://localhost/api/v1/auth/jwks
 
 # 0.2 评测沙箱可达（返回 go-judge 版本号；judge-service 设置 GO_JUDGE_BASE_URL 后即切换真实引擎）
 curl -s http://localhost:5050/version
+
+# 0.3 服务注册：应列出全部已启动的服务（instances 非空即注册成功）
+curl -s "http://localhost:8848/nacos/v1/ns/service/list?pageNo=1&pageSize=20"
+# 单个服务的实例与注册 IP（应为 127.0.0.1:端口，见下方 NACOS_DISCOVERY_IP）
+curl -s "http://localhost:8848/nacos/v1/ns/instance/list?serviceName=auth-service"
+# 控制台：http://localhost:8848/nacos → 服务管理 → 服务列表
 
 # 1. 真实登录（开发种子管理员 admin/admin123；需 FLYWAY_ENABLED=true + POSTGRES_PORT=5433 启动过一次使迁移生效）
 curl -s -X POST http://localhost:8081/api/v1/auth/login \
@@ -132,6 +138,12 @@ curl -s -i -H "X-Request-Id: test-123" http://localhost:8081/api/v1/auth/jwks | 
 | `AUTH_LOGIN_LOCK_MINUTES` | 登录锁定时长（分钟） | `5` |
 | `AUTH_DEV_SEED` | 开发种子管理员（V3 迁移），生产必须为 `false` | `true` |
 | `REDIS_HOST` | Redis 地址 | `localhost` |
+| `REDIS_PORT` | Redis 端口 | `6379` |
+| `REDIS_TIMEOUT_MS` | Redis 命令超时（毫秒）；设短是为了 Redis 异常时快速失败并按 fail-open 放行 | `1000` |
+| `REDIS_CONNECT_TIMEOUT_MS` | Redis 连接超时（毫秒） | `500` |
+| `NACOS_SERVER_ADDR` | Nacos 服务端地址（`host:port`，端口为主端口 8848） | `localhost:8848` |
+| `NACOS_DISCOVERY_IP` | 注册到 Nacos 的实例 IP；**本机多网卡（VMware VMnet / WSL）会被自动探测误选，故固定为 `127.0.0.1`**；服务容器化后须改为容器可达地址 | `127.0.0.1` |
+| `NACOS_FAIL_FAST` | Nacos 不可达时是否让服务启动失败；`false` 表示照常启动（仅不注册） | `false` |
 | `ROCKETMQ_NAMESRV_ADDR` | RocketMQ NameServer | `localhost:9876` |
 | `MINIO_ENDPOINT` | MinIO 地址 | `http://localhost:9000` |
 | `MEDIA_SIGNALING_URL` | WebRTC 信令服务地址 | 未设置 |
@@ -139,6 +151,8 @@ curl -s -i -H "X-Request-Id: test-123" http://localhost:8081/api/v1/auth/jwks | 
 数据库连接变量当前由 auth-service、contest-service 的 `application.yml` 消费，其余服务接入持久化时按同样方式引用。
 
 **多服务共库的 Flyway 约定**：每个服务使用独立的 schema 与独立的迁移历史表（`spring.flyway.schemas` + `spring.flyway.table`），避免版本号/checksum 冲突——auth-service 沿用默认 `public.flyway_schema_history`；contest-service 用 `contest_schema` + `contest_history`；后续服务照此办理。**资源服务验签**：`AUTH_JWK_SET_URI` 指向 auth 的 JWKS（默认 `http://localhost:8081/api/v1/auth/jwks`），本地启动顺序上 auth 需先于其他资源服务可用。
+
+**服务发现（Nacos）**：8 个服务启动时注册到 Nacos 的 `DEFAULT_GROUP`，网关路由用 `lb://<服务名>`、服务间客户端默认按服务名寻址（均可用 `*_SERVICE_URI` / `*_BASE_URL` 覆盖为固定地址排障）。因此**启动顺序上 auth 需先完成注册**，其他服务的 `lb://auth-service` 才能解析到实例；Nacos 本身未启动时服务仍可启动（`NACOS_FAIL_FAST=false`），只是发现链路不可用。JWKS 验签链路**不**走服务发现（`AUTH_JWK_SET_URI` 仍是固定地址，见 `docs/middleware.md`"Nacos"节）。
 
 ## 生产要求
 
@@ -157,7 +171,8 @@ curl -s -i -H "X-Request-Id: test-123" http://localhost:8081/api/v1/auth/jwks | 
 
 - RocketMQ broker 广播地址固定为 `127.0.0.1`（Spring 服务跑在宿主机的前提）；服务容器化后需注释掉 `broker.conf` 中的 `brokerIP1`；开发期 `autoCreateTopicEnable=true`，生产必须改为 `false` 并显式建 Topic；
 - judge、media 两个服务没有完整端口配置（judge 已有 rocketmq 配置的 `application.yml` 但端口仍需 `SERVER_PORT`），同时本地启动多个时会抢占 8080；
-- gateway 经 OpenResty 暴露后，`/api/v1/internal/**` 无路由不可达——服务间调用必须内网直连，不得绕行网关；
-- 各服务当前都没有健康检查端点（未引入 actuator），Compose 也没有配置健康探测；
-- 登录失败限流目前是 auth-service 的内存实现（重启清零、多实例不共享），Redis Starter 接入后迁移；
+- gateway 经 OpenResty 暴露后，`/api/v1/internal/**` 无路由不可达——服务间调用必须内网直连，不得绕行网关（按服务名寻址同样由调用方直连目标实例，不经过网关）；
+- 服务实例注册为临时实例（ephemeral，靠 gRPC 心跳续约）：进程正常退出或被强杀时实例会立即从注册表摘除，网络分区等 gRPC 连接不可判定的场景才依赖心跳超时；各服务当前都没有健康检查端点（未引入 actuator），Compose 也没有配置健康探测，因此负载均衡只按注册表轮询，不做主动探活；
+- **开发期重启 auth-service 会让令牌在约 5 分钟内全部失效**（含重启后新签发的）：未注入 `AUTH_JWT_PRIVATE_KEY` 时启动会临时生成签名密钥，而 kid 固定为 `lunar-dev-1`，资源服务的 JWKS 缓存按 kid 命中旧公钥、不会触发重新拉取，于是新旧令牌都验签失败。开发期建议注入固定私钥（`AUTH_JWT_PRIVATE_KEY`）或重启 auth 后一并重启调用方；
+- 登录失败限流已迁 Redis（auth-service）：计数多实例共享、重启不清零、TTL 自动清理；Redis 不可用时 fail-open 放行登录（仅打 warn），因此本地开发不启动 Redis 也能登录，只是限流失效；
 - go-judge 在 Docker Desktop（WSL2）上嵌套 cgroup 受限，本地沙箱联调暂缓（配置保留在 compose.judge.yml），生产 Linux 节点不受影响。

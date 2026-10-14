@@ -33,17 +33,22 @@
 
 **用途**：短期状态与协调层，存放可以丢失重建的数据。
 
-**功能**：
+**功能**（括号内为当前状态）：
 
-- 令牌失效状态（登出/踢下线）；
-- 写操作 `Idempotency-Key` 幂等键；
-- 限流计数（接口频控、登录失败锁定）；
-- 考生会话心跳与会话在线状态；
-- WebSocket 节点路由（gateway 多实例时定位推送目标）；
-- 评测任务短期锁（防止重复派发）；
-- 截图频率控制（`maxPerSession` 等策略的执行计数）。
+- 限流计数：**登录失败锁定已迁到 Redis**（auth-service，键 `auth:login:fail:*` / `auth:login:lock:*`，TTL 即锁定时长）；接口频控未开发；
+- 令牌失效状态（登出/踢下线）：未开发；
+- 写操作 `Idempotency-Key` 幂等键：**仍以 PostgreSQL 唯一约束为权威，不迁 Redis**（理由见下）；
+- 考生会话心跳与会话在线状态：**未迁**，`contest_schema.exam_sessions` 仍是权威（理由见下）；
+- WebSocket 节点路由、评测任务短期锁、截图频率控制：均未开发。
 
-**约束**：Redis 不是成绩、审计或任何业务事实源——Redis 数据丢失不允许造成业务数据丢失。Spring Data Redis Starter 尚未接入。
+**约束**：Redis 不是成绩、审计或任何业务事实源——Redis 数据丢失不允许造成业务数据丢失。
+
+**接入状态**：`spring-boot-starter-data-redis` 目前只有 auth-service 引入（连接参数见 `docs/deployment.md` 的 `REDIS_HOST` / `REDIS_PORT` / `REDIS_TIMEOUT_MS`）。计数与锁定标记用 `StringRedisTemplate` + Lua 脚本**原子执行**——若拆成多次命令，"INCR 成功但没设上 TTL"会留下永不过期的计数键，导致锁到期后下一次失败立刻再次锁定（旧内存实现即有该缺陷）。**fail-open**：Redis 不可用时登录限流放行并打 warn 日志——限流属短期状态层，其不可用不应让全站无法登录。
+
+**有意不迁 Redis 的两项**（非遗漏，改动前须先推翻这里的理由）：
+
+- **幂等键**：`docs/api.md` 把"同一键 + 相同请求内容返回首次结果、不同内容 409 `SUBMISSION_DUPLICATE`"写成了对外契约，且 submission 行本身是成绩读模型。若以 Redis 为幂等事实源，Redis 抖动或 TTL 过期会导致同键重试**新建 submission 并重复触发评测**——等于把数据库的正确性保证换成更弱的保证。Redis 至多可做加速缓存，DB 唯一约束必须保留为最后防线。
+- **会话状态**：`exam_sessions.status` 是提交通道（submission-service 经 `canSubmit` 依赖它），且 TERMINATED 是终态。Redis 全丢会让超时扫描把在考会话误判为 EXPIRED、直接阻断考生提交。可迁的只有"在线心跳/在线标记"这类可重建信息，且 DB 仍须为权威。
 
 ## RocketMQ
 
@@ -61,14 +66,20 @@
 
 ## Nacos
 
-**用途**：服务发现与动态配置中心（预留，当前无服务注册）。
+**用途**：服务发现（已接入）；动态配置中心（预留，未接入）。
 
 **功能**：
 
-- 服务注册与发现：后续 gateway 按服务名路由、服务间调用寻址；
-- 动态配置：限流阈值、策略开关等配置的热更新。
+- 服务注册与发现：8 个服务启动时注册到 `DEFAULT_GROUP`，调用方按服务名寻址——gateway 的 6 条路由用 `lb://<服务名>`，服务间客户端（`AuthInternalClient` / `UpstreamClient` / `AuditClient`）的 baseUrl 默认值也是服务名，由 Nacos 注册表解析实例；
+- 动态配置：限流阈值、策略开关等配置的热更新（未接入，未引入 config starter）。
 
-**约束**：根 POM 目前只保留 `nacos.version=2025.0.0.0`（对应 Spring Cloud Alibaba BOM 版本）属性，尚未引入任何 Nacos Starter；本地 Compose 以 standalone 模式运行。
+**约束**：
+
+- 依赖：根 POM 的 `spring-cloud-alibaba.version=2025.0.0.0`（Spring Cloud Alibaba BOM，须与 spring-cloud 同代，2025.0.3 对应它）；各服务引 `spring-cloud-starter-alibaba-nacos-discovery`，**按服务名发起调用或路由的服务（gateway / contest / submission / anti-cheat）另需 `spring-cloud-starter-loadbalancer`**——SCA 的 starter 不以非 optional 方式传递它，缺了会在 `lb://` 处直接抛 `NoLoadBalancerClientException`。
+- 注册 IP 固定 `127.0.0.1`（`spring.cloud.nacos.discovery.ip`）：本机多网卡（VMware VMnet / WSL 虚拟网卡）会被自动探测误选（实测选到 VMnet1 的 192.168.48.1），处理方式与 RocketMQ `brokerIP1=127.0.0.1` 一致；**服务容器化后须改为容器可达地址**。
+- `spring.cloud.nacos.discovery.fail-fast=false`：Nacos 不可达时服务照常启动（仅不注册），`NACOS_FAIL_FAST=true` 可切回严格模式。
+- 本地 Compose 以 standalone 模式运行（`nacos/nacos-server:v2.4.2`），映射 **8848 控制台 + 9848 客户端 gRPC**。9848 必须映射：Nacos 2.x 客户端的注册/订阅/心跳走 gRPC，只开 8848 会报 `Server check fail, please check server xxx, port 9848 is available`。
+- 命名空间与分组：使用默认的 `public` 命名空间 + `DEFAULT_GROUP`。SCA 文档提示"客户端 2025.0.x + public 命名空间建议服务端升到 3.x"，**实测 2.4.2 + public 注册与订阅均正常**；若后续接入配置中心或调整命名空间，需重新确认该约束。
 
 ## MinIO
 

@@ -23,7 +23,8 @@
         <spring-cloud.version>2025.0.3</spring-cloud.version>
         <mybatis-plus.version>3.5.17</mybatis-plus.version>
         <springdoc.version>2.8.17</springdoc.version>
-        <nacos.version>2025.0.0.0</nacos.version>
+        <!-- Spring Cloud Alibaba BOM 版本（Nacos 服务发现）；必须与 spring-cloud 同代 -->
+        <spring-cloud-alibaba.version>2025.0.0.0</spring-cloud-alibaba.version>
         <rocketmq-spring.version>2.3.0</rocketmq-spring.version>
         <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
     </properties>
@@ -48,6 +49,14 @@
                 <groupId>org.springframework.cloud</groupId>
                 <artifactId>spring-cloud-dependencies</artifactId>
                 <version>${spring-cloud.version}</version>
+                <type>pom</type>
+                <scope>import</scope>
+            </dependency>
+            <!-- Spring Cloud Alibaba：Nacos 服务发现。必须与 spring-cloud 同代（2025.0.x ↔ 2025.0.x） -->
+            <dependency>
+                <groupId>com.alibaba.cloud</groupId>
+                <artifactId>spring-cloud-alibaba-dependencies</artifactId>
+                <version>${spring-cloud-alibaba.version}</version>
                 <type>pom</type>
                 <scope>import</scope>
             </dependency>

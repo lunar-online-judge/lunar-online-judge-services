@@ -1,4 +1,13 @@
 spring:
+  cloud:
+    nacos:
+      discovery:
+        # 注册进 Nacos（docs/middleware.md）；默认不因 Nacos 不可达而启动失败，NACOS_FAIL_FAST=true 可切回严格模式
+        server-addr: ${NACOS_SERVER_ADDR:localhost:8848}
+        # 注册 IP 固定 127.0.0.1：本机多网卡（VMware VMnet / WSL / 虚拟网卡）会被自动探测误选，
+        # 与 RocketMQ brokerIP1=127.0.0.1 同理（docker/rocketmq/broker.conf）；服务容器化后须改为容器可达地址
+        ip: ${NACOS_DISCOVERY_IP:127.0.0.1}
+        fail-fast: ${NACOS_FAIL_FAST:false}
   application:
     name: problem-service
   datasource:

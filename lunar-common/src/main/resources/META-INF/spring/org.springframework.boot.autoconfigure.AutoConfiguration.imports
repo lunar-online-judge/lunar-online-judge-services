@@ -1,1 +1,2 @@
 io.lunar.common.web.WebCommonAutoConfiguration
+io.lunar.common.client.LoadBalancedRestClientAutoConfiguration
