@@ -18,6 +18,7 @@
 | 安全 | Spring Security Starter | 随 Spring Boot 3.5.16 管理 | auth-service 已实际引入 |
 | 资源服务器 | OAuth2 Resource Server Starter | 随 Spring Boot 3.5.16 管理 | gateway、contest、problem、submission、judge、anti-cheat、media、audit 已引入 |
 | 服务发现 | Spring Cloud Alibaba Nacos Discovery | 2025.0.0.0 | 8 个服务均已注册到 Nacos；网关路由与服务间调用按服务名寻址 |
+| 配置中心 | Spring Cloud Alibaba Nacos Config | 2025.0.0.0 | 4 个服务托管运行时可变参数（登录限流阈值、心跳超时等），改值后无需重启 |
 | 健康检查 | Spring Boot Actuator | 随 Spring Boot 3.5.16 管理 | 8 个服务已引入，仅暴露 `/actuator/health`（匿名、只返回 UP/DOWN） |
 
 ### 已实际引入的 Spring Boot Starter
@@ -44,7 +45,7 @@
 | PostgreSQL | `postgres:16` | core Compose |
 | Redis | `redis:7-alpine` | core Compose |
 | MinIO | `minio/minio:latest` | core Compose；当前未固定版本，生产部署前必须锁定 digest 或明确版本 |
-| Nacos | `nacos/nacos-server:v2.4.2` | platform Compose，standalone 模式 |
+| Nacos | `nacos/nacos-server:v3.0.3` | platform Compose，standalone 模式；8848 API/9848 gRPC/8849 控制台；3.0.3 与 SCA 捆绑的 nacos-client 3.0.3 同补丁线 |
 | RocketMQ NameServer | `apache/rocketmq:5.3.1` | platform Compose |
 | RocketMQ Broker | `apache/rocketmq:5.3.1` | platform Compose；配置 `docker/rocketmq/broker.conf`，本地向宿主机广播 127.0.0.1 |
 | go-judge | `criyle/go-judge`（latest，未固定） | judge Compose，评测沙箱节点；`GoJudgeAdapter` 已实现，真实容器未实测 |

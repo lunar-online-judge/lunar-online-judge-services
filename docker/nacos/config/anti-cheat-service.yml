@@ -1,0 +1,4 @@
+# Outbox 发布参数（docs/middleware.md"配置中心"节）
+outbox:
+  # 注意：@Scheduled 在启动时解析该值，改后需重启 anti-cheat-service 才生效
+  publish-interval-ms: 2000

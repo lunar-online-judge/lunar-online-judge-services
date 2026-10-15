@@ -1,5 +1,6 @@
 package io.lunar.auth.domain;
 
+import io.lunar.auth.config.LoginProperties;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Test;
@@ -175,7 +176,9 @@ class LoginRateLimiterTest {
         StringRedisTemplate unreachable = new StringRedisTemplate(unreachableFactory);
         unreachable.afterPropertiesSet();
         try {
-            LoginRateLimiter limiter = new LoginRateLimiter(unreachable, 3, Duration.ofSeconds(5));
+            LoginProperties properties = new LoginProperties();
+            properties.setMaxFailures(3);
+            LoginRateLimiter limiter = new LoginRateLimiter(unreachable, properties);
 
             assertThatCode(() -> limiter.checkNotLocked("fail-open-user")).doesNotThrowAnyException();
             assertThatCode(() -> limiter.recordFailure("fail-open-user")).doesNotThrowAnyException();
@@ -186,7 +189,10 @@ class LoginRateLimiterTest {
     }
 
     private static LoginRateLimiter limiter(int maxFailures, Duration lockDuration) {
-        return new LoginRateLimiter(redis, maxFailures, lockDuration);
+        LoginProperties properties = new LoginProperties();
+        properties.setMaxFailures(maxFailures);
+        properties.setLockMinutes(lockDuration);
+        return new LoginRateLimiter(redis, properties);
     }
 
     private String freshUsername(String tag) {

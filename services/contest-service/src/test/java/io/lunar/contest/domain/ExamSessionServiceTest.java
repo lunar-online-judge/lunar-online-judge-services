@@ -1,5 +1,6 @@
 package io.lunar.contest.domain;
 
+import io.lunar.contest.config.ExamSessionProperties;
 import io.lunar.contest.infra.CandidateEntity;
 import io.lunar.contest.infra.CandidateMapper;
 import io.lunar.contest.infra.ContestEntity;
@@ -30,7 +31,13 @@ class ExamSessionServiceTest {
     private final CandidateMapper candidateMapper = mock(CandidateMapper.class);
     private final ContestMapper contestMapper = mock(ContestMapper.class);
     private final ExamSessionService service = new ExamSessionService(
-            sessionMapper, candidateMapper, contestMapper, 2);
+            sessionMapper, candidateMapper, contestMapper, sessionProperties());
+
+    private static ExamSessionProperties sessionProperties() {
+        ExamSessionProperties properties = new ExamSessionProperties();
+        properties.setHeartbeatTimeoutMinutes(2);
+        return properties;
+    }
 
     @BeforeAll
     static void initMpMetadata() {

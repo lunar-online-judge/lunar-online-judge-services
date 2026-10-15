@@ -1,0 +1,8 @@
+# 考试会话参数（docs/middleware.md"配置中心"节）
+exam:
+  session:
+    # 运行时可变：改值后无需重启（每次扫描时读取）
+    heartbeat-timeout-minutes: 2
+  status:
+    # 注意：@Scheduled 在启动时解析该值，改后需重启 contest-service 才生效
+    sweep-interval-ms: 30000

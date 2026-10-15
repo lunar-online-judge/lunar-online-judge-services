@@ -1,9 +1,20 @@
 services:
   nacos:
-    image: nacos/nacos-server:v2.4.2
+    # 3.0.3 与 SCA 2025.0.0.0 捆绑的 nacos-client 3.0.3 同属一个补丁线，是最适配的版本；
+    # 升到 3.x 同时消除了 2.x 的 public 命名空间 ID 不一致问题（配置拉取的坑，见 docs/middleware.md）
+    image: nacos/nacos-server:v3.0.3
     environment:
       MODE: standalone
-    ports: ["8848:8848", "9848:9848"]
+      # 3.x 的启动脚本强制要求以下三项（2.x 镜像无此要求）。开发用值；生产必须换成强随机值并启用鉴权
+      NACOS_AUTH_TOKEN: bHVuYXItZGV2LW5hY29zLWF1dGgtdG9rZW4tMDEyMzQ1Njc4OWFiY2RlZg==
+      NACOS_AUTH_IDENTITY_KEY: serverIdentity
+      NACOS_AUTH_IDENTITY_VALUE: lunarDevSecret
+      # 刻意不设 NACOS_AUTH_ENABLE：沿用镜像默认的 nacos.core.auth.enabled=false，客户端 API 免凭据
+      # （与 2.x 时期一致）。控制台另有自己的登录，首次访问时初始化管理员密码（3.x 取消了默认 nacos/nacos）
+    ports: ["8848:8848", "9848:9848", "8849:8080"]
+    # 配置中心的数据必须持久化：此前无卷，容器重建会让写入 Nacos 的配置全部丢失。
+    # 3.x 的 Derby 结构与 2.x 不兼容，故换用新卷（旧卷 docker_nacos-data 可删）
+    volumes: ["nacos-data-v3:/home/nacos/data"]
   namesrv:
     image: apache/rocketmq:5.3.1
     command: sh mqnamesrv
@@ -29,3 +40,6 @@ services:
       - broker
     environment:
       JAVA_OPTS: "-Drocketmq.namesrv.addr=namesrv:9876 -Dserver.port=8082 -Drocketmq.config.loginRequired=false"
+
+volumes:
+  nacos-data-v3:

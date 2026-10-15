@@ -66,20 +66,53 @@
 
 ## Nacos
 
-**用途**：服务发现（已接入）；动态配置中心（预留，未接入）。
+**用途**：服务发现 + 配置中心（均已接入）。
 
 **功能**：
 
-- 服务注册与发现：8 个服务启动时注册到 `DEFAULT_GROUP`，调用方按服务名寻址——gateway 的 6 条路由用 `lb://<服务名>`，服务间客户端（`AuthInternalClient` / `UpstreamClient` / `AuditClient`）的 baseUrl 默认值也是服务名，由 Nacos 注册表解析实例；
-- 动态配置：限流阈值、策略开关等配置的热更新（未接入，未引入 config starter）。
+- **服务注册与发现**：8 个服务启动时注册到 `DEFAULT_GROUP`，调用方按服务名寻址——gateway 的 6 条路由用 `lb://<服务名>`，服务间客户端（`AuthInternalClient` / `UpstreamClient` / `AuditClient`）的 baseUrl 默认值也是服务名，由 Nacos 注册表解析实例；
+- **配置中心**：托管"运行时可变"的服务私有配置，改值后无需重启即生效。
 
-**约束**：
+### 配置中心：放什么、不放什么
+
+dataId = `<spring.application.name>.yml`，分组 `DEFAULT_GROUP`，命名空间 `public`（与服务发现一致；`NACOS_CONFIG_NAMESPACE` 可按需覆盖）。
+
+| 服务 | 键 | 改后是否热生效 |
+|---|---|---|
+| auth-service | `auth.login.max-failures`、`auth.login.lock-minutes` | **是** |
+| contest-service | `exam.session.heartbeat-timeout-minutes`（考试期间网络抖动时可临时放宽） | **是** |
+| contest-service | `exam.status.sweep-interval-ms` | 否，重启生效 |
+| submission-service / anti-cheat-service | `outbox.publish-interval-ms` | 否，重启生效 |
+
+**不放**（有意为之）：
+
+- **自举参数**：Nacos 自身的连接信息（`server-addr` / `namespace`）必须留在本地 yml——"从哪里取配置"不可能从配置中心拿；`NACOS_SERVER_ADDR` 仍是环境变量。
+- **部署期配置**：端口、数据库连接串、服务地址（`*_BASE_URL` / `*_SERVICE_URI`）、judge 的 go-judge 超时——随版本发布走，留在 git，也确实是启动固化的。
+- **密钥**：`AUTH_JWT_PRIVATE_KEY` 等按 `docs/deployment.md` 从环境变量注入，既不入库也不入配置中心。
+
+**热更新的边界**：只有 `@ConfigurationProperties`（可变 JavaBean）+ **每次调用时读取**才能热更新。`@Value` 不参与刷新；构造期读进字段等于固化（那样配置中心就只剩"改完重启"的价值）。`@Scheduled(fixedDelayString=…)` 与 HTTP 客户端超时都在启动时解析/固化，改后需重启——上表已逐项标注。
+
+**离线兜底**：`spring.config.import` 用 `optional:` 前缀，Nacos 不可达时服务仍以 `@ConfigurationProperties` 的字段默认值启动（与 `NACOS_FAIL_FAST=false` 一致）。**注意：导入的配置优先级低于本地 yml**——被托管的键不能再写在本地 yml，否则本地值会永远盖住 Nacos 的值（本项目已按此清理过 auth 的 `auth.login.*`）。环境变量优先级高于两者，仍可临时覆盖。
+
+**配置内容的真源在 git**：`docker/nacos/config/<服务名>.yml` 是这些配置的版本化真源，用 `bash docker/nacos/publish-configs.sh` 推送到 Nacos（走官方 nacos-client，免鉴权、不受 HTTP API 版本差异影响）。推荐流程：改仓库里的 yml → 提交 → 跑脚本。控制台 UI 也能改（适合临时调参），但那样只有 Nacos 自己的变更历史，不在 git 里。
+
+**为什么服务端用 3.x**：SCA 2025.0.0.0 捆绑 nacos-client 3.0.3，其命名空间语义对标 Nacos 3.x；服务端停在 2.4.2 时**配置拉取会静默失败**——nacos-client 默认按 `public` 取配置，而 2.x 的 public 命名空间真实 ID 是空字符串，gRPC 返回 `not-found`（服务端 `config-client-request.log` 里 `tenant=public → not-found` 与 `tenant=null → ok` 两行是直接证据；HTTP API 会做命名空间别名，**用 curl 测不出来**，客户端侧只表现为 `[Nacos Config] config[…] is empty`）。升级到 **3.0.3（与捆绑客户端同补丁线，最适配）** 后默认命名空间即可用，配置与服务发现都放 `public` + `DEFAULT_GROUP`。
+
+**实测要点（踩过的坑，勿重复）**：
+
+- 3.x 镜像的启动脚本**强制要求** `NACOS_AUTH_TOKEN`（Base64）、`NACOS_AUTH_IDENTITY_KEY`、`NACOS_AUTH_IDENTITY_VALUE` 三个环境变量（2.x 无此要求），缺任一容器直接退出；开发用值已写在 compose 里，生产必须换强随机值。
+- 刻意**不设** `NACOS_AUTH_ENABLE`：沿用镜像默认的 `nacos.core.auth.enabled=false`，客户端 API 免凭据（与 2.x 时期一致）。**控制台另有自己的登录**，且 3.x 取消了默认 `nacos/nacos`——首次访问控制台需**初始化管理员密码**（用户名预填 `nacos`，密码留空会随机生成）。
+- **3.x 的 API 变化**：v1 配置 API 已移除（`POST /nacos/v1/cs/configs` 返回 404），发布配置走控制台或用 `docker/nacos/publish-configs.sh`；v3 的 admin API 需要控制台登录凭据。**v1 的命名（naming）API 仍可用**，`docs/deployment.md` 里的冒烟命令不受影响。
+- 暂无托管配置的服务（problem / judge / audit / gateway）启动时会打一条 `config[…] is empty` 警告，属预期（`optional:` 导入 + 该服务确实没有托管配置），不是错误。
+- **配置数据已持久化**：`docker/compose.platform.yml` 给 nacos 挂了命名卷 `nacos-data-v3`（此前无卷，容器重建即丢；3.x 的 Derby 结构与 2.x 不兼容，故换了新卷；已实测强制重建后配置仍在）。
+
+### 服务发现的约束
 
 - 依赖：根 POM 的 `spring-cloud-alibaba.version=2025.0.0.0`（Spring Cloud Alibaba BOM，须与 spring-cloud 同代，2025.0.3 对应它）；各服务引 `spring-cloud-starter-alibaba-nacos-discovery`，**按服务名发起调用或路由的服务（gateway / contest / submission / anti-cheat）另需 `spring-cloud-starter-loadbalancer`**——SCA 的 starter 不以非 optional 方式传递它，缺了会在 `lb://` 处直接抛 `NoLoadBalancerClientException`。
 - 注册 IP 固定 `127.0.0.1`（`spring.cloud.nacos.discovery.ip`）：本机多网卡（VMware VMnet / WSL 虚拟网卡）会被自动探测误选（实测选到 VMnet1 的 192.168.48.1），处理方式与 RocketMQ `brokerIP1=127.0.0.1` 一致；**服务容器化后须改为容器可达地址**。
 - `spring.cloud.nacos.discovery.fail-fast=false`：Nacos 不可达时服务照常启动（仅不注册），`NACOS_FAIL_FAST=true` 可切回严格模式。
-- 本地 Compose 以 standalone 模式运行（`nacos/nacos-server:v2.4.2`），映射 **8848 控制台 + 9848 客户端 gRPC**。9848 必须映射：Nacos 2.x 客户端的注册/订阅/心跳走 gRPC，只开 8848 会报 `Server check fail, please check server xxx, port 9848 is available`。
-- 命名空间与分组：使用默认的 `public` 命名空间 + `DEFAULT_GROUP`。SCA 文档提示"客户端 2025.0.x + public 命名空间建议服务端升到 3.x"，**实测 2.4.2 + public 注册与订阅均正常**；若后续接入配置中心或调整命名空间，需重新确认该约束。
+- 本地 Compose 以 standalone 模式运行（`nacos/nacos-server:v3.0.3`），映射 **8848 客户端/API + 9848 客户端 gRPC + 8849 控制台**（容器内控制台是 8080，宿主 8080 被网关占用故映射到 8849）。9848 必须映射：Nacos 客户端的注册/订阅/心跳走 gRPC，只开 8848 会报 `Server check fail, please check server xxx, port 9848 is available`。控制台地址 `http://localhost:8849/index.html`（首次访问初始化管理员密码）。
+- 命名空间与分组：**服务发现与配置中心都在 `public` + `DEFAULT_GROUP`**（3.x 下 public 是正常可用命名空间，不再需要自定义命名空间）。
 
 ## MinIO
 

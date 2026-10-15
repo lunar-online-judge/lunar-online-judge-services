@@ -1,5 +1,6 @@
 package io.lunar.contest.domain;
 
+import io.lunar.contest.config.ExamSessionProperties;
 import io.lunar.contest.infra.CandidateEntity;
 import io.lunar.contest.infra.CandidateMapper;
 import io.lunar.contest.infra.ContestEntity;
@@ -8,7 +9,6 @@ import io.lunar.contest.infra.SessionEntity;
 import io.lunar.contest.infra.SessionMapper;
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.baomidou.mybatisplus.core.conditions.update.LambdaUpdateWrapper;
-import org.springframework.beans.factory.annotation.Value;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Component;
 
@@ -30,15 +30,14 @@ public class ExamSessionService {
     private final SessionMapper sessionMapper;
     private final CandidateMapper candidateMapper;
     private final ContestMapper contestMapper;
-    private final long heartbeatTimeoutMinutes;
+    private final ExamSessionProperties properties;
 
     public ExamSessionService(SessionMapper sessionMapper, CandidateMapper candidateMapper,
-                              ContestMapper contestMapper,
-                              @Value("${exam.session.heartbeat-timeout-minutes:2}") long heartbeatTimeoutMinutes) {
+                              ContestMapper contestMapper, ExamSessionProperties properties) {
         this.sessionMapper = sessionMapper;
         this.candidateMapper = candidateMapper;
         this.contestMapper = contestMapper;
-        this.heartbeatTimeoutMinutes = heartbeatTimeoutMinutes;
+        this.properties = properties;
     }
 
     /** 进入/恢复考试会话。 */
@@ -157,7 +156,7 @@ public class ExamSessionService {
     /** 心跳超时扫描：ACTIVE 且超过阈值无心跳 → EXPIRED。条件更新保证多实例幂等。 */
     @Scheduled(fixedDelayString = "${exam.session.sweep-interval-ms:30000}")
     public void expireStaleSessions() {
-        Instant threshold = Instant.now().minusSeconds(heartbeatTimeoutMinutes * 60);
+        Instant threshold = Instant.now().minusSeconds(properties.getHeartbeatTimeoutMinutes() * 60);
         LambdaUpdateWrapper<SessionEntity> update = new LambdaUpdateWrapper<SessionEntity>()
                 .eq(SessionEntity::getStatus, "ACTIVE")
                 .lt(SessionEntity::getLastHeartbeatAt, threshold)

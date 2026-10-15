@@ -1,0 +1,6 @@
+# 登录限流参数（运行时可变；docs/middleware.md"配置中心"节）
+# 改值后无需重启：LoginRateLimiter 每次调用读取，ConfigurationPropertiesRebinder 会就地重绑同一个实例
+auth:
+  login:
+    max-failures: 5
+    lock-minutes: 5

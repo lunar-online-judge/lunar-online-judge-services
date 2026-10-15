@@ -45,7 +45,7 @@
 | PostgreSQL | 宿主机 5433（容器内 5432） | compose.core.yml | `lunar` / `change-me`，库 `lunar`；宿主 5432 被本机 postgres 服务占用，开发期映射 5433，服务启动需 `POSTGRES_PORT=5433` |
 | Redis | 6379 | compose.core.yml | 无密码（仅本地） |
 | MinIO | 9000（API）/ 9001（控制台） | compose.core.yml | `lunar` / `change-me-now` |
-| Nacos | 8848（控制台/HTTP）/ 9848（客户端 gRPC） | compose.platform.yml | standalone 模式；**9848 必须映射**——服务注册与订阅走 gRPC，只开 8848 会报 `Server check fail ... 9848` |
+| Nacos | 8848（API/客户端）+ 9848（客户端 gRPC）+ 8849（控制台，容器内 8080） | compose.platform.yml | standalone 模式，`nacos/nacos-server:v3.0.3`；**9848 必须映射**——服务注册与订阅走 gRPC，只开 8848 会报 `Server check fail ... 9848`。控制台首次访问需初始化管理员密码（3.x 取消默认 nacos/nacos） |
 | RocketMQ NameServer | 9876 | compose.platform.yml | — |
 | RocketMQ Broker | 10909 / 10911 / 10912 | compose.platform.yml | 配置见 `docker/rocketmq/broker.conf` |
 | RocketMQ Dashboard | 8090 | compose.platform.yml | 开发专用管理面板；与 broker 共享网络命名空间（无登录），broker 重启后需一起重启 |
@@ -162,6 +162,7 @@ curl -s -i -H "X-Request-Id: test-123" http://localhost:8081/api/v1/auth/jwks | 
 | `NACOS_SERVER_ADDR` | Nacos 服务端地址（`host:port`，端口为主端口 8848） | `localhost:8848` |
 | `NACOS_DISCOVERY_IP` | 注册到 Nacos 的实例 IP；**本机多网卡（VMware VMnet / WSL）会被自动探测误选，故固定为 `127.0.0.1`**；服务容器化后须改为容器可达地址 | `127.0.0.1` |
 | `NACOS_FAIL_FAST` | Nacos 不可达时是否让服务启动失败；`false` 表示照常启动（仅不注册） | `false` |
+| `NACOS_CONFIG_NAMESPACE` | 配置中心命名空间；默认空 = `public`（与服务发现一致，3.x 下 public 正常可用） | 空（public） |
 | `ROCKETMQ_NAMESRV_ADDR` | RocketMQ NameServer | `localhost:9876` |
 | `MINIO_ENDPOINT` | MinIO 地址 | `http://localhost:9000` |
 | `MEDIA_SIGNALING_URL` | WebRTC 信令服务地址 | 未设置 |
@@ -171,6 +172,8 @@ curl -s -i -H "X-Request-Id: test-123" http://localhost:8081/api/v1/auth/jwks | 
 **多服务共库的 Flyway 约定**：每个服务使用独立的 schema 与独立的迁移历史表（`spring.flyway.schemas` + `spring.flyway.table`），避免版本号/checksum 冲突——auth-service 沿用默认 `public.flyway_schema_history`；contest-service 用 `contest_schema` + `contest_history`；后续服务照此办理。**资源服务验签**：`AUTH_JWK_SET_URI` 指向 auth 的 JWKS（默认 `http://localhost:8081/api/v1/auth/jwks`），本地启动顺序上 auth 需先于其他资源服务可用。
 
 **服务发现（Nacos）**：8 个服务启动时注册到 Nacos 的 `DEFAULT_GROUP`，网关路由用 `lb://<服务名>`、服务间客户端默认按服务名寻址（均可用 `*_SERVICE_URI` / `*_BASE_URL` 覆盖为固定地址排障）。因此**启动顺序上 auth 需先完成注册**，其他服务的 `lb://auth-service` 才能解析到实例；Nacos 本身未启动时服务仍可启动（`NACOS_FAIL_FAST=false`），只是发现链路不可用。JWKS 验签链路**不**走服务发现（`AUTH_JWK_SET_URI` 仍是固定地址，见 `docs/middleware.md`"Nacos"节）。
+
+**配置中心（Nacos）**：托管"运行时可变"的服务私有配置（dataId = `<服务名>.yml`，`public` + `DEFAULT_GROUP`），导入方式为 `spring.config.import=optional:nacos:…`——Nacos 不可达时用代码默认值启动。改值后 **auth 的登录限流阈值与 contest 的心跳超时无需重启即生效**，其余托管项（调度间隔）需重启；配置内容的 git 真源是 `docker/nacos/config/*.yml`，用 `bash docker/nacos/publish-configs.sh` 推送。具体清单、热更新边界与踩过的坑见 `docs/middleware.md`"配置中心"节。
 
 ## 生产要求
 

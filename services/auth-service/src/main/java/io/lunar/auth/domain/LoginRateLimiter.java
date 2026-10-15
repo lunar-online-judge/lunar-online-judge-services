@@ -1,23 +1,22 @@
 package io.lunar.auth.domain;
 
+import io.lunar.auth.config.LoginProperties;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
-import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.beans.factory.annotation.Value;
 import org.springframework.dao.DataAccessException;
 import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.data.redis.core.script.DefaultRedisScript;
 import org.springframework.data.redis.core.script.RedisScript;
 import org.springframework.stereotype.Component;
 
-import java.time.Duration;
 import java.util.List;
 
 /**
  * 登录失败限流：同一用户名连续失败达到阈值后短暂锁定，成功登录清零。
  *
- * 计数与锁定标记存 Redis（docs/middleware.md"Redis"节）：多实例共享、重启不清零、TTL 自动清理，
- * 不再是原先的单实例内存实现。
+ * 计数与锁定标记存 Redis（docs/middleware.md"Redis"节）：多实例共享、重启不清零、TTL 自动清理。
+ * 阈值与锁定时长从 {@link LoginProperties} **每次调用时读取**——该 Bean 由 Nacos 配置中心驱动，
+ * 就地重绑后新值立即生效，无需重启（构造期读取会固化成旧值，那样配置中心就只剩"改完重启"的价值）。
  *
  * fail-open：Redis 不可用时放行登录并告警——限流属短期状态层，其不可用不应让全站无法登录；
  * 代价是该窗口内防爆破能力暂时失效，故降级时打 warn 日志。
@@ -49,25 +48,11 @@ public class LoginRateLimiter {
             """, Long.class);
 
     private final StringRedisTemplate redis;
-    private final int maxFailures;
-    private final long windowMillis;
+    private final LoginProperties properties;
 
-    /**
-     * 容器装配入口：显式标注 @Autowired——本类另有一个包级可见的 Duration 构造器供单测传入短 TTL，
-     * 两个构造器并存时 Spring 需要明确的注入点，否则会去找默认构造器并启动失败
-     * （与 GoJudgeAdapter 同一坑，见其构造器注释）。
-     */
-    @Autowired
-    public LoginRateLimiter(StringRedisTemplate redis,
-                            @Value("${auth.login.max-failures:5}") int maxFailures,
-                            @Value("${auth.login.lock-minutes:5}") long lockMinutes) {
-        this(redis, maxFailures, Duration.ofMinutes(lockMinutes));
-    }
-
-    LoginRateLimiter(StringRedisTemplate redis, int maxFailures, Duration lockDuration) {
+    public LoginRateLimiter(StringRedisTemplate redis, LoginProperties properties) {
         this.redis = redis;
-        this.maxFailures = maxFailures;
-        this.windowMillis = lockDuration.toMillis();
+        this.properties = properties;
     }
 
     /** 锁定中则抛出 {@link AuthException.RateLimited}；Redis 不可用时放行。 */
@@ -88,7 +73,8 @@ public class LoginRateLimiter {
     public void recordFailure(String username) {
         try {
             redis.execute(RECORD_FAILURE_SCRIPT, List.of(failKey(username), lockKey(username)),
-                    String.valueOf(maxFailures), String.valueOf(windowMillis));
+                    String.valueOf(properties.getMaxFailures()),
+                    String.valueOf(properties.getLockMinutes().toMillis()));
         } catch (DataAccessException exception) {
             log.warn("登录失败计数写入失败（fail-open：本窗口防爆破能力暂时失效）：username={} err={}",
                     username, exception.getMessage());

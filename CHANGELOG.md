@@ -56,6 +56,26 @@
   - gateway 类路径无 spring-security，health 直接可达；注意它经 OpenResty 对外可达（仅状态、无细节），其余服务的 health 不经过网关
   - `docs/deployment.md` 冒烟验证新增健康检查步骤，并更新"无健康检查端点"的已知限制表述
 
+- **接入 Nacos 配置中心（Spring Cloud Alibaba Nacos Config）**
+  - 8 个服务统一引入 config starter + `spring.config.import=optional:nacos:<服务名>.yml`；**只托管"运行时可变项"**——部署期配置（端口、连接串、服务地址、go-judge 超时）与密钥仍留在 git 与环境变量，自举参数（Nacos 自身地址与命名空间）必须留本地
+  - 真正热更新的两项：`auth.login.max-failures` / `lock-minutes`（考试期间可临时调紧锁定策略）、`exam.session.heartbeat-timeout-minutes`（网络抖动时放宽）。`LoginRateLimiter` 与 `ExamSessionService` 改为 `@ConfigurationProperties`（可变 JavaBean）+ **每次调用时读取**——`@Value` 不参与刷新，构造期读入等于固化
+  - 调度间隔（`outbox.publish-interval-ms`、`exam.status.sweep-interval-ms`）同样纳管，但 `@Scheduled` 在启动时解析，明确标注"重启生效"
+  - **前置修复**：`docker/compose.platform.yml` 给 nacos 挂上命名卷 `nacos-data`——此前无卷，写入的配置在容器重建后会全部丢失（已实测强制重建后配置仍在）
+  - **坑一（关键）**：配置必须放非 public 命名空间。nacos-client 3.x 默认按 `public` 取配置，而 Nacos 2.x 的 public 命名空间真实 ID 是空字符串，gRPC 拉取返回 `not-found`；服务端 `config-client-request.log` 中 `tenant=public → not-found` 与 `tenant=null → ok` 两行是直接证据。HTTP API 会做命名空间别名，**用 curl 测不出来**，客户端侧只表现为 `[Nacos Config] config[…] is empty`。改用独立命名空间 `lunar-dev`（服务发现不受影响，继续留在 public）
+  - **坑二**：`spring.config.import` 导入的配置**优先级低于本地 yml**——被托管的键若同时在本地 yml 里定义（auth 的 `auth.login.*` 原本就是），Nacos 的值会被永远盖住。已清理本地重复项，离线兜底改由属性类的字段默认值承担
+  - 实测热更新：Nacos 里 `max-failures` 由 2 改为 3 后**未重启即生效**（失败 2 次时第 3 次仍可尝试、失败 3 次后第 4 次锁定，与改前的"2 次即锁"形成对照），日志链路 `Receive Nacos config change` → `Refresh keys changed: [auth.login.max-failures]` 完整可见
+  - 新增 `LoginRateLimiterContextTest.propertiesBindFromEnvironment` 钉住 `@DurationUnit(MINUTES)` 语义（若误按毫秒绑定，锁定会静默变成 3 毫秒）
+  - 已知瑕疵：暂无托管配置的服务（problem / judge / audit / gateway）启动时会打一条 `config[…] is empty` 警告，属预期；Nacos 2.4.2 内嵌 Derby 下命名空间列表接口有 SQL 语法错误（反引号），控制台命名空间页可能报错，不影响客户端读写
+
+- **Nacos 服务端升级到 3.0.3（与捆绑客户端同补丁线）**——不必再靠自定义命名空间绕开 2.x 的坑
+  - 起因：SCA 2025.0.0.0 捆绑的 nacos-client 3.0.3 按 Nacos 3.x 语义解析命名空间，服务端停在 2.4.2 时**配置拉取静默失败**（`public` 在 2.x 的真实 ID 是空字符串，gRPC 返回 not-found）。上一轮用独立命名空间 `lunar-dev` 绕过，本轮升级服务端后默认命名空间即可用，**配置与服务发现都回到 `public` + `DEFAULT_GROUP`**
+  - 选 3.0.3 的理由：与客户端同补丁线（最适配）、本地镜像已有缓存无需下载、3.0.x 尚未引入 3.3 的"auth 默认开启"变更
+  - compose 变更：镜像 `v2.4.2 → v3.0.3`；补上 3.x 启动脚本**强制要求**的 `NACOS_AUTH_TOKEN` / `NACOS_AUTH_IDENTITY_KEY` / `NACOS_AUTH_IDENTITY_VALUE`（开发用值，生产须换强随机值）；控制台映射到宿主机 **8849**（容器内是 8080，与网关端口冲突）；数据卷换成 `nacos-data-v3`（3.x 的 Derby 结构与 2.x 不兼容）
+  - 3.x 鉴权模型：刻意不设 `NACOS_AUTH_ENABLE`，沿用镜像默认的 `auth.enabled=false` → **客户端 API 免凭据**（与 2.x 一致）；**控制台另有自己的登录且取消了默认 `nacos/nacos`**，首次访问需初始化管理员密码
+  - 3.x 的 API 变化：v1 配置 API 已移除、v3 admin API 需控制台凭据 → 配置发布改走**官方客户端**：新增 `docker/nacos/config/*.yml`（配置内容的 git 真源，回应"配置要跟 git 走"）与 `docker/nacos/publish-configs.sh`（推送脚本，免鉴权、不受 HTTP API 版本差异影响）；v1 命名 API 仍可用，`docs/deployment.md` 的冒烟命令不受影响
+  - 实测：8 个服务注册 + 4 个服务加载配置 + 热更新（改 Nacos 不重启即生效，日志 `Receive Nacos config change` → `Refresh keys changed: [auth.login.max-failures]`）+ 142 条端到端断言全绿
+  - 过程记录：升级前先用独立容器对 3.0.3 做探测（端口/鉴权/命名空间/发布途径），确认无阻塞后才切生产编排；期间发现并绕开两个 3.x 细节——控制台/管理 API 需登录、v1 配置 API 已移除
+
 ### 计划中
 
 - RocketMQ Outbox 发布器与消费（接通 submission → judge 事件链路，替代判决回写过渡端点）

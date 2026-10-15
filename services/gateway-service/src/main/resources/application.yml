@@ -1,8 +1,15 @@
 spring:
+  config:
+    # 只从 Nacos 读取"运行时可变"的服务私有配置（docs/middleware.md"配置中心"节）；
+    # optional: 保证 Nacos 不可达时用本地默认值启动，而不是启动失败
+    import: optional:nacos:${spring.application.name}.yml
   application:
     name: gateway-service
   cloud:
     nacos:
+      config:
+        # 配置中心连接参数必须留本地：这是"从哪里取配置"的自举信息，无法从 Nacos 自身获取
+        server-addr: ${NACOS_SERVER_ADDR:localhost:8848}
       discovery:
         # 注册进 Nacos（docs/middleware.md）；默认不因 Nacos 不可达而启动失败，NACOS_FAIL_FAST=true 可切回严格模式
         server-addr: ${NACOS_SERVER_ADDR:localhost:8848}
