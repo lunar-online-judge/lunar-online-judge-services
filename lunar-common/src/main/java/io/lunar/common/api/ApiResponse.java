@@ -8,6 +8,4 @@ public record ApiResponse<T>(String requestId, T data, ApiError error) {
     public static <T> ApiResponse<T> failure(String requestId, String code, String message) {
         return new ApiResponse<>(requestId, null, new ApiError(code, message));
     }
-
-    public record ApiError(String code, String message) {}
 }
