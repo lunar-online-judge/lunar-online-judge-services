@@ -151,7 +151,7 @@ anti-cheat ──(plagiarism-requested)──> plagiarism-worker（独立部署�
 ## 公共模块（非独立服务）
 
 - `lunar-common`：统一 API 响应 `ApiResponse`（`requestId/data/error` 结构，错误为 `code + message`）、请求追踪 `RequestIdFilter`（`X-Request-Id` 透传/生成）、角色枚举 `Role`（ADMIN/CANDIDATE/INVIGILATOR/TEACHER）、评测引擎抽象 `JudgeEngine`（`submit/query/cancel`）及其判题模型。
-- `lunar-contracts`：跨服务契约对象（如 `GoJudgeSubmissionRequest`），供服务间与事件使用。
+- 跨服务契约不单设模块：服务间 REST 契约由各服务的 `api.dto` / `domain.dto` 表达（调用方按字段名取值），评测引擎契约（`JudgeEngine` / `JudgeVerdict` / `JudgeSubmissionResult`）与统一响应在 `lunar-common`。
 - `plagiarism-worker`（规划中，仓库暂无模块）：独立异步 JPlag 查重 worker，与主服务隔离部署，消费 `lunar-plagiarism-requested`、生产 `lunar-plagiarism-completed`。
 
 ## 实现顺序

@@ -26,6 +26,9 @@
   - 修正文档滞后：`services.md` 与 `middleware.md` 的总览表（Nacos `v2.4.2`→`v3.0.3`、Redis"Starter 未接入"、gateway"未实现路由"、Flyway"仅 auth"、judge 的 `judge_schema` 实际不存在）、`api.md` 端点总表（去重复行、去错误的"规划"标注、改为 37 个端点并补"鉴权"列）、`architecture.md` §15 当前实现、`README` 依赖矩阵与 Starter 清单、`deployment.md` 的 judge 端口/profile 与环境变量默认值、本文件"计划中"
   - 悬空引用清零：`admin-web/`（已在 `fa9a51c` 中删除）、`admin/api-contracts.md`、`architecture.md §16`
   - `BACKEND_IMPROVEMENT_PLAN.md` 补"基线说明"（标注 `fa9a51c` 之后已修的条目）并在 `README` 目录登记
+- **删除 `lunar-contracts` 空壳模块**：全模块只有一个 `GoJudgeSubmissionRequest` record（4 字段），全仓库 **0 处引用**——judge-service 在 pom 里依赖它，却从未 import 过任何 `io.lunar.contracts` 类型
+  - 它描述的其实是 go-judge 的私有 HTTP 协议，与 judge 自己的 `GoJudgeModels`（`RunRequest` / `Cmd` / `Fd`，才是协议权威）不一致，本就不属于"跨服务契约"；而且它自身依赖 `lunar-common`，连"依赖轻量、可给 WebFlux 网关共享"这个唯一站得住的理由也不成立
+  - 删除模块目录、根 `pom.xml` 的 `<module>` 与 judge-service 的依赖；`docs/services.md` 改为说明"跨服务契约不单设模块"（服务间 REST 契约走各服务的 `api.dto` / `domain.dto`，引擎契约在 `lunar-common`）。将来若要做类型化事件契约（如 `lunar-submission-judged` 的 payload 类型、可被无 servlet 依赖的 gateway 消费），再按需决定放 `lunar-common` 还是新建一个真正零依赖的模块
 
 ### 修复
 

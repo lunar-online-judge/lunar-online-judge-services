@@ -87,7 +87,7 @@ java -jar services/judge-service/target/judge-service-0.1.0-SNAPSHOT.jar
 
 **本地启动注意**（2026-10-05 实测）：
 
-- `mvn spring-boot:run -pl <module>` 前必须先执行 `mvn -DskipTests install`，否则单模块解析不到 `lunar-common`/`lunar-contracts`（依赖解析失败）；
+- `mvn spring-boot:run -pl <module>` 前必须先执行 `mvn -DskipTests install`，否则单模块解析不到 `lunar-common`（依赖解析失败）；
 - auth-service 连 Docker postgres 需设置 `POSTGRES_PORT=5433`（见上方端口表）；
 - judge-service 有 `application.yml` 但**未设 `server.port`**（默认 8080，与 gateway 冲突），且 `JudgeEngine` Bean 需要明确激活条件：本地以 `SPRING_PROFILES_ACTIVE=mock SERVER_PORT=8085 java -jar ...` 启动（或设 `GO_JUDGE_BASE_URL` 切真实引擎），否则会因找不到 `JudgeEngine` Bean 而启动失败。
 
