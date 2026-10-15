@@ -3,9 +3,10 @@ package io.lunar.problem.api;
 import io.lunar.common.api.ApiResponse;
 import io.lunar.common.api.Pagination;
 import io.lunar.common.web.RequestIdFilter;
+import io.lunar.problem.api.dto.CreateProblemRequest;
+import io.lunar.problem.api.dto.CreateVersionRequest;
 import io.lunar.problem.domain.ProblemService;
 import jakarta.validation.Valid;
-import jakarta.validation.constraints.NotBlank;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.security.core.Authentication;
@@ -106,14 +107,4 @@ public class ProblemController {
             @RequestHeader(value = RequestIdFilter.HEADER, required = false) String requestId) {
         return ResponseEntity.ok(ApiResponse.success(requestId, problemService.listTestcases(id, versionId)));
     }
-
-    public record CreateProblemRequest(@NotBlank String title, @NotBlank String statement,
-                                       String sampleInput, String sampleOutput,
-                                       Integer timeLimitMs, Integer memoryLimitKb, Integer outputLimitKb,
-                                       String allowedLanguages, List<ProblemService.TestcasePayload> testcases) {}
-
-    public record CreateVersionRequest(String baseVersionId, String title, String statement,
-                                       String sampleInput, String sampleOutput,
-                                       Integer timeLimitMs, Integer memoryLimitKb, Integer outputLimitKb,
-                                       String allowedLanguages, List<ProblemService.TestcasePayload> testcases) {}
 }

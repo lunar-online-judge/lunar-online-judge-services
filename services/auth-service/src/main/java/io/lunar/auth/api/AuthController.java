@@ -1,12 +1,12 @@
 package io.lunar.auth.api;
 
+import io.lunar.auth.api.dto.LoginRequest;
+import io.lunar.auth.api.dto.LoginResponse;
 import io.lunar.auth.domain.AuthService;
 import io.lunar.auth.domain.JwksService;
 import io.lunar.common.api.ApiResponse;
-import io.lunar.common.security.Role;
 import io.lunar.common.web.RequestIdFilter;
 import jakarta.validation.Valid;
-import jakarta.validation.constraints.NotBlank;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PostMapping;
@@ -15,7 +15,6 @@ import org.springframework.web.bind.annotation.RequestHeader;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 
-import java.time.Instant;
 import java.util.Map;
 
 @RestController
@@ -51,9 +50,4 @@ public class AuthController {
     public Map<String, Object> jwks() {
         return jwksService.asJson();
     }
-
-    public record LoginRequest(@NotBlank String username, @NotBlank String password) {}
-
-    public record LoginResponse(String userId, String accessToken, String tokenType, Instant expiresAt,
-                                Role role, boolean passwordChangeRequired) {}
 }

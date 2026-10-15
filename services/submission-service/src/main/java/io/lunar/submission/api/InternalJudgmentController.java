@@ -2,9 +2,9 @@ package io.lunar.submission.api;
 
 import io.lunar.common.api.ApiResponse;
 import io.lunar.common.web.RequestIdFilter;
+import io.lunar.submission.api.dto.JudgmentRequest;
 import io.lunar.submission.domain.SubmissionService;
 import jakarta.validation.Valid;
-import jakarta.validation.constraints.NotBlank;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.web.bind.annotation.PathVariable;
@@ -38,7 +38,4 @@ public class InternalJudgmentController {
                 request.score(), request.passedCases(), request.totalCases(), requestId);
         return ResponseEntity.ok(ApiResponse.success(requestId, view));
     }
-
-    public record JudgmentRequest(@NotBlank String verdict, Integer score,
-                                  Integer passedCases, Integer totalCases) {}
 }

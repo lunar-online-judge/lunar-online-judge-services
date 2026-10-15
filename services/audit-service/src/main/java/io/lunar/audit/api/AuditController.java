@@ -1,12 +1,12 @@
 package io.lunar.audit.api;
 
+import io.lunar.audit.api.dto.RecordRequest;
 import io.lunar.audit.domain.AuditService;
 import io.lunar.common.api.ApiResponse;
 import io.lunar.common.api.Pagination;
 import io.lunar.common.security.Role;
 import io.lunar.common.web.RequestIdFilter;
 import jakarta.validation.Valid;
-import jakarta.validation.constraints.NotBlank;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.security.core.Authentication;
@@ -59,7 +59,4 @@ public class AuditController {
         return ResponseEntity.ok(ApiResponse.success(requestId,
                 auditService.query(action, actorId, contestId, page, pageSize)));
     }
-
-    public record RecordRequest(@NotBlank String action, String targetType, String targetId,
-                                String contestId, String detail) {}
 }

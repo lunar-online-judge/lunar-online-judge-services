@@ -1,11 +1,12 @@
 package io.lunar.anticheat.api;
 
+import io.lunar.anticheat.api.dto.ReportEventRequest;
+import io.lunar.anticheat.api.dto.ReviewRequest;
 import io.lunar.anticheat.domain.RiskEventService;
 import io.lunar.common.api.ApiResponse;
 import io.lunar.common.api.Pagination;
 import io.lunar.common.web.RequestIdFilter;
 import jakarta.validation.Valid;
-import jakarta.validation.constraints.NotBlank;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.security.core.Authentication;
@@ -17,8 +18,6 @@ import org.springframework.web.bind.annotation.RequestHeader;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
-
-import java.time.Instant;
 
 /**
  * 监考风险入口（docs/api.md"实时监考"）：
@@ -73,9 +72,4 @@ public class MonitorController {
                 authentication.getName(), authorization);
         return ResponseEntity.ok(ApiResponse.success(requestId, view));
     }
-
-    public record ReportEventRequest(@NotBlank String contestId, @NotBlank String eventType,
-                                     String problemId, String detail, Instant occurredAt) {}
-
-    public record ReviewRequest(@NotBlank String action, String note) {}
 }

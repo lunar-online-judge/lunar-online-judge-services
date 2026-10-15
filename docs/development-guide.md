@@ -24,7 +24,7 @@
 ## 3. 代码结构与约定
 
 - 一个服务一个 Maven 模块，包根 `io.lunar.<service>`，子包分层：
-  - `api/`：REST 控制器与请求/响应 DTO（用 record）；
+  - `api/`：REST 控制器；`api/dto/`：请求/响应 DTO（用 record）；
   - `domain/`：领域模型、状态机、业务规则（不依赖 Spring Web）；
   - `infra/`：数据库访问、MQ 生产/消费、外部客户端适配器。
 - 响应统一用 `lunar-common` 的 `ApiResponse.success/failure(requestId, data, error)`；`X-Request-Id` 由 `RequestIdFilter` 自动透传，控制器取请求头传入响应。

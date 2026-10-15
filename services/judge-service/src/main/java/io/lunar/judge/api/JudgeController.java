@@ -4,6 +4,7 @@ import io.lunar.common.api.ApiResponse;
 import io.lunar.common.judge.JudgeEngine;
 import io.lunar.common.judge.JudgeSubmissionCommand;
 import io.lunar.common.judge.JudgeSubmissionResult;
+import io.lunar.judge.api.dto.SubmitRequest;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
@@ -29,8 +30,4 @@ public class JudgeController {
                 Map.of(), request.cpuTimeLimitMs(), request.memoryLimitKb()));
         return ApiResponse.success("pending", result);
     }
-
-    /** 提交请求体：字段名即 API 契约，禁改。 */
-    public record SubmitRequest(String submissionId, String language, String sourceCode,
-                                long cpuTimeLimitMs, long memoryLimitKb) {}
 }

@@ -1,11 +1,14 @@
 package io.lunar.auth.api;
 
+import io.lunar.auth.api.dto.CreateStudentRequest;
+import io.lunar.auth.api.dto.PasswordResetResponse;
+import io.lunar.auth.api.dto.ResetPasswordRequest;
+import io.lunar.auth.api.dto.StudentResponse;
 import io.lunar.auth.domain.StudentAccountService;
 import io.lunar.auth.domain.UserException;
 import io.lunar.common.api.ApiResponse;
 import io.lunar.common.web.RequestIdFilter;
 import jakarta.validation.Valid;
-import jakarta.validation.constraints.NotBlank;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.security.core.Authentication;
@@ -70,20 +73,4 @@ public class InternalStudentController {
         studentAccountService.resetStudentPassword(studentId, request.temporaryPassword(), authentication.getName());
         return ResponseEntity.ok(ApiResponse.success(requestId, new PasswordResetResponse(true)));
     }
-
-    public record CreateStudentRequest(@NotBlank String studentNo, @NotBlank String username,
-                                       @NotBlank String displayName, @NotBlank String initialPassword) {}
-
-    public record ResetPasswordRequest(@NotBlank String temporaryPassword) {}
-
-    /** 学生账号视图：字段与 contest-service 的 AuthInternalClient 取值约定一一对应。 */
-    public record StudentResponse(String studentId, String studentNo, String username,
-                                  String displayName, boolean passwordChangeRequired) {
-        static StudentResponse of(StudentAccountService.CreatedStudent student) {
-            return new StudentResponse(student.studentId(), student.studentNo(), student.username(),
-                    student.displayName(), student.passwordChangeRequired());
-        }
-    }
-
-    public record PasswordResetResponse(boolean passwordChangeRequired) {}
 }

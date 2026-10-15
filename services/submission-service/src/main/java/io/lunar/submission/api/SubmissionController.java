@@ -3,9 +3,9 @@ package io.lunar.submission.api;
 import io.lunar.common.api.ApiResponse;
 import io.lunar.common.security.Role;
 import io.lunar.common.web.RequestIdFilter;
+import io.lunar.submission.api.dto.CreateSubmissionRequest;
 import io.lunar.submission.domain.SubmissionService;
 import jakarta.validation.Valid;
-import jakarta.validation.constraints.NotBlank;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.security.core.Authentication;
@@ -61,7 +61,4 @@ public class SubmissionController {
         return ResponseEntity.ok(ApiResponse.success(requestId,
                 submissionService.get(id, authentication.getName(), isOperator)));
     }
-
-    public record CreateSubmissionRequest(@NotBlank String contestId, @NotBlank String problemId,
-                                          @NotBlank String language, @NotBlank String sourceCode) {}
 }

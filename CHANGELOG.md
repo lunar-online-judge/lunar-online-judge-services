@@ -17,6 +17,7 @@
   - 分页列表与重置密码响应由 `Map<String, Object>` 改为具名 record（JSON 字段与取值不变）；`ContestService.list` / `ProblemService.list` 不再把 MyBatis `Page` 泄漏给调用方
   - 提取魔法值常量：判题 verdict 与沙箱状态名、题目默认限制、outbox 批量大小、详情截断长度等
   - 风格扫描器命中 189 处 → 2 处（剩余 2 处为 `ApiResponse` 的 `data` 字段：`docs/api.md` 已定的 wire 契约名，按"项目约定优先"保留）；103 个测试全绿
+  - 控制器内嵌的请求/响应 record 全部抽成独立类型，落在各服务的 `api.dto` 包（21 个：auth 6 / contest 7 / problem 2 / submission 2 / anti-cheat 2 / judge 1 / audit 1），Controller 只留端点与装配；`StudentResponse.of` / `ContestResponse.of` 由包级改为 `public` 以跨包调用，`docs/development-guide.md` 的包结构说明同步补上 `api/dto/`
 
 ### 修复
 

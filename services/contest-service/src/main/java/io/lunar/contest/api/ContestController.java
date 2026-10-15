@@ -4,12 +4,18 @@ import io.lunar.common.api.ApiResponse;
 import io.lunar.common.api.Pagination;
 import io.lunar.common.security.Role;
 import io.lunar.common.web.RequestIdFilter;
+import io.lunar.contest.api.dto.AddStudentRequest;
+import io.lunar.contest.api.dto.ContestListResponse;
+import io.lunar.contest.api.dto.ContestResponse;
+import io.lunar.contest.api.dto.CreateContestRequest;
+import io.lunar.contest.api.dto.PasswordResetResponse;
+import io.lunar.contest.api.dto.PublishAnnouncementRequest;
+import io.lunar.contest.api.dto.ResetPasswordRequest;
 import io.lunar.contest.domain.AnnouncementService;
 import io.lunar.contest.domain.ContestService;
 import io.lunar.contest.domain.EnrollmentService;
 import io.lunar.contest.infra.ContestEntity;
 import jakarta.validation.Valid;
-import jakarta.validation.constraints.NotBlank;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.security.core.Authentication;
@@ -24,7 +30,6 @@ import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
-import java.time.Instant;
 import java.util.List;
 
 /**
@@ -200,33 +205,5 @@ public class ContestController {
             @RequestHeader(value = RequestIdFilter.HEADER, required = false) String requestId) {
         announcementService.confirm(contestId, announcementId, authentication.getName());
         return ResponseEntity.ok(ApiResponse.success(requestId, null));
-    }
-
-    public record PublishAnnouncementRequest(@NotBlank String content,
-                                             Boolean important,
-                                             Boolean requireConfirmation) {}
-
-    public record AddStudentRequest(@NotBlank String studentNo, @NotBlank String username,
-                                    @NotBlank String displayName, @NotBlank String initialPassword) {}
-
-    public record ResetPasswordRequest(@NotBlank String temporaryPassword) {}
-
-    /** 重置密码响应：只回传"是否需强制改密"，不回传密码材料。 */
-    public record PasswordResetResponse(boolean passwordChangeRequired) {}
-
-    public record CreateContestRequest(@NotBlank String name, String description,
-                                       Instant startAt, Instant endAt) {}
-
-    /** 分页列表响应：items 为当前页竞赛。 */
-    public record ContestListResponse(List<ContestResponse> items, long total, long page, long pageSize) {}
-
-    public record ContestResponse(String id, String name, String description, String status,
-                                  Instant startAt, Instant endAt, String createdBy,
-                                  Instant createdAt, Instant updatedAt) {
-        static ContestResponse of(ContestEntity contest) {
-            return new ContestResponse(contest.getId(), contest.getName(), contest.getDescription(),
-                    contest.getStatus(), contest.getStartAt(), contest.getEndAt(), contest.getCreatedBy(),
-                    contest.getCreatedAt(), contest.getUpdatedAt());
-        }
     }
 }
