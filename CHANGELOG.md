@@ -49,6 +49,13 @@
   - `LoginRateLimiterTest` 改为对真实 Redis 跑（TTL 过期与多实例共享由服务端控制，假时钟覆盖不了），Redis 不可达时跳过而非失败；新增 `LoginRateLimiterContextTest` 装配守卫，把"两个构造器漏标 `@Autowired`"这类启动期失败拦在测试阶段（`GoJudgeAdapter` 踩过同一坑，已实测移除注解后该守卫会失败）
   - **幂等键与会话状态有意不迁**（理由写入 `docs/middleware.md`）：幂等键以 DB 唯一约束为权威——Redis 抖动或 TTL 过期会导致同键重试新建 submission 并重复触发评测，违反 `docs/api.md` 契约；会话 `status` 是提交通道且 TERMINATED 为终态，Redis 全丢会让超时扫描误判在考会话为 EXPIRED
 
+- **8 个服务引入 Spring Boot Actuator，暴露 `/actuator/health`**（`docs/deployment.md`"健康检查"节）
+  - 只通过 HTTP 暴露 `health`（其余端点保持不可达），只返回 `UP`/`DOWN`（`show-details: never`）；health 匿名可访问——否则编排与运维探测必须带令牌，加了等于没用
+  - **健康语义按依赖强度区分**：PostgreSQL 计入健康（硬依赖）；**Nacos 与 Redis 不计入**——`NACOS_FAIL_FAST=false` 与限流 fail-open 的语义就是"它们不可用时服务照常工作"，计入会让编排误杀可用实例（auth-service 显式关闭 `management.health.redis.enabled`）
+  - judge-service 此前无 `SecurityConfig`，靠 Spring Security 默认行为（全端点 401），会把 health 一并挡掉；新增最小 `SecurityConfig` 把原有基线显式化（用 `HttpStatusEntryPoint` 保持 401 语义而非默认回退 403）并放行 health
+  - gateway 类路径无 spring-security，health 直接可达；注意它经 OpenResty 对外可达（仅状态、无细节），其余服务的 health 不经过网关
+  - `docs/deployment.md` 冒烟验证新增健康检查步骤，并更新"无健康检查端点"的已知限制表述
+
 ### 计划中
 
 - RocketMQ Outbox 发布器与消费（接通 submission → judge 事件链路，替代判决回写过渡端点）

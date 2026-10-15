@@ -46,3 +46,14 @@ spring:
 
 server:
   port: ${SERVER_PORT:8080}
+
+management:
+  endpoints:
+    web:
+      exposure:
+        # 只通过 HTTP 暴露 health（存活探测与运维排障够用），其余端点保持不可达
+        include: health
+  endpoint:
+    health:
+      # 只返回 UP/DOWN，不展示组件细节
+      show-details: never

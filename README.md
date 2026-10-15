@@ -18,6 +18,7 @@
 | 安全 | Spring Security Starter | 随 Spring Boot 3.5.16 管理 | auth-service 已实际引入 |
 | 资源服务器 | OAuth2 Resource Server Starter | 随 Spring Boot 3.5.16 管理 | gateway、contest、problem、submission、judge、anti-cheat、media、audit 已引入 |
 | 服务发现 | Spring Cloud Alibaba Nacos Discovery | 2025.0.0.0 | 8 个服务均已注册到 Nacos；网关路由与服务间调用按服务名寻址 |
+| 健康检查 | Spring Boot Actuator | 随 Spring Boot 3.5.16 管理 | 8 个服务已引入，仅暴露 `/actuator/health`（匿名、只返回 UP/DOWN） |
 
 ### 已实际引入的 Spring Boot Starter
 

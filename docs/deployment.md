@@ -24,6 +24,18 @@
 | media-service | 8080（Spring 默认） | 无 | |
 | audit-service | 8087 | 有 | 审计账本 |
 
+**健康检查**：8 个服务均引入 Spring Boot Actuator，**只通过 HTTP 暴露 `health`**（`GET /actuator/health`，匿名可访问、只返回 `UP`/`DOWN`，不展示组件细节）。其余 actuator 端点不可用：有 Security 配置的服务上返回 401（安全过滤链先于路由拦截），网关上返回 404。
+
+健康语义按依赖强度区分，不是"能连的都算"：
+
+| 依赖 | 是否计入健康 | 理由 |
+|---|---|---|
+| PostgreSQL | **计入** | 硬依赖，库不可用则服务真的不可用（judge-service 无库，不涉及） |
+| Nacos | **不计入** | `NACOS_FAIL_FAST=false` 的语义就是"Nacos 不可用时服务照常工作"；计入会让编排误杀可用实例 |
+| Redis | **不计入** | 限流层是 fail-open 的（`docs/middleware.md`）；同理 |
+
+网关自身无 Security 配置，其 `/actuator/health` 经 OpenResty 直接对外可达（仅状态、无细节）；其余服务的 health 只从服务端口直接可达，网关不路由 `/actuator/**`。
+
 ## 基础设施端口（Docker Compose）
 
 各中间件的用途、功能与接入状态详见 `docs/middleware.md`。
@@ -101,6 +113,12 @@ curl -s "http://localhost:8848/nacos/v1/ns/service/list?pageNo=1&pageSize=20"
 curl -s "http://localhost:8848/nacos/v1/ns/instance/list?serviceName=auth-service"
 # 控制台：http://localhost:8848/nacos → 服务管理 → 服务列表
 
+# 0.4 健康检查：8 个服务都应返回 {"status":"UP"}（actuator 只暴露 health，匿名可访问）
+for p in 8080 8081 8082 8083 8084 8085 8086 8087; do printf "%s " "$p"; curl -s -m 5 "http://localhost:$p/actuator/health"; echo; done
+# 其余 actuator 端点不可用：有 Security 的服务上返回 401（过滤链先于路由拦截），网关上返回 404
+curl -s -o /dev/null -w "%{http_code}\n" http://localhost:8081/actuator/env   # 401
+curl -s -o /dev/null -w "%{http_code}\n" http://localhost:8080/actuator/env   # 404
+
 # 1. 真实登录（开发种子管理员 admin/admin123；需 FLYWAY_ENABLED=true + POSTGRES_PORT=5433 启动过一次使迁移生效）
 curl -s -X POST http://localhost:8081/api/v1/auth/login \
   -H "Content-Type: application/json" \
@@ -172,7 +190,7 @@ curl -s -i -H "X-Request-Id: test-123" http://localhost:8081/api/v1/auth/jwks | 
 - RocketMQ broker 广播地址固定为 `127.0.0.1`（Spring 服务跑在宿主机的前提）；服务容器化后需注释掉 `broker.conf` 中的 `brokerIP1`；开发期 `autoCreateTopicEnable=true`，生产必须改为 `false` 并显式建 Topic；
 - judge、media 两个服务没有完整端口配置（judge 已有 rocketmq 配置的 `application.yml` 但端口仍需 `SERVER_PORT`），同时本地启动多个时会抢占 8080；
 - gateway 经 OpenResty 暴露后，`/api/v1/internal/**` 无路由不可达——服务间调用必须内网直连，不得绕行网关（按服务名寻址同样由调用方直连目标实例，不经过网关）；
-- 服务实例注册为临时实例（ephemeral，靠 gRPC 心跳续约）：进程正常退出或被强杀时实例会立即从注册表摘除，网络分区等 gRPC 连接不可判定的场景才依赖心跳超时；各服务当前都没有健康检查端点（未引入 actuator），Compose 也没有配置健康探测，因此负载均衡只按注册表轮询，不做主动探活；
+- 服务实例注册为临时实例（ephemeral，靠 gRPC 心跳续约）：进程正常退出或被强杀时实例会立即从注册表摘除，网络分区等 gRPC 连接不可判定的场景才依赖心跳超时；服务已提供 `/actuator/health`，但**负载均衡仍只按注册表轮询、不做主动探活**（默认 LoadBalancer 不查健康端点），Compose 也只为基础设施容器配置探测；
 - **开发期重启 auth-service 会让令牌在约 5 分钟内全部失效**（含重启后新签发的）：未注入 `AUTH_JWT_PRIVATE_KEY` 时启动会临时生成签名密钥，而 kid 固定为 `lunar-dev-1`，资源服务的 JWKS 缓存按 kid 命中旧公钥、不会触发重新拉取，于是新旧令牌都验签失败。开发期建议注入固定私钥（`AUTH_JWT_PRIVATE_KEY`）或重启 auth 后一并重启调用方；
 - 登录失败限流已迁 Redis（auth-service）：计数多实例共享、重启不清零、TTL 自动清理；Redis 不可用时 fail-open 放行登录（仅打 warn），因此本地开发不启动 Redis 也能登录，只是限流失效；
 - go-judge 在 Docker Desktop（WSL2）上嵌套 cgroup 受限，本地沙箱联调暂缓（配置保留在 compose.judge.yml），生产 Linux 节点不受影响。
