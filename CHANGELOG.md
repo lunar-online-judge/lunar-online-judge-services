@@ -19,9 +19,27 @@
   - 风格扫描器命中 189 处 → 2 处（剩余 2 处为 `ApiResponse` 的 `data` 字段：`docs/api.md` 已定的 wire 契约名，按"项目约定优先"保留）；103 个测试全绿
   - 控制器内嵌的请求/响应 record 全部抽成独立类型，落在各服务的 `api.dto` 包（21 个：auth 6 / contest 7 / problem 2 / submission 2 / anti-cheat 2 / judge 1 / audit 1），Controller 只留端点与装配；`StudentResponse.of` / `ContestResponse.of` 由包级改为 `public` 以跨包调用，`docs/development-guide.md` 的包结构说明同步补上 `api/dto/`
   - domain 层 Service 内嵌的 22 个 record（视图/分页/结果）同样抽成独立类型，收进各服务的 `domain.dto` 包（auth 3 / contest 7 / problem 6 / submission 1 / anti-cheat 3 / audit 2）；原先靠同包可见性写 `ProblemService.ProblemView` 这类限定名的引用方（10 个 Controller、3 个 `api.dto`、8 个测试）一律改为显式 import，同时清掉 4 个失效 import——JSON 字段与行为不变；嵌套类型扫描 58 处 → 36 处（剩余为 `XxxException` 子类与 config/infra 辅助类型，本轮不动），`docs/development-guide.md` 包结构说明补上 `domain/dto/`
+  - 补抽 `ApiResponse` 内嵌的 `record ApiError` → `ApiError.java`（JSON 形状不变）：上一轮的嵌套扫描没有覆盖 record 体内的类型声明，属漏网
+- **文档与实现对齐**（对照源码逐条核对 `api.md` / `architecture.md` / `services.md` / `middleware.md` / `deployment.md` / `README.md`，不改代码）
+  - 修正"说已实现、代码里没有"的表述：发布时随机分配题目、`judge_task` 与 `DISPATCHING/RUNNING/FINISHED` 状态机、go-judge 退避/超时补偿、Outbox 死信表与管理员重放、contest/gateway/audit 消费事件（这三个服务没有 rocketmq 依赖）、`POST /api/v1/judge/submissions` 可用性（实际因未接验签恒 401）
+  - 修正与代码不符的契约描述：事件信封只落 `outbox_events` 行、上线消息只带 `payload`（因此"按 `eventId` 幂等"无法实现）；`ApiExceptionHandler` 没有兜底 `Exception` 处理器（`INTERNAL_ERROR` 从未产生、未分类异常不套统一信封）；风险复核与判决回写是"读-判-写"无条件更新而非条件更新；`CONTEST_NOT_ENROLLED` 被 submission 复用（会话过期也返回该码）；文档写的 `CAMERA_UNAVAILABLE` 实为代码里的 `CAMERA_MISSING`
+  - 修正文档滞后：`services.md` 与 `middleware.md` 的总览表（Nacos `v2.4.2`→`v3.0.3`、Redis"Starter 未接入"、gateway"未实现路由"、Flyway"仅 auth"、judge 的 `judge_schema` 实际不存在）、`api.md` 端点总表（去重复行、去错误的"规划"标注、改为 37 个端点并补"鉴权"列）、`architecture.md` §15 当前实现、`README` 依赖矩阵与 Starter 清单、`deployment.md` 的 judge 端口/profile 与环境变量默认值、本文件"计划中"
+  - 悬空引用清零：`admin-web/`（已在 `fa9a51c` 中删除）、`admin/api-contracts.md`、`architecture.md §16`
+  - `BACKEND_IMPROVEMENT_PLAN.md` 补"基线说明"（标注 `fa9a51c` 之后已修的条目）并在 `README` 目录登记
 
 ### 修复
 
+- **并发终态保护缺失（TOCTOU）**：风险事件审核与判题回写都是"读-判-写"的**无条件更新**——两个并发终审会互相覆盖，重复或乱序的判题消息也可能把终态改回去（`RiskEventService` 的类注释还自称"条件更新防并发"，与代码不符）
+  - 两处写入改为**前态条件更新**（`where id=? and status/review_status=读到的前态`），影响 0 行时重新读取实际状态并返回 409（`MONITOR_INVALID_TRANSITION` / `SUBMISSION_INVALID_TRANSITION`）：并发下最多一个成功，终态不可再动，失败方也不会补发事件
+  - 各加 1 个测试覆盖"并发失败方"路径（`RiskEventServiceTest.concurrentReviewLosesConditionalUpdate`、`SubmissionServiceTest.judgmentLosesConditionalUpdateOnConcurrentWrite`）
+- **未分类异常不套统一信封、`INTERNAL_ERROR` 从未产生**：`ApiExceptionHandler` 只处理域异常与校验失败，其余异常落到框架默认错误体（没有统一结构、没有 `requestId`）
+  - 新增兜底 `@ExceptionHandler(Exception.class)` → 500 `INTERNAL_ERROR`，异常细节只进日志、不进响应体；`HttpMessageNotReadableException`（请求体缺失/JSON 不可解析）映射为 400 `VALIDATION_FAILED`
+  - 兜底会**原样抛出**两类异常以免误伤状态码：框架自带 `ErrorResponse` 语义的异常（404/405/415 等）与 Spring Security 的认证/授权异常（`lunar-common` 不依赖 spring-security，按类名前缀判定后交回过滤器链）
+  - `lunar-common` 补 `slf4j-api`（`optional`，运行时由各服务的 logging starter 提供）与 `spring-boot-starter-test`，并首次为该模块加测试：4 个用例覆盖错误码透传、`INTERNAL_ERROR` 信封、不泄露异常细节、请求体不可解析、框架异常不被改写成 500
+- **会话未激活借用名单错误码**：提交链路遇到会话不存在/过期/终止时抛 `CONTEST_NOT_ENROLLED`（"不在竞赛名单"），调用方按错误码分支会误判
+  - 改用注册表里已有的 `SESSION_NOT_ACTIVE`（409），新增 `SubmissionException.SessionNotActive`（未新增错误码，两者都已在 `docs/api.md` 注册）
+- **管理端题目列表未限角色**：`GET /api/v1/problems` 是管理端分页接口（keyword 检索、含未发布题目），原先只要求登录令牌，考生可枚举全部题目
+  - 补 `@PreAuthorize("hasAnyRole('TEACHER', 'ADMIN')")`，与创建/版本管理同权限；考生取题仍走 `GET /api/v1/problems/{id}`
 - **判题 verdict 词表漂移导致真机结果被误判**：`GoJudgeAdapter` 输出短名（TLE/MLE/OLE/RE），而 `SubmissionCreatedConsumer` 白名单与 `SubmissionService.TERMINAL_STATUSES` 只认长名，真机下所有超时/超内存/超输出/运行时错误都会被归一成 `SYSTEM_ERROR`（Mock 引擎只产 ACCEPTED，测试与本地演示均未暴露，且消费者此前零测试覆盖）
   - 词表收敛为 `lunar-common` 的 `JudgeVerdict` 枚举（枚举名即事件与 `submissions.status` 的契约值），成为全平台唯一权威：adapter 直接映射枚举、消费者用 `parse()` 判定、submission 的终态校验由枚举派生；三份手写字符串清单（adapter 的 8 个常量、消费者的白名单 switch、`TERMINAL_STATUSES`）全部删除
   - `docs/services.md` 中与 `docs/architecture.md` §8、库表列注释相矛盾的 `TLE、MLE、RE、OLE` 表述已改正
@@ -80,9 +98,14 @@
 
 ### 计划中
 
-- RocketMQ Outbox 发布器与消费（接通 submission → judge 事件链路，替代判决回写过渡端点）
-- gateway-service 路由选型与实现；anti-cheat / media / audit 服务落地
-- WebSocket 推送（考试状态、评测结果、风险告警）
+- 事件信封上线与消费端按 `eventId` 幂等（当前消息体只带 `payload`，judge 的消费者没有任何去重）
+- `judge_task` 异步评测状态机（重试/超时补偿/指数退避）、死信表与管理员重放
+- 竞赛级授权范围（owner/grant）与 `INVIGILATOR` 权限矩阵
+- 随机题目分配（发布时生成 + 随机种子 + 分配表）
+- 成绩读模型：排名、该题最高有效分、成绩状态机（PROVISIONAL/FINAL）、按测试点比例的部分分
+- 考试预检（客户端版本/屏幕/网络/摄像头）与"同一账号仅一个活动会话 + 踢旧设备"
+- 媒体链路（监考令牌、WebRTC 信令、截图与 MinIO）与 WebSocket 推送
+- 代码查重（JPlag worker）、指定题目公告、CSV 批量导入
 - Redis 其余用途（令牌吊销、接口频控、会话在线状态镜像、评测短期锁、截图频控）；登录限流已迁，幂等键与会话状态经评估不迁（见上）
 - 题目归属竞赛校验（依赖随机分配表）与提交频率阈值（待 exam-process §10 确认）
 

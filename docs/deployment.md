@@ -19,7 +19,7 @@
 | contest-service | 8082 | 有 | |
 | problem-service | 8083 | 有 | |
 | submission-service | 8084 | 有 | |
-| judge-service | 8080（Spring 默认） | 无 | 唯一启用 spring-boot-maven-plugin 的模块，打出可执行 jar |
+| judge-service | 8080（Spring 默认；yml 未设 `server.port`） | 有 | 唯一启用 spring-boot-maven-plugin 的模块，打出可执行 jar；**尚未接入令牌验签**（无 `jwk-set-uri`，端点当前恒 401） |
 | anti-cheat-service | 8086 | 有 | 风险事件/审核（rocketmq + 分页已配） |
 | media-service | 8080（Spring 默认） | 无 | |
 | audit-service | 8087 | 有 | 审计账本 |
@@ -83,13 +83,13 @@ mvn spring-boot:run -pl services/auth-service
 java -jar services/judge-service/target/judge-service-0.1.0-SNAPSHOT.jar
 ```
 
-所有服务的接口都要求认证。**auth-service 已有 SecurityConfig 基线**（放行 `POST /api/v1/auth/login` 与 `GET /api/v1/auth/jwks`，登录为真实实现：BCrypt 校验 + RS256 JWT + 失败限流），其余服务仍是 Spring Security 默认行为（401）。auth-service 的数据库迁移由 `FLYWAY_ENABLED=true` 开启，默认关闭。
+所有服务的接口都要求认证。**除 gateway（无 Spring Security 依赖）与 media（无代码）外，7 个服务均已配置 `SecurityConfig`**：auth 放行 `POST /api/v1/auth/login` 与 `GET /api/v1/auth/jwks`（登录为真实实现：BCrypt 校验 + RS256 JWT + Redis 失败限流）；contest / problem / submission / anti-cheat / audit 作为 OAuth2 资源服务器经 auth 的 JWKS 本地验签，角色规则在方法级 `@PreAuthorize`；judge 仅放行 `/actuator/health`，**尚未接入验签**，其余端点当前恒 401。数据库迁移由 `FLYWAY_ENABLED=true` 开启，默认关闭。
 
 **本地启动注意**（2026-10-05 实测）：
 
 - `mvn spring-boot:run -pl <module>` 前必须先执行 `mvn -DskipTests install`，否则单模块解析不到 `lunar-common`/`lunar-contracts`（依赖解析失败）；
 - auth-service 连 Docker postgres 需设置 `POSTGRES_PORT=5433`（见上方端口表）；
-- judge-service 没有 `application.yml`，默认 profile 不生效，本地必须以 `SPRING_PROFILES_ACTIVE=mock SERVER_PORT=8085 java -jar ...` 启动，否则容器因找不到 `JudgeEngine` Bean 而启动失败。
+- judge-service 有 `application.yml` 但**未设 `server.port`**（默认 8080，与 gateway 冲突），且 `JudgeEngine` Bean 需要明确激活条件：本地以 `SPRING_PROFILES_ACTIVE=mock SERVER_PORT=8085 java -jar ...` 启动（或设 `GO_JUDGE_BASE_URL` 切真实引擎），否则会因找不到 `JudgeEngine` Bean 而启动失败。
 
 **开发种子管理员**：`FLYWAY_ENABLED=true` 且 `AUTH_DEV_SEED=true`（默认）时，V3 迁移插入 `admin` / `admin123`（BCrypt 存储）；生产必须设置 `AUTH_DEV_SEED=false`。
 
@@ -125,14 +125,14 @@ curl -s -X POST http://localhost:8081/api/v1/auth/login \
   -d '{"username":"admin","password":"admin123"}'
 # 连续失败 5 次后返回 429 AUTH_RATE_LIMITED；JWKS: GET http://localhost:8081/api/v1/auth/jwks
 
-# 2. 无令牌访问受保护端点 → 401（Security 默认行为，属预期）
+# 2. 无令牌访问受保护端点 → 401（资源服务器基线，属预期）
 curl -s -o /dev/null -w "%{http_code}\n" http://localhost:8084/api/v1/submissions
 
 # 3. 请求追踪：响应头应回显 X-Request-Id（缺失时由 RequestIdFilter 自动生成）
 curl -s -i -H "X-Request-Id: test-123" http://localhost:8081/api/v1/auth/jwks | grep -i x-request-id
 
-# 4. Swagger（judge-service 默认 8080 端口；与其他服务同起时先 SERVER_PORT 区分）
-# 浏览器打开 http://localhost:8080/swagger-ui.html
+# 4. Swagger（除 judge 外的 6 个服务已放行 /swagger-ui/**；judge 未放行，访问返回 401）
+# 浏览器打开 http://localhost:8081/swagger-ui.html（端口换成被调试的服务）
 ```
 
 ## 环境变量
@@ -140,13 +140,13 @@ curl -s -i -H "X-Request-Id: test-123" http://localhost:8081/api/v1/auth/jwks | 
 | 配置项 | 说明 | 默认值 |
 |---|---|---|
 | `SERVER_PORT` | 服务 HTTP 端口 | 见上方端口表 |
-| `SPRING_PROFILES_ACTIVE` | 环境 profile | `mock` |
+| `SPRING_PROFILES_ACTIVE` | 环境 profile；judge-service 需显式设为 `mock` 才会装配 `MockJudgeEngine`（未设置且无 `GO_JUDGE_BASE_URL` 时容器内没有 `JudgeEngine` Bean） | 未设置 |
 | `FLYWAY_ENABLED` | 是否执行数据库迁移 | `false` |
-| `GO_JUDGE_BASE_URL` | go-judge 内网地址；**设置后 judge-service 自动启用 GoJudgeAdapter（优先于 mock profile），未设置回落 Mock 引擎** | 未设置（Mock 引擎） |
+| `GO_JUDGE_BASE_URL` | go-judge 内网地址；**设置后 judge-service 自动启用 GoJudgeAdapter（优先于 mock profile）** | 未设置（此时需 `SPRING_PROFILES_ACTIVE=mock`，否则容器内没有 `JudgeEngine` Bean） |
 | `GO_JUDGE_CONNECT_TIMEOUT_MS` | go-judge 连接超时 | `2000` |
 | `GO_JUDGE_READ_TIMEOUT_MS` | go-judge 读取超时 | `10000` |
 | `POSTGRES_HOST` | PostgreSQL 地址 | `localhost` |
-| `POSTGRES_PORT` | PostgreSQL 端口（本地 Compose 映射在 5433） | `5432` |
+| `POSTGRES_PORT` | PostgreSQL 端口（本地 Compose 映射在 5433） | `5432`，**anti-cheat / audit 的默认值却是 `5433`**（两处不一致，见"已知限制"） |
 | `POSTGRES_DB` | 数据库名 | `lunar` |
 | `POSTGRES_USER` / `POSTGRES_PASSWORD` | 数据库凭据 | `lunar` / `change-me` |
 | `AUTH_JWT_PRIVATE_KEY` | RS256 私钥（PKCS#8 PEM）；留空则启动期临时生成开发密钥，重启令牌失效 | 未设置（临时生成） |
@@ -167,9 +167,9 @@ curl -s -i -H "X-Request-Id: test-123" http://localhost:8081/api/v1/auth/jwks | 
 | `MINIO_ENDPOINT` | MinIO 地址 | `http://localhost:9000` |
 | `MEDIA_SIGNALING_URL` | WebRTC 信令服务地址 | 未设置 |
 
-数据库连接变量当前由 auth-service、contest-service 的 `application.yml` 消费，其余服务接入持久化时按同样方式引用。
+数据库连接变量当前由 6 个有库的服务消费：auth、contest、problem、submission、anti-cheat、audit（judge 与 media 无 DataSource）。
 
-**多服务共库的 Flyway 约定**：每个服务使用独立的 schema 与独立的迁移历史表（`spring.flyway.schemas` + `spring.flyway.table`），避免版本号/checksum 冲突——auth-service 沿用默认 `public.flyway_schema_history`；contest-service 用 `contest_schema` + `contest_history`；后续服务照此办理。**资源服务验签**：`AUTH_JWK_SET_URI` 指向 auth 的 JWKS（默认 `http://localhost:8081/api/v1/auth/jwks`），本地启动顺序上 auth 需先于其他资源服务可用。
+**多服务共库的 Flyway 约定**：每个服务使用独立的 schema 与独立的迁移历史表（`spring.flyway.schemas` + `spring.flyway.table`），避免版本号/checksum 冲突——auth-service 沿用默认 `public.flyway_schema_history`；contest / problem / submission / anti-cheat / audit 分别用 `contest_schema`+`contest_history`、`problem_schema`+`problem_history`、`submission_schema`+`submission_history`、`anti_cheat_schema`+`anti_cheat_history`、`audit_schema`+`audit_history`。**资源服务验签**：`AUTH_JWK_SET_URI` 指向 auth 的 JWKS（默认 `http://localhost:8081/api/v1/auth/jwks`），本地启动顺序上 auth 需先于其他资源服务可用。
 
 **服务发现（Nacos）**：8 个服务启动时注册到 Nacos 的 `DEFAULT_GROUP`，网关路由用 `lb://<服务名>`、服务间客户端默认按服务名寻址（均可用 `*_SERVICE_URI` / `*_BASE_URL` 覆盖为固定地址排障）。因此**启动顺序上 auth 需先完成注册**，其他服务的 `lb://auth-service` 才能解析到实例；Nacos 本身未启动时服务仍可启动（`NACOS_FAIL_FAST=false`），只是发现链路不可用。JWKS 验签链路**不**走服务发现（`AUTH_JWK_SET_URI` 仍是固定地址，见 `docs/middleware.md`"Nacos"节）。
 
@@ -191,7 +191,9 @@ curl -s -i -H "X-Request-Id: test-123" http://localhost:8081/api/v1/auth/jwks | 
 ## 已知限制
 
 - RocketMQ broker 广播地址固定为 `127.0.0.1`（Spring 服务跑在宿主机的前提）；服务容器化后需注释掉 `broker.conf` 中的 `brokerIP1`；开发期 `autoCreateTopicEnable=true`，生产必须改为 `false` 并显式建 Topic；
-- judge、media 两个服务没有完整端口配置（judge 已有 rocketmq 配置的 `application.yml` 但端口仍需 `SERVER_PORT`），同时本地启动多个时会抢占 8080；
+- judge、media 两个服务没有完整端口配置：judge 有 `application.yml` 但未设 `server.port`（需 `SERVER_PORT`），media 无 `application.yml`；两者默认都是 8080、与 gateway 相同，本地同时启动必须显式区分；
+- **judge-service 的 HTTP 端点当前不可用**：`SecurityConfig` 要求 `authenticated()`，但既未配置 `oauth2ResourceServer`、`application.yml` 也没有 `jwk-set-uri`，任何请求都是 401；判题实际走 RocketMQ 消费链路，`POST /api/v1/judge/submissions` 需先补齐验签配置才能调用；
+- **`POSTGRES_PORT` 默认值不一致**：auth / contest / problem / submission 默认 `5432`，anti-cheat / audit 默认 `5433`；本地 Compose 映射在 5433，因此前 4 个服务启动时必须显式设 `POSTGRES_PORT=5433`；
 - gateway 经 OpenResty 暴露后，`/api/v1/internal/**` 无路由不可达——服务间调用必须内网直连，不得绕行网关（按服务名寻址同样由调用方直连目标实例，不经过网关）；
 - 服务实例注册为临时实例（ephemeral，靠 gRPC 心跳续约）：进程正常退出或被强杀时实例会立即从注册表摘除，网络分区等 gRPC 连接不可判定的场景才依赖心跳超时；服务已提供 `/actuator/health`，但**负载均衡仍只按注册表轮询、不做主动探活**（默认 LoadBalancer 不查健康端点），Compose 也只为基础设施容器配置探测；
 - **开发期重启 auth-service 会让令牌在约 5 分钟内全部失效**（含重启后新签发的）：未注入 `AUTH_JWT_PRIVATE_KEY` 时启动会临时生成签名密钥，而 kid 固定为 `lunar-dev-1`，资源服务的 JWKS 缓存按 kid 命中旧公钥、不会触发重新拉取，于是新旧令牌都验签失败。开发期建议注入固定私钥（`AUTH_JWT_PRIVATE_KEY`）或重启 auth 后一并重启调用方；

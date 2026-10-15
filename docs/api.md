@@ -20,6 +20,8 @@ HTTP 前缀统一为 `/api/v1`。各服务经 gateway 对外暴露；客户端�
 
 异常 → 错误响应的转换统一由 `lunar-common` 的 `ApiExceptionHandler` 完成（`WebCommonAutoConfiguration` 注册，全平台唯一）：各服务的域异常继承 `ApiException`（携带 `code` 与 `httpStatus`），抛出即得上述结构；参数校验失败统一映射为 400 `VALIDATION_FAILED`。服务内不再自建 `@RestControllerAdvice`，也不把 Handler 内嵌进 Controller。
 
+**当前覆盖范围（实现事实）**：处理器覆盖四类——`ApiException`（域异常，按注册表 code/状态返回）、`MethodArgumentNotValidException`（400 `VALIDATION_FAILED`）、`HttpMessageNotReadableException`（请求体缺失或 JSON 不可解析，同样 400 `VALIDATION_FAILED`），以及**兜底的 `Exception` → 500 `INTERNAL_ERROR`**（异常细节只进日志，响应体不含内部信息）。兜底会**原样抛出**两类异常以免误伤状态码：框架自带 `ErrorResponse` 语义的异常（404/405/415 等）与 Spring Security 的认证/授权异常（交回过滤器链产出 401/403）。
+
 ### 错误码
 
 错误码大写下划线命名，`<域>_<原因>`；新增先登记再使用。初始注册表：
@@ -47,12 +49,14 @@ HTTP 前缀统一为 `/api/v1`。各服务经 gateway 对外暴露；客户端�
 | `PROBLEM_VERSION_IMMUTABLE` | 版本已发布不可修改（改动须创建新版本） | 409 |
 | `MONITOR_EVENT_NOT_FOUND` | 风险事件不存在 | 404 |
 | `MONITOR_INVALID_TRANSITION` | 审核流转非法（重复终审/未知动作） | 409 |
-| `SUBMISSION_LIMIT_EXCEEDED` | 提交次数超限 | 429 |
+| `SUBMISSION_LIMIT_EXCEEDED` | 提交次数超限（**尚未实现**：次数阈值待确认，见 `docs/exam-process.md` §10） | 429 |
 | `SUBMISSION_LANGUAGE_NOT_ALLOWED` | 语言不在白名单 | 400 |
 | `SUBMISSION_DUPLICATE` | 幂等键重复且请求内容不一致 | 409 |
 | `SUBMISSION_NOT_FOUND` | 提交不存在 | 404 |
 | `SUBMISSION_INVALID_TRANSITION` | 提交状态不允许该流转（如终态再回写判决） | 409 |
-| `INTERNAL_ERROR` | 未分类服务端错误 | 500 |
+| `INTERNAL_ERROR` | 未分类服务端错误（由全局兜底处理器产出，响应体不含异常细节） | 500 |
+
+**两处需要知悉的既有事实**：①`CONTEST_NOT_RUNNING` 仍被 submission-service 复用（`SubmissionException.ContestNotRunning`），且它同时覆盖"时间窗口外"与"竞赛状态不符"两种原因——contest 的服务间判定只回 `canSubmit`，提交链路无法区分；`CONTEST_NOT_ENROLLED` 目前只在 problem 服务调用失败时被复用（`NotSubmittable("题目不可用")`，语义偏弱）。精确化需要 contest 的服务间判定返回拒绝原因，属待办。**会话不存在/过期/终止已改用注册表里的 `SESSION_NOT_ACTIVE`（409）**，不再借用名单类错误码。②`AUTH_WEAK_PASSWORD`/`AUTH_USERNAME_EXISTS` 等 auth 码只在服务间学生账号接口产生。
 
 ### 请求头
 
@@ -62,7 +66,7 @@ HTTP 前缀统一为 `/api/v1`。各服务经 gateway 对外暴露；客户端�
 | `Idempotency-Key` | 写操作幂等键；同一键 + 相同请求内容返回首次结果（200，不产生二次副作用），同一键 + 不同请求内容返回 409 `SUBMISSION_DUPLICATE` | 客户端 |
 | `Authorization: Bearer <JWT>` | 访问令牌，由 auth-service 签发，各服务作为资源服务器本地验签 | 登录后携带 |
 
-未携带或携带无效令牌返回 401（auth-service 为 Bearer 入口点）；令牌有效但缺少角色/授权返回 403。注意：除 auth-service 外，其余服务尚未配置 `SecurityFilterChain`，运行时是 Spring Security 默认行为（所有端点 401），鉴权规则随各服务落地逐步生效。
+未携带或携带无效令牌返回 401（资源服务用 `BearerTokenAuthenticationEntryPoint`）；令牌有效但缺少角色/授权返回 403。**当前安全基线**：除 gateway（无 Spring Security 依赖）与 media（无代码）外，7 个服务都已配置 `SecurityFilterChain`——auth 放行 login/jwks，contest / problem / submission / anti-cheat / audit 作为资源服务器经 auth 的 JWKS 本地验签、角色规则写在方法级 `@PreAuthorize`；**judge-service 尚未接入验签**（未配置 `oauth2ResourceServer`，也没有 `jwk-set-uri`），其端点当前对所有调用者都返回 401。
 
 ### 认证令牌
 
@@ -92,60 +96,67 @@ HTTP 前缀统一为 `/api/v1`。各服务经 gateway 对外暴露；客户端�
 
 所有 RocketMQ 事件包含统一信封字段：`eventId`、`eventType`、`aggregateId`、`occurredAt`、`schemaVersion`、`traceId`；消费者必须按 `eventId` 幂等。Topic 清单见 `docs/architecture.md` 第 5 节。
 
-### WebSocket
+**当前实现与契约的差距（务必知悉）**：信封字段目前只落在各服务的 `outbox_events` 行里，**上线消息体只带内层 `payload` JSON**，消息头只带 `KEYS=eventId` 与 `traceId`——`aggregateId` / `schemaVersion` / `occurredAt` 不随消息传输；judge-service 直接发送 `lunar-submission-judged` 时连 `eventId` 都没有。因此"按 `eventId` 幂等"目前**无法实现**：judge 的 `lunar-submission-created` 消费者没有任何去重（重复投递会重复评测并重复发 judged），submission 侧只靠"终态前置检查"兜底。补信封与消费端去重属待办（见 `BACKEND_IMPROVEMENT_PLAN.md`）。
 
-入口 `/ws/v1/contests/{contestId}`。事件类型：`JUDGING_STATUS`、`RISK_ALERT`、`MEDIA_STATE`、`SCREENSHOT_READY`。重连后先通过 REST 拉取未确认事件再继续接收推送。WebRTC SDP/ICE 交换通过媒体信令接口完成，业务服务不转发媒体 RTP 包。
+### WebSocket（**尚未实现**，以下为约定）
+
+入口 `/ws/v1/contests/{contestId}`。事件类型：`JUDGING_STATUS`、`RISK_ALERT`、`MEDIA_STATE`、`SCREENSHOT_READY`。重连后先通过 REST 拉取未确认事件再继续接收推送。WebRTC SDP/ICE 交换通过媒体信令接口完成，业务服务不转发媒体 RTP 包。当前代码中没有任何 WebSocket 端点或处理器（gateway 也未配置 `/ws/v1/**` 路由，且没有 RocketMQ 依赖），消费事件推送尚不具备条件。
 
 ## 端点总表
 
-标注"已实现（Mock）"的表示代码已存在但为占位实现；其余为规划约定，随模块落地逐步实现。
+下表与代码一致（共 37 个端点，分布在 11 个控制器）。"鉴权"列是 `@PreAuthorize` / `SecurityConfig` 的实际规则；"任意已认证"表示当前只要求有效令牌、**尚未做资源范围校验**（属待办，见 `BACKEND_IMPROVEMENT_PLAN.md` BE-01）。
+
+| 服务 | 方法 | 路径 | 鉴权 | 状态 |
+|---|---|---|---|---|
+| auth | POST | `/api/v1/auth/login` | 公开 | 已实现（BCrypt + RS256 JWT + Redis 失败限流） |
+| auth | GET | `/api/v1/auth/jwks` | 公开 | 已实现（裸 JWKSet，不套 ApiResponse） |
+| auth | GET | `/api/v1/internal/students` | TEACHER/ADMIN | 已实现（按学号或账户名查询，供 contest 判断账号复用） |
+| auth | POST | `/api/v1/internal/students` | TEACHER/ADMIN | 已实现（创建学生账号，固定 CANDIDATE 角色） |
+| auth | POST | `/api/v1/internal/students/{studentId}/password-reset` | TEACHER/ADMIN | 已实现（不返回密码材料） |
+| problem | POST | `/api/v1/problems` | TEACHER/ADMIN | 已实现（题目 + 首版本 + 测试点） |
+| problem | GET | `/api/v1/problems` | TEACHER/ADMIN | 已实现（分页 + keyword，管理端列表） |
+| problem | GET | `/api/v1/problems/{id}` | 任意已认证 | 已实现（考生视角：当前发布版本，不含测试点） |
+| problem | POST | `/api/v1/problems/{id}/versions` | TEACHER/ADMIN | 已实现（新版本，可基于已有版本复制；请求体当前无校验注解） |
+| problem | GET | `/api/v1/problems/{id}/versions` | TEACHER/ADMIN | 已实现（版本列表） |
+| problem | POST | `/api/v1/problems/{id}/versions/{versionId}/publish` | TEACHER/ADMIN | 已实现（发布并切换 `current_version_id`，发布后版本不可变） |
+| problem | GET | `/api/v1/problems/{id}/versions/{versionId}/testcases` | TEACHER/ADMIN | 已实现（仅老师/管理员；"供 judge 取测试点"的服务间接口未实现） |
+| submission | POST | `/api/v1/submissions` | CANDIDATE | 已实现（幂等 + 会话/竞赛/语言校验 + Outbox；**题目归属与次数校验未实现**） |
+| submission | GET | `/api/v1/submissions/{id}` | 任意已认证（本人；TEACHER/ADMIN 可查任意） | 已实现（权限在 Service 内判定，方法上无 `@PreAuthorize`） |
+| submission | POST | `/api/v1/internal/submissions/{id}/judged` | ADMIN | 已实现（判题回写过渡端点） |
+| judge | POST | `/api/v1/judge/submissions` | **未接验签** | 代码存在，但**当前对所有调用者恒 401**（未配 `jwk-set-uri` / `oauth2ResourceServer`）；`requestId` 硬编码为 `"pending"`，测试点恒为空 |
+| contest | POST | `/api/v1/contests` | TEACHER/ADMIN | 已实现（创建草稿） |
+| contest | GET | `/api/v1/contests` | 任意已认证 | 已实现（分页 + status 过滤；**未做资源范围限制**） |
+| contest | GET | `/api/v1/contests/{id}` | 任意已认证 | 已实现（**未做资源范围限制**） |
+| contest | POST | `/api/v1/contests/{id}/review` | TEACHER/ADMIN | 已实现（DRAFT→REVIEWING） |
+| contest | POST | `/api/v1/contests/{id}/publish` | ADMIN | 已实现（REVIEWING→PUBLISHED；发布前**只校验时间窗口**，随机题目分配未实现） |
+| contest | POST | `/api/v1/contests/{id}/archive` | ADMIN | 已实现（FINISHED→ARCHIVED） |
+| contest | POST | `/api/v1/contests/{contestId}/students` | TEACHER/ADMIN | 已实现（账号经 auth 创建/复用；**不校验操作者是否拥有该竞赛**） |
+| contest | GET | `/api/v1/contests/{contestId}/students` | TEACHER/ADMIN | 已实现（分页 + 学号 keyword） |
+| contest | POST | `/api/v1/contests/{contestId}/students/{studentId}/password-reset` | TEACHER/ADMIN | 已实现（经 auth 重置） |
+| contest | DELETE | `/api/v1/contests/{contestId}/students/{studentId}` | TEACHER/ADMIN | 已实现（软删除，置 `REMOVED`） |
+| contest | POST | `/api/v1/contests/{contestId}/announcements` | TEACHER/ADMIN | 已实现（全体公告；**指定题目公告未实现**） |
+| contest | GET | `/api/v1/contests/{contestId}/announcements` | 任意已认证（CANDIDATE 走考生视角） | 已实现（考生拉取即送达；管理员看全量） |
+| contest | POST | `/api/v1/contests/{contestId}/announcements/{announcementId}/confirm` | CANDIDATE | 已实现（幂等，保留首次确认时间） |
+| contest | POST | `/api/v1/contests/{contestId}/session` | CANDIDATE | 已实现（进入/恢复；校验名单 + 状态 + 时间窗口） |
+| contest | POST | `/api/v1/contests/{contestId}/session/heartbeat` | CANDIDATE | 已实现（心跳 + 剩余秒数） |
+| contest | GET | `/api/v1/internal/contests/{contestId}/session` | CANDIDATE（转发学生令牌） | 已实现（供 submission 判定 `canSubmit`） |
+| anti-cheat | POST | `/api/v1/monitor/events` | CANDIDATE | 已实现（severity 由服务端规则表计算） |
+| anti-cheat | GET | `/api/v1/monitor/events` | TEACHER/ADMIN | 已实现（分页：竞赛/学生/等级/审核状态过滤） |
+| anti-cheat | POST | `/api/v1/monitor/events/{eventId}/review` | TEACHER/ADMIN | 已实现（OPEN→ACKNOWLEDGED→CONFIRMED/DISMISSED；写入走前态条件更新，并发终审最多一个成功） |
+| audit | POST | `/api/v1/internal/audit/records` | 任意已认证 | 已实现（服务间写入；注意规则是 `isAuthenticated()`，未限制为 TEACHER/ADMIN） |
+| audit | GET | `/api/v1/audit/records` | TEACHER/ADMIN | 已实现（追加式账本查询） |
+
+**规划中（代码不存在）**：
 
 | 服务 | 方法 | 路径 | 状态 |
 |---|---|---|---|
-| auth | POST | `/api/v1/auth/login` | 已实现（Mock） |
-| auth | GET | `/api/v1/auth/jwks` | 规划 |
-| contest | POST | `/api/v1/contests` | 已实现（角色：老师/管理员） |
-| contest | GET | `/api/v1/contests/{id}` | 已实现 |
-| contest | POST | `/api/v1/contests/{id}/review` | 已实现（DRAFT→REVIEWING） |
-| contest | POST | `/api/v1/contests/{id}/publish` | 已实现（管理员；REVIEWING→PUBLISHED） |
-| problem | POST | `/api/v1/problems` | 已实现（题目+首版本+测试点，老师/管理员） |
-| problem | GET | `/api/v1/problems/{id}` | 已实现（考生视角：当前发布版本，不含测试点） |
-| problem | POST | `/api/v1/problems/{id}/versions` | 已实现（新版本，可基于已有版本复制） |
-| problem | GET | `/api/v1/problems/{id}/versions` | 已实现（版本列表，老师/管理员） |
-| problem | POST | `/api/v1/problems/{id}/versions/{versionId}/publish` | 已实现（发布，切换当前版本） |
-| problem | GET | `/api/v1/problems/{id}/versions/{versionId}/testcases` | 已实现（仅老师/管理员/判题链路） |
-| submission | POST | `/api/v1/submissions` | 已实现（考生；幂等 + 会话/竞赛/语言校验 + Outbox） |
-| submission | GET | `/api/v1/submissions/{id}` | 已实现（学生看自己，老师/管理员可查任意） |
-| submission | POST | `/api/v1/internal/submissions/{id}/judged` | 已实现（判题回写，RocketMQ 接入前过渡，ADMIN） |
-| judge | POST | `/api/v1/judge/submissions` | 已实现（Mock 引擎） |
-| contest | POST | `/api/v1/contests/{contestId}/review` | 已实现（DRAFT→REVIEWING） |
-| contest | POST | `/api/v1/contests/{contestId}/publish` | 已实现（管理员；REVIEWING→PUBLISHED） |
-| contest | POST | `/api/v1/contests/{contestId}/students` | 已实现（添加学生，账号经 auth 创建/复用） |
-| contest | GET | `/api/v1/contests/{contestId}/students` | 已实现（分页 + 学号 keyword） |
-| contest | POST | `/api/v1/contests/{contestId}/students/{studentId}/password-reset` | 已实现（经 auth 重置） |
-| contest | DELETE | `/api/v1/contests/{contestId}/students/{studentId}` | 已实现（软删除） |
-| contest | POST | `/api/v1/contests/{contestId}/session` | 已实现（考生进入/恢复会话，本人 CANDIDATE） |
-| contest | POST | `/api/v1/contests/{contestId}/session/heartbeat` | 已实现（心跳 + 剩余秒数） |
-| contest | POST | `/api/v1/contests/{contestId}/archive` | 已实现（管理员；FINISHED→ARCHIVED） |
-| contest | POST | `/api/v1/contests/{contestId}/announcements` | 已实现（老师/管理员发布公告） |
-| contest | GET | `/api/v1/contests/{contestId}/announcements` | 已实现（考生拉取即送达；管理员全量） |
-| contest | POST | `/api/v1/contests/{contestId}/announcements/{announcementId}/confirm` | 已实现（考生确认，幂等） |
-| auth | GET/POST | `/api/v1/internal/students/**` | 已实现（服务间接口，TEACHER/ADMIN 令牌） |
-| contest | POST | `/api/v1/contests/{contestId}/announcements` | 规划 |
-| contest | GET | `/api/v1/contests/{contestId}/assignments/{studentId}` | 规划 |
-| contest | GET | `/api/v1/contests/{contestId}/score` | 规划 |
-| contest | POST | `/api/v1/contests/{contestId}/students` | 规划 |
-| contest | GET | `/api/v1/contests/{contestId}/students` | 规划 |
-| contest | POST | `/api/v1/contests/{contestId}/students/{studentId}/password-reset` | 规划 |
-| contest | DELETE | `/api/v1/contests/{contestId}/students/{studentId}` | 规划 |
-| media | POST | `/api/v1/contests/{contestId}/sessions/{sessionId}/monitor-token` | 规划 |
-| media | POST | `/api/v1/monitor/screenshot` | 规划 |
-| anti-cheat | POST | `/api/v1/monitor/events` | 已实现（考生上报，severity 服务端规则表计算） |
-| anti-cheat | GET | `/api/v1/monitor/events` | 已实现（监考/管理分页查询：竞赛/学生/等级/审核状态过滤） |
-| anti-cheat | POST | `/api/v1/monitor/events/{eventId}/review` | 已实现（审核状态机 OPEN→ACKNOWLEDGED→CONFIRMED/DISMISSED） |
-| audit | GET | `/api/v1/audit/records` | 已实现（审计账本查询，老师/管理员） |
-| audit | POST | `/api/v1/internal/audit/records` | 已实现（服务间写入，各服务转发操作者令牌） |
-| audit | GET | `/api/v1/audit/media-access` | 规划 |
+| contest | GET | `/api/v1/contests/{contestId}/assignments/{studentId}` | 规划（依赖随机题目分配，未实现） |
+| contest | GET | `/api/v1/contests/{contestId}/score` | 规划（成绩读模型/排名未实现） |
+| media | POST | `/api/v1/contests/{contestId}/sessions/{sessionId}/monitor-token` | 规划（media-service 仅占位 POM） |
+| media | POST | `/api/v1/monitor/screenshot` | 规划（同上） |
+| audit | GET | `/api/v1/audit/media-access` | 规划（随 media-service） |
+
+**角色说明**：注册表里的 `INVIGILATOR`（监考员）目前**没有出现在任何授权规则中**——监考入口（`/api/v1/monitor/**`）要求 TEACHER 或 ADMIN，因此监考员角色登录后无法使用监考端点。这与 `docs/exam-process.md` §2、`docs/architecture.md` §2.1 的"监考员按考试授权查看实时监考信息并处理风险告警"不一致，属待办（同一处还需补"考试级授权"）。
 
 ## 认证（auth-service）
 
@@ -172,7 +183,7 @@ HTTP 前缀统一为 `/api/v1`。各服务经 gateway 对外暴露；客户端�
 }
 ```
 
-失败：`AUTH_INVALID_CREDENTIALS`（401，用户不存在与密码错误返回同一码）、`AUTH_ACCOUNT_DISABLED`（403）、`AUTH_RATE_LIMITED`（429）。当前 mock 响应缺少 `tokenType` 与 `passwordChangeRequired` 字段，以本契约为准。
+失败：`AUTH_INVALID_CREDENTIALS`（401，用户不存在与密码错误返回同一码）、`AUTH_ACCOUNT_DISABLED`（403）、`AUTH_RATE_LIMITED`（429）。响应字段已与上述契约一致（含 `tokenType` 与 `passwordChangeRequired`）。
 
 ### JWKS
 
@@ -180,7 +191,7 @@ HTTP 前缀统一为 `/api/v1`。各服务经 gateway 对外暴露；客户端�
 
 ## 评测
 
-`POST /api/v1/judge/submissions`（当前由 MockJudgeEngine 处理，返回假结果；生产实现由 judge-service 将内部命令翻译为 go-judge 请求，不允许客户端直接访问 go-judge）：
+`POST /api/v1/judge/submissions`（**当前不可用**：judge-service 未接入验签，所有请求返回 401；该端点也不落库、不发事件、测试点恒为空。真正的评测链路走 MQ，见下。生产实现由 judge-service 将内部命令翻译为 go-judge 请求，不允许客户端直接访问 go-judge）：
 
 ```json
 {
@@ -192,11 +203,11 @@ HTTP 前缀统一为 `/api/v1`。各服务经 gateway 对外暴露；客户端�
 }
 ```
 
-评测链路：客户端 → submission-service 落库并发 `lunar-submission-created` → judge-service 经 `GoJudgeAdapter` 调 go-judge → 归一化 verdict → `lunar-submission-judged` → submission/contest/gateway 各自消费。完整流程见 `docs/architecture.md` 第 8 节。
+评测链路（**当前实现**）：客户端 → submission-service 落库并发 `lunar-submission-created`（Outbox）→ judge-service 消费并经 `GoJudgeAdapter`（或 `mock` profile 下的 Mock 引擎）评测 → 归一化 verdict → 直接向 `lunar-submission-judged` 发送 → **只有 submission-service 消费**（contest 更新排名与 gateway 推送尚未实现）。注意：测试点目前不随事件传输，真实引擎因缺测试点会返回 `SYSTEM_ERROR`。完整设计见 `docs/architecture.md` 第 8 节。
 
 ## 考试流程
 
-考试和竞赛使用同一个活动模型。考试生命周期 `DRAFT → REVIEWING → PUBLISHED → RUNNING → FINISHED → ARCHIVED` 由 contest-service 管理（已实现前两段流转：提交审核与发布），规则细节见 `docs/exam-process.md`：
+考试和竞赛使用同一个活动模型。考试生命周期 `DRAFT → REVIEWING → PUBLISHED → RUNNING → FINISHED → ARCHIVED` 由 contest-service 管理（**6 个状态与全部 5 条边均已实现**：提交审核、管理员发布、按时间窗口自动 PUBLISHED→RUNNING→FINISHED、管理员归档），规则细节见 `docs/exam-process.md`：
 
 公告（2026-10-06 已实现）：老师/管理员发布（content/important/requireConfirmation）；考生拉取列表即送达（require_confirmation 记录 delivered_at），确认记录 confirmed_at，重复确认幂等；"指定题目公告"随 problem-service 接入扩展 scope。表：contest_schema.announcements + announcement_confirms（唯一约束 announcement_id+student_id）。
 
@@ -206,14 +217,14 @@ HTTP 前缀统一为 `/api/v1`。各服务经 gateway 对外暴露；客户端�
 
 - `POST /api/v1/contests`：老师创建草稿考试；
 - `POST /api/v1/contests/{contestId}/review`：提交管理员审核；
-- `POST /api/v1/contests/{contestId}/publish`：管理员发布考试（发布时生成每位学生相同数量的随机题目，并保存随机种子和题目版本）；
-- `POST /api/v1/contests/{contestId}/announcements`：老师/管理员发布公告；
-- `GET /api/v1/contests/{contestId}/assignments/{studentId}`：查询学生随机题目分配；
-- `GET /api/v1/contests/{contestId}/score`：查询当前临时或最终成绩。
+- `POST /api/v1/contests/{contestId}/publish`：管理员发布考试（**当前只校验时间窗口**；"发布时生成每位学生相同数量的随机题目，并保存随机种子和题目版本"**尚未实现**）；
+- `POST /api/v1/contests/{contestId}/announcements`：老师/管理员发布公告（已实现，但只有全体公告）；
+- `GET /api/v1/contests/{contestId}/assignments/{studentId}`：查询学生随机题目分配（**规划，未实现**）；
+- `GET /api/v1/contests/{contestId}/score`：查询当前临时或最终成绩（**规划，未实现**）。
 
 学生没有主动交卷接口；服务端在统一结束时间关闭考试入口。
 
-## 成绩状态
+## 成绩状态（**规划：当前无任何实现**）
 
 ```text
 PROVISIONAL -> UNDER_REVIEW -> FINAL
@@ -222,9 +233,11 @@ PROVISIONAL -> UNDER_REVIEW -> FINAL
 
 评测结果可以即时返回，最终成绩由考试规则决定是否在查重和风控审核后发布。当前未设计学生申诉接口，申诉能力暂不实现。
 
+**实现现状**：代码中不存在该状态机的枚举、字段或接口，也没有排名与"该题最高有效分"聚合；judge 侧固定 `ACCEPTED=100`、其余 0 分，且 `lunar-submission-judged` 事件不带 `passedCases`/`totalCases`，因此 `docs/exam-process.md` §7 确认的"按测试点通过比例给部分分"同样尚未落地。
+
 ## 实时监考
 
-风险事件（2026-10-06 已实现）：`POST /api/v1/monitor/events` 由考生客户端自动上报（studentId = JWT sub），severity 由服务端规则表计算（不采信上报值）；v1 规则：HIGH=DEBUGGER_DETECTED/INJECTION_ATTEMPT/UNAUTHORIZED_MODULE，MEDIUM=SUSPICIOUS_PROCESS/MEDIA_STREAM_LOST/JUDGE_LIMIT_VIOLATION，LOW=FOCUS_LOST/CAMERA_MISSING/CLIPBOARD_ACCESS，未知类型保守 MEDIUM；事件入库即写 `lunar-risk-event-created` Outbox（gateway WebSocket 告警的未来消费方）。查询与审核（2026-10-06 已实现）：分页过滤 + 审核状态机 OPEN→ACKNOWLEDGED→CONFIRMED/DISMISSED（条件更新防并发）；单一事件不能自动判定作弊，处置必须人工审核并留痕（审核人/时间/备注，audit-service 建成后迁移）。
+风险事件（2026-10-06 已实现）：`POST /api/v1/monitor/events` 由考生客户端自动上报（studentId = JWT sub），severity 由服务端规则表计算（不采信上报值）；v1 规则：HIGH=DEBUGGER_DETECTED/INJECTION_ATTEMPT/UNAUTHORIZED_MODULE，MEDIUM=SUSPICIOUS_PROCESS/MEDIA_STREAM_LOST/JUDGE_LIMIT_VIOLATION，LOW=FOCUS_LOST/CAMERA_MISSING/CLIPBOARD_ACCESS，未知类型保守 MEDIUM；事件入库即写 `lunar-risk-event-created` Outbox（gateway WebSocket 告警的未来消费方）。查询与审核（2026-10-06 已实现）：分页过滤 + 审核状态机 OPEN→ACKNOWLEDGED→CONFIRMED/DISMISSED（**写入是"前态条件更新"（CAS）：并发终审最多一个成功，终态不可再动**）；单一事件不能自动判定作弊，处置必须人工审核并留痕（审核人/时间/备注，已接入 audit-service，尽力而为、失败不阻断）。
 
 - `POST /api/v1/contests/{contestId}/sessions/{sessionId}/monitor-token`：签发带竞赛、会话、屏幕/摄像头策略和时间窗口的 WebRTC 信令令牌；
 - `POST /api/v1/monitor/screenshot`：风险/定时/手动截图请求；
@@ -288,7 +301,7 @@ PROVISIONAL -> UNDER_REVIEW -> FINAL
 {"temporaryPassword":"新的临时密码"}
 ```
 
-接口返回 `passwordChangeRequired=true`，不返回密码。老师不能查询旧密码，只能重置。操作必须记录审计事件 `STUDENT_PASSWORD_RESET`。
+接口返回 `passwordChangeRequired=true`，不返回密码。老师不能查询旧密码，只能重置。操作必须记录审计事件 `STUDENT_PASSWORD_RESET`（**现状**：contest/auth 侧先落结构化日志，尚未进 audit 账本，见 `docs/services.md` 各服务"下一步"；anti-cheat 的审核动作已接入 audit-service）。
 
 ### 移出竞赛名单
 
@@ -296,6 +309,6 @@ PROVISIONAL -> UNDER_REVIEW -> FINAL
 
 该操作默认软删除报名关系并设置 `enrollmentStatus=REMOVED`，不删除学生账号、历史提交、评测结果或审计记录。
 
-## 截图规则
+## 截图规则（**规划：未实现**）
 
-截图来源为 `RISK_EVENT`、`SCHEDULED` 或 `MANUAL`；保存 MinIO 对象键、SHA-256、来源、会话、创建时间和过期时间。截图访问必须经过竞赛授权并写审计日志。
+截图来源为 `RISK_EVENT`、`SCHEDULED` 或 `MANUAL`；保存 MinIO 对象键、SHA-256、来源、会话、创建时间和过期时间。截图访问必须经过竞赛授权并写审计日志。当前 media-service 只有占位 POM（无 `src/`），仓库未引入 MinIO SDK，也没有截图相关端点或表。

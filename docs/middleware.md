@@ -6,12 +6,12 @@
 
 | 中间件 | 镜像/版本 | 端口 | 用途 | 接入状态 |
 |---|---|---|---|---|
-| PostgreSQL | `postgres:16` | 5432 | 唯一业务事实源，多 schema 隔离 | Compose 已提供；驱动 + Flyway 已引入（auth） |
-| Redis | `redis:7-alpine` | 6379 | 短期状态：令牌、幂等、限流、心跳、锁 | Compose 已提供；Starter 未接入 |
-| RocketMQ | `apache/rocketmq:5.3.1` | 9876 | 服务间异步事件总线（7 个 Topic） | 已接入：submission/judge 生产与消费 lunar-submission-created/judged（rocketmq-spring 2.3.0） |
-| Nacos | `nacos/nacos-server:v2.4.2` | 8848 / 9848 | 服务发现与配置中心（预留） | Compose 已提供；Starter 未接入 |
+| PostgreSQL | `postgres:16` | 5432（本地 Compose 映射 5433） | 唯一业务事实源，多 schema 隔离 | Compose 已提供；驱动 + Flyway 已在 6 个有库服务引入（auth / contest / problem / submission / anti-cheat / audit） |
+| Redis | `redis:7-alpine` | 6379 | 短期状态：限流计数（令牌、幂等、心跳、锁**有意不迁**，见下） | Compose 已提供；已接入 auth-service（登录失败限流） |
+| RocketMQ | `apache/rocketmq:5.3.1` | 9876 | 服务间异步事件总线（规划 7 个 Topic，当前落地 3 个） | 已接入：submission / anti-cheat 经 Outbox 生产，judge 消费 `lunar-submission-created`、submission 消费 `lunar-submission-judged`（全仓仅这 2 个消费者，rocketmq-spring 2.3.0） |
+| Nacos | `nacos/nacos-server:v3.0.3` | 8848 / 9848 / 8849（控制台） | 服务发现 + 配置中心 | 已接入：8 个服务均注册到 Nacos 并按服务名寻址，4 个服务有托管配置 |
 | MinIO | `minio/minio:latest` | 9000 / 9001 | 截图对象存储 | Compose 已提供；SDK 未接入 |
-| OpenResty | `openresty/openresty:1.29.2.4-0-alpine` | 80 | 边缘反向代理：唯一对外入口，转发 gateway | Compose 已提供；回源宿主机 gateway，gateway 未实现路由 |
+| OpenResty | `openresty/openresty:1.29.2.4-0-alpine` | 80 | 边缘反向代理：唯一对外入口，转发 gateway | Compose 已提供；回源宿主机 gateway，gateway 的 6 条路由已实现 |
 | go-judge | `criyle/go-judge`（latest，未固定） | 5050 | 用户代码沙箱执行（唯一执行环境） | Compose 已提供；`GoJudgeAdapter` 已实现（真实容器未实测） |
 | JPlag | 独立 worker 进程 | — | 代码查重引擎 | 未接入 Maven Reactor，集成前审查许可证 |
 | SFU（WebRTC） | 未选型 | — | 屏幕/摄像头实时流转发 | 未选型、未部署 |
@@ -58,7 +58,7 @@
 
 - 首期 7 个 Topic：`lunar-submission-created`、`lunar-submission-judged`、`lunar-risk-event-created`、`lunar-screenshot-requested`、`lunar-screenshot-created`、`lunar-plagiarism-requested`、`lunar-plagiarism-completed`（生产者/消费者矩阵见 `docs/architecture.md` 第 5 节）；
 - 事件统一信封：`eventId`、`eventType`、`aggregateId`、`occurredAt`、`schemaVersion`、`traceId`；
-- 与 PostgreSQL Outbox 配合实现可靠发布；发布失败进死信表，支持管理员重放。
+- 与 PostgreSQL Outbox 配合实现可靠发布。**当前实现**：发布器按 `published_at is null` 扫描并投递，失败仅告警、留待下一轮重试；**死信表与管理员重放尚未实现**（也没有重试计数与退避）。
 
 **约束**：消费者必须按 `eventId` 幂等；重复消息不能把提交状态从终态改回运行态。
 
@@ -150,7 +150,7 @@ dataId = `<spring.application.name>.yml`，分组 `DEFAULT_GROUP`，命名空间
 - 隔离执行编译与运行，支持 C、C++、Java、Python、Go、JavaScript/TypeScript（TS 先经 `tsc` 生成 JS）；
 - 资源限制：CPU 时间、墙钟、内存、进程数、输出大小、文件大小；
 - 返回退出码、stdout、stderr、耗时、内存和限制错误，由 judge-service 归一化为标准 verdict；
-- 平台通过 `lunar-common` 的 `JudgeEngine` 抽象和 `GoJudgeAdapter`（待实现）调用，业务代码不绑定 go-judge 协议。
+- 平台通过 `lunar-common` 的 `JudgeEngine` 抽象和 `GoJudgeAdapter`（已实现，见下）调用，业务代码不绑定 go-judge 协议。
 
 **约束**：评测节点禁止出网；禁止访问数据库、消息队列和宿主机敏感目录；必须与业务服务分节点或分隔离运行时；评测镜像固定版本并扫描；源码和测试数据只在评测任务临时目录存在，任务结束即清理。当前仓库内由 `MockJudgeEngine` 本地替代，通过 `GO_JUDGE_BASE_URL` 等环境变量切换。
 
@@ -189,4 +189,4 @@ dataId = `<spring.application.name>.yml`，分组 `DEFAULT_GROUP`，命名空间
 ## 暂不使用的组件
 
 - **Elasticsearch**：已从 Compose 和文档中移除。风险事件、评测日志摘要、查重关系和审计的检索首期直接查询 PostgreSQL，后续检索需求增长时再评估引入（决策记录见 `docs/architecture.md` §5 和 README）。
-- **Judge0 / DOMjudge / DMOJ**：明确不引入的第三方评测平台，评测统一走 go-judge + 自有 `JudgeEngine` 抽象（见 `docs/architecture.md` §16）。
+- **Judge0 / DOMjudge / DMOJ**：明确不引入的第三方评测平台，评测统一走 go-judge + 自有 `JudgeEngine` 抽象（见 `docs/architecture.md` §9）。

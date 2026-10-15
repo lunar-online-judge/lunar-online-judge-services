@@ -2,11 +2,19 @@
 
 编写日期：2026-10-13。核对项目：`D:\Users\10559\source\lunar-online-judge`，基线 commit `fa9a51cf63b52d7fd878a1be43028a3d17cca0b9`。本文件由源码静态核对得出，未运行集成测试、负载测试或安全利用验证；每项验收是后续实现要求，不代表已通过。当前只生成文档，未修改后端。
 
+> **基线说明（使用前必读）**：本文件写于 `fa9a51c`，此后仓库已推进若干提交，下列条目**已经修复，请勿重复实现**：
+>
+> - **BE-09 的一部分**："`LoginRateLimiter` 用 `ConcurrentHashMap`、重启清零、多实例不共享" → 已迁 Redis（Lua 原子计数 + TTL + fail-open）；"锁定到期没有重置失败计数"也已在 Lua 脚本内修正；
+> - **BE-08 / BE-06 的证据索引**：其中引用的 `services/contest-service/.../api/ApiExceptionHandler.java` **已被删除**——异常处理已统一到 `lunar-common` 的 `ApiExceptionHandler`（由 `WebCommonAutoConfiguration` 注册）；
+> - **BE-06 的"待运行验证"已可确认**：`problem-service` **确实没有** `MybatisPlusConfig`（contest / anti-cheat / audit 有），分页行为仍需按真实 `selectPage` 验证。
+>
+> 另有一批本次审查新发现的"契约与实现不符"，可作为 BE-04 / BE-06 的补充输入（详见 `CHANGELOG.md` 的文档对齐条目与 `docs/api.md`）：事件信封只落库、上线消息只带 `payload`（`eventId` 幂等无法实现）；judge-service 未接入验签、`POST /api/v1/judge/submissions` 恒 401；`INTERNAL_ERROR` 注册但无产生路径、未分类异常不套统一信封；`CONTEST_NOT_ENROLLED` 被 submission 复用；风险复核的类注释自称"条件更新防并发"而代码是无条件更新。
+
 ## 1. 目标与执行规则
 
 优先修复授权、并发和生产配置边界，再改善接口一致性与审计可靠性，最后补管理端真正需要的功能。沿用已有 Spring、PostgreSQL、MyBatis-Plus、Outbox 和服务模块，不为“完整架构”重写整套系统，不同时引入两套同类方案。
 
-本文区分：**已确认实现缺口**（源码可定位）、**待运行验证**（静态线索不足以证明实际故障）、**新增能力建议**（当前没有API，未来单独交付）。所有建议路径、表和错误码都属于提案，不是当前契约；当前前端依然只接 [已有接口](admin/api-contracts.md)。
+本文区分：**已确认实现缺口**（源码可定位）、**待运行验证**（静态线索不足以证明实际故障）、**新增能力建议**（当前没有API，未来单独交付）。所有建议路径、表和错误码都属于提案，不是当前契约。（原文此处链接的 `admin/api-contracts.md` 与所提到的管理后台前端 `admin-web/` 均已从仓库移除，相关引用只作历史上下文。）
 
 P0 是上线真实考试或开放相关角色前的门槛；P1 是基线稳定性和可靠性；P2 是经过需求和测试后再扩展的能力。每个任务必须交付：数据库迁移（需要时）、代码、OpenAPI/契约文档、真实 PostgreSQL 下的关键测试、兼容说明和可观察失败路径。纯前端隐藏按钮不能算后端授权修复。
 

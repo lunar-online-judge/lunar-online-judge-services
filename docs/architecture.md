@@ -87,7 +87,7 @@
 ### 2.2 实时监考与截图
 
 - 屏幕采集：竞赛策略开启时强制；
-- 摄像头采集：设备存在且策略允许时开启；没有摄像头只记录 `CAMERA_UNAVAILABLE`，不报警；
+- 摄像头采集：设备存在且策略允许时开启；没有摄像头只记录 `CAMERA_MISSING`（与 `RiskRules` 词表一致），不报警；
 - 实时传输：WebRTC；业务服务只负责鉴权、信令和状态，不转发 RTP 媒体包；
 - 连续视频：首期不保存、不回放；
 - 截图：支持风险事件、定时、手动三种触发，保存到 MinIO；截图策略至少包含 `captureMode`、`intervalSeconds`、`retentionDays` 和 `maxPerSession`；
@@ -174,7 +174,7 @@ judge_schema, anti_cheat_schema, media_schema, audit_schema
 
 ### Redis
 
-保存令牌、幂等键、限流计数、会话心跳、WebSocket 节点路由、评测短期锁和截图频率控制。Redis 不是成绩和审计的事实源。
+保存限流计数（**已实现**：auth 的登录失败锁定）。以下为规划、尚未使用：令牌失效状态、幂等键（经评估**有意不迁**，见 `docs/middleware.md`）、会话心跳、WebSocket 节点路由、评测短期锁、截图频率控制。Redis 不是成绩和审计的事实源。
 
 ### RocketMQ
 
@@ -191,6 +191,8 @@ judge_schema, anti_cheat_schema, media_schema, audit_schema
 | `lunar-plagiarism-completed` | plagiarism-worker | anti-cheat、audit            | 查重完成     |
 
 每条事件包含 `eventId`、`eventType`、`aggregateId`、`occurredAt`、`schemaVersion`、`traceId`；消费者必须幂等。
+
+**当前落地情况（与上表的差距）**：只有 3 个 Topic 在代码中存在——`lunar-submission-created`（submission 经 Outbox 生产 → judge 消费）、`lunar-submission-judged`（judge 直接发送，submission 也经 Outbox 生产 → **只有 submission 消费**）、`lunar-risk-event-created`（anti-cheat 经 Outbox 生产 → **暂无消费者**）。其余 4 个 Topic 未实现；contest / gateway / audit / media 作为消费者的角色也未实现（这些服务没有 RocketMQ 依赖）。另外，信封字段当前只存在于 `outbox_events` 表行中，**上线消息只带内层 `payload`**（消息头仅有 `KEYS=eventId` 与 `traceId`），因此"消费者按 `eventId` 幂等"目前无法落实——judge 的消费者没有任何去重。
 
 ### MinIO
 
@@ -212,7 +214,7 @@ contest-service -> audit-service：记录创建和授权操作
 
 ```text
 1. 老师 -> contest-service：提交 contestId、studentNo、username、displayName、initialPassword。
-2. contest-service 校验老师是否拥有该竞赛的 TEACHER 管理授权，竞赛是否允许维护名单。
+2. contest-service 校验老师是否拥有该竞赛的 TEACHER 管理授权，竞赛是否允许维护名单。**（未实现：当前只校验竞赛存在，任何 TEACHER/ADMIN 都能对任意竞赛操作名单、公告与密码重置）**
 3. contest-service -> auth-service：请求创建学生账号；调用使用服务间身份和幂等键。
 4. auth-service 校验学号/账户名唯一性，哈希初始密码，创建 CANDIDATE 用户。
 5. auth-service 返回 studentId，不返回密码和 passwordHash。
@@ -221,7 +223,7 @@ contest-service -> audit-service：记录创建和授权操作
 8. 返回学生账号摘要；老师需要通过受控渠道把初始密码交给学生，学生首次登录必须修改。
 ```
 
-如果第 6 步失败，contest-service 必须使用幂等键补偿报名关系；如果账号已经创建但报名关系未写入，应通过 Outbox/补偿任务完成关联，而不是再次创建账号。删除名单默认是软删除，不能删除学生历史提交和评测记录。
+如果第 6 步失败，contest-service 必须使用幂等键补偿报名关系；如果账号已经创建但报名关系未写入，应通过 Outbox/补偿任务完成关联，而不是再次创建账号。删除名单默认是软删除，不能删除学生历史提交和评测记录。**（未实现：当前是"先远程建账号、再本地写报名"，本地写入失败会留下孤立账号，没有补偿或对账任务。）**
 
 ### 6.2 老师重置学生密码
 
@@ -273,6 +275,8 @@ audit-service：记录重置操作
 ```
 
 评测服务不向 go-judge 发送数据库凭据、消息队列地址或宿主机路径。源代码和测试数据只在评测任务临时目录存在，任务结束后清理。
+
+**当前实现与上图的差距**：第 5 步的 `judge_task(status=DISPATCHING)` 不存在（judge-service 无 DataSource、无迁移，评测结果只存内存）；第 9 步 judge 是**直接发送** `lunar-submission-judged`（不经 Outbox、无信封）；第 10 步只有 submission 更新提交状态，**contest 更新排名与 gateway 推送未实现**；第 2 步的五项校验只实现 3 项（会话有效、竞赛进行中、语言允许），"题目属于竞赛"与"次数未超限"仍是代码中的 TODO；测试点也不随事件传输，真实引擎会因缺测试点返回 `SYSTEM_ERROR`。
 
 学生没有主动交卷接口，服务端在统一结束时间关闭进入和提交入口。已提交任务在最终结算策略确定前保持独立状态，不能因为客户端关闭而删除。
 
@@ -340,6 +344,8 @@ QUEUED -> DISPATCHING -> RUNNING -> FINISHED
 
 状态变更带版本或乐观锁，重复消息不能把终态改回运行态。
 
+**当前实现**：`DISPATCHING` / `RUNNING` / `FINISHED` 三个中间态不存在，提交状态只有 `QUEUED` 与 `JudgeVerdict` 的 8 个终态。重复消息的保护分两层：读到的状态已是终态 → 直接 409；写入用**前态条件更新**（`where id=? and status=读到的状态`），并发下影响 0 行同样返回 409——"重复消息不能把终态改回运行态"已由 CAS 保证，只是没有版本列。
+
 ### 12.2 风险审核
 
 ```text
@@ -347,6 +353,8 @@ OPEN -> ACKNOWLEDGED -> CONFIRMED / DISMISSED
 ```
 
 `CONFIRMED` 不直接改成绩；处罚必须走独立人工裁决流程并审计。
+
+**当前实现**：审核动作 `ACKNOWLEDGE` / `CONFIRM` / `DISMISS` 由服务端白名单校验合法性，写入用**前态条件更新**（`where id=? and review_status=读到的前态`）：两个并发终审最多一个成功，失败方收 409 `MONITOR_INVALID_TRANSITION`；`CONFIRMED` / `DISMISSED` 为终态。
 
 ### 12.3 媒体会话
 
@@ -360,13 +368,13 @@ CREATED -> AUTHORIZED -> CONNECTING -> LIVE
 
 ## 13. 一致性、幂等和失败恢复
 
-- 业务事实和 Outbox 事件在同一个 PostgreSQL 本地事务提交；
-- HTTP 写操作使用 `Idempotency-Key`，事件使用 `eventId` 去重；
-- 评测任务使用 `submissionId + judgeVersion` 唯一约束；
-- go-judge 不可用时指数退避，超过次数转 `SYSTEM_ERROR` 并告警；
-- WebSocket 重连后先通过 REST 拉取未确认事件，再继续接收推送；
-- 媒体不保存，因此断线前画面不可回放；
-- Outbox 发布失败进入死信表，支持管理员重放。
+- 业务事实和 Outbox 事件在同一个 PostgreSQL 本地事务提交（**已实现**：submission 的提交与判决回写、anti-cheat 的风险上报）；
+- HTTP 写操作使用 `Idempotency-Key`（**已实现**：以 DB 唯一约束为权威；并发同键未捕获唯一冲突，会以 500 `INTERNAL_ERROR` 收场而不是"返回首次结果"，属待办）；事件使用 `eventId` 去重（**未实现**，见第 5 节"当前落地情况"）；
+- 评测任务使用 `submissionId + judgeVersion` 唯一约束（**未实现**：没有 judge_task 表）；
+- go-judge 不可用时指数退避，超过次数转 `SYSTEM_ERROR` 并告警（**未实现**：只有连接/读取超时，失败交给 RocketMQ 默认重投）；
+- WebSocket 重连后先通过 REST 拉取未确认事件，再继续接收推送（**未实现**：无 WebSocket 端点）；
+- 媒体不保存，因此断线前画面不可回放（**未实现**：media-service 仅占位 POM）；
+- Outbox 发布失败进入死信表，支持管理员重放（**未实现**：失败仅告警并留待下一轮，无重试计数/退避/死信表）。
 
 ## 14. 安全边界
 
@@ -383,7 +391,20 @@ CREATED -> AUTHORIZED -> CONNECTING -> LIVE
 
 ## 15. 当前实现与后续顺序
 
-当前已实现 Maven 多模块父工程、公共 API 响应、`JudgeEngine`、`MockJudgeEngine`、judge-service REST 入口、服务模块占位 POM、Compose 基础设施和文档骨架。
+**当前已实现**（逐项可验证）：
+
+- 公共层：多模块父工程、`ApiResponse` + 全局异常处理（仅覆盖域异常与校验失败，无兜底 `Exception` 处理器）、`RequestIdFilter`、`Role`、`JudgeEngine` 抽象与 `JudgeVerdict`、`LoadBalancedRestClient` 自动配置；
+- auth-service：登录（BCrypt + RS256 JWT）、JWKS、Redis 登录失败限流、学生账号服务间接口（创建/查询/重置）；
+- contest-service：生命周期 6 状态（含按时间自动 PUBLISHED→RUNNING→FINISHED 与人工归档）、名单（唯一约束/软删除/重新加入）、考生会话（进入/心跳/超时/断线恢复）、公告（发布/送达/确认）；
+- problem-service：题目 + 版本 + 测试点，发布后版本不可变、考生视角不含测试点；
+- submission-service：提交（幂等 + 3 项校验 + Outbox）、判决回写、Outbox 发布器、judged 消费者；
+- judge-service：`lunar-submission-created` 消费者、`GoJudgeAdapter`（设 `GO_JUDGE_BASE_URL` 激活）与 `MockJudgeEngine`（`mock` profile）、verdict 归一化；
+- anti-cheat-service：风险事件上报（服务端算 severity）/分页查询/人工审核状态机；
+- audit-service：追加式账本写入与查询；
+- gateway-service：6 条路由前缀 + `X-Request-Id` 透传，`/api/v1/internal/**` 不暴露；
+- 基础设施：Compose（PostgreSQL / Redis / MinIO / Nacos / RocketMQ / OpenResty / go-judge）、Nacos 注册 + 配置中心（4 个服务托管热更新项）、Actuator 健康检查（8 个服务）。
+
+**尚未实现**（相对本文档其余章节的确认设计）：随机题目分配、成绩读模型（排名/最高分/成绩状态机/部分分）、考试预检 6 项与重复登录踢设备、CSV 批量导入、指定题目公告、代码查重、媒体链路（监考令牌/WebRTC/截图）、WebSocket 推送、`judge_task` 异步评测状态机与退避/死信、事件信封上线与消费端 `eventId` 幂等、竞赛级授权范围（含 `INVIGILATOR` 权限）。
 
 后续顺序：
 

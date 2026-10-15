@@ -11,23 +11,23 @@
 | 运行时 | Java | 21 | 根 POM 的编译目标 |
 | 应用框架 | Spring Boot | 3.5.16 | 根 POM parent，实际生效 |
 | 微服务基础 | Spring Cloud BOM | 2025.0.3 | gateway-service 已实际引入 spring-cloud-starter-gateway（响应式网关） |
-| ORM | MyBatis-Plus Spring Boot 3 Starter | 3.5.17 | auth-service 已实际引入 |
-| API 文档 | springdoc OpenAPI WebMVC UI | 2.8.17 | judge-service 已实际引入 |
-| 数据库驱动 | PostgreSQL JDBC | 42.7.13 | auth-service 已实际引入 |
-| 数据库迁移 | Flyway Core | 11.20.3 | auth-service 已实际引入；默认由配置控制是否执行 |
-| 安全 | Spring Security Starter | 随 Spring Boot 3.5.16 管理 | auth-service 已实际引入 |
-| 资源服务器 | OAuth2 Resource Server Starter | 随 Spring Boot 3.5.16 管理 | gateway、contest、problem、submission、judge、anti-cheat、media、audit 已引入 |
+| ORM | MyBatis-Plus Spring Boot 3 Starter | 3.5.17 | auth、contest、problem、submission、anti-cheat、audit 六个有库服务均已引入 |
+| API 文档 | springdoc OpenAPI WebMVC UI | 2.8.17 | 除 gateway 与 media 外的 7 个服务均已引入 |
+| 数据库驱动 | PostgreSQL JDBC | 42.7.13 | 同上 6 个有库服务 |
+| 数据库迁移 | Flyway Core | 11.20.3 | 同上 6 个服务；默认由 `FLYWAY_ENABLED` 控制是否执行 |
+| 安全 | Spring Security Starter | 随 Spring Boot 3.5.16 管理 | 7 个服务已生效（auth 显式引入，其余经资源服务器 starter 传递）；gateway 与 media 无 |
+| 资源服务器 | OAuth2 Resource Server Starter | 随 Spring Boot 3.5.16 管理 | auth、contest、problem、submission、judge、anti-cheat、media（占位）、audit 已引入；**gateway 未引入**；judge 引入依赖但**未配置验签**，端点当前恒 401 |
 | 服务发现 | Spring Cloud Alibaba Nacos Discovery | 2025.0.0.0 | 8 个服务均已注册到 Nacos；网关路由与服务间调用按服务名寻址 |
 | 配置中心 | Spring Cloud Alibaba Nacos Config | 2025.0.0.0 | 4 个服务托管运行时可变参数（登录限流阈值、心跳超时等），改值后无需重启 |
 | 健康检查 | Spring Boot Actuator | 随 Spring Boot 3.5.16 管理 | 8 个服务已引入，仅暴露 `/actuator/health`（匿名、只返回 UP/DOWN） |
 
 ### 已实际引入的 Spring Boot Starter
 
-- `spring-boot-starter-web`：各 HTTP 服务；
-- `spring-boot-starter-validation`：auth、contest、problem、submission；
-- `spring-boot-starter-security`：auth-service；
-- `spring-boot-starter-oauth2-resource-server`：除 auth-service 外的主要业务/边界服务；
-- `springdoc-openapi-starter-webmvc-ui:2.8.17`：judge-service；
+- `spring-boot-starter-web`：除 gateway（响应式网关）与 media（无代码）外的 7 个服务；
+- `spring-boot-starter-validation`：显式声明在 auth、contest、problem、submission 四个模块；其余模块（含 anti-cheat、audit）经传递依赖也已带上 `hibernate-validator`，`@NotBlank`/`@Valid` 实际生效；
+- `spring-boot-starter-security`：auth-service 显式声明；contest / problem / submission / judge / anti-cheat / audit 经资源服务器 starter 传递生效；
+- `spring-boot-starter-oauth2-resource-server`：auth、contest、problem、submission、judge、anti-cheat、media、audit（**gateway 未引入**；judge 引入了依赖但未配置验签）；
+- `springdoc-openapi-starter-webmvc-ui:2.8.17`：除 gateway/media 外的 7 个服务；
 - `spring-boot-maven-plugin`：judge-service 当前启用可执行 Spring Boot 打包。
 
 ### 当前仅纳入编排或设计、尚未接入 Java 依赖的组件
@@ -66,8 +66,8 @@ Compose 镜像版本来自 `docker/compose.core.yml`、`docker/compose.platform.
 
 ## 目录
 
-- `admin-web/`：管理后台前端（React 19 + HeroUI，见 `admin-web/README.md`）；
 - `CHANGELOG.md`：版本变更记录（开发期里程碑与已知限制）；
+- `BACKEND_IMPROVEMENT_PLAN.md`：基于 `fa9a51c` 的后端优化计划（BE-01～BE-13：优先级、证据、验收；其中部分条目已在本仓库后续提交中修复，见该文件开头的基线说明）；
 - `docs/development-guide.md`：**起手开发指南**——阅读顺序、代码约定、auth-service 实现路径、测试与错误码约定（新会话从这里开始）；
 - `docs/architecture.md`：服务边界、数据流和安全边界；
 - `docs/services.md`：每个服务的职责、数据归属和当前实现状态；
@@ -80,7 +80,9 @@ Compose 镜像版本来自 `docker/compose.core.yml`、`docker/compose.platform.
 - `docker/compose.edge.yml`：OpenResty 边缘反向代理，统一对外入口；
 - `docker/compose.judge.yml`：go-judge 评测沙箱节点（独立网络）；
 - `docker/compose.full.yml`：组合启动入口；
-- `services/judge-service`：评测编排服务，当前默认 Mock，后续接入 go-judge。
+- `services/judge-service`：评测编排服务；设 `GO_JUDGE_BASE_URL` 启用 go-judge 适配器，否则需 `spring.profiles.active=mock` 才有引擎实现。
+
+> 说明：管理后台前端曾以 `admin-web/` 引入（提交 `f3f0afa`），随后在后续提交中被整体删除，当前仓库不含该目录；它引用的 `admin/api-contracts.md` 同样不存在。若恢复该前端，请连同本节目录一并补回。
 
 老师管理学生的流程与数据表设计见 `docs/architecture.md` 第 2.1.1/2.1.2 节。学生密码只保存哈希，任何 API、日志、消息和审计记录都不得回显或保存明文密码。
 
@@ -90,4 +92,4 @@ Compose 镜像版本来自 `docker/compose.core.yml`、`docker/compose.platform.
 mvn -DskipTests package
 ```
 
-服务模块目前是结构占位；不要在业务服务容器中直接运行用户代码。go-judge 必须部署在独立 Linux 评测节点并进行沙箱权限审计。
+业务服务已实现"实现顺序"的第 1～4 步核心链路（各服务进度见 `docs/services.md`，完整清单见 `docs/architecture.md` §15）；不要在业务服务容器中直接运行用户代码，go-judge 必须部署在独立 Linux 评测节点并进行沙箱权限审计。

@@ -19,7 +19,7 @@
 - JDK 21（`JAVA_HOME` 必须指向它，否则编译失败）、Maven 3.9+、Docker Compose v2；
 - 构建验证：`mvn -DskipTests package`；
 - 基础设施与服务启动、端口、冒烟验证：见 `docs/deployment.md`；
-- 需要 Redis/RocketMQ 的功能（限流、事件）尚未接入 Starter，本地开发暂不需要它们运行。
+- 需要 Redis/RocketMQ 的功能**已接入**（auth 的登录失败限流用 Redis，submission/anti-cheat/judge 用 RocketMQ）；两者都是可选依赖——本地不启动它们也能跑通主干（限流 fail-open 放行、Outbox 事件暂不投递）。
 
 ## 3. 代码结构与约定
 
@@ -39,15 +39,15 @@
 
 与 `docs/architecture.md` §15 一致：**auth-service → 各服务 schema/MyBatis-Plus → contest/problem/submission 领域与状态机 → RocketMQ Outbox → GoJudgeAdapter → WebSocket → 风险与审核 → 查重 → 加固**。
 
-进度（2026-10-07）：auth/contest/problem/submission 核心链路与 RocketMQ 事件总线、gateway 路由已落地（gateway 选型已定 Spring Cloud Gateway）；anti-cheat/media/audit、WebSocket、成绩读模型未启动。
+进度（2026-10）：auth / contest / problem / submission 核心链路、RocketMQ 事件总线、gateway 路由、anti-cheat 与 audit 均已落地，并补齐 Nacos 注册 + 配置中心与 Actuator 健康检查。**仍未实现**：WebSocket、成绩读模型（排名/部分分）、随机题目分配、媒体/截图链路、代码查重。逐项现状见 `docs/services.md` 与 `docs/architecture.md` §15。
 
-当前焦点是 **auth-service**，实现路径见第 5 节。
+后续开发的入手点见 `docs/services.md`（各服务"下一步"）与 `BACKEND_IMPROVEMENT_PLAN.md`（BE-01～BE-13，含优先级与验收）。
 
-## 5. 第一站：auth-service 实现路径
+## 5. 第一站：auth-service 实现路径（**已完成，保留作历史记录**）
 
-> **进度（2026-10-05）**：第 1–8 步已完成并通过真实库实测（SecurityConfig、MyBatis-Plus、RS256 JWT + JWKS、真实登录、失败限流、种子管理员）；第 9 步（服务间接口）按计划随 contest-service 开发。限流仍为内存实现，Redis 接入后迁移（第 8 步 TODO 保留）。
+> **状态（2026-10）**：第 1–9 步全部完成——真实登录（BCrypt）、RS256 JWT + JWKS、Redis 失败限流（Lua 原子计数 + TTL + fail-open）、学生账号服务间接口都已落地并有单测。以下步骤保留为当时的实施路径，新服务可参照同样的推进方式。
 
-前置现状：依赖已就位（web、validation、security、oauth2-resource-server、postgresql、flyway）；`src/main/resources/db/migration/` 已有 `V1__auth.sql`（`auth_schema.users` 表）和 `V2__student_account_fields.sql`；`AuthController` 是 mock 登录。端口 8081。
+前置现状（当时）：依赖已就位（web、validation、security、oauth2-resource-server、postgresql、flyway）；`src/main/resources/db/migration/` 已有 `V1__auth.sql`（`auth_schema.users` 表）和 `V2__student_account_fields.sql`；`AuthController` 起初是 mock 登录（本路径第 7 步将其改造为真实校验）。端口 8081。
 
 按顺序做，每步可独立验证：
 
@@ -57,21 +57,21 @@
 4. **用户加载**：按 `username` 查 `auth_schema.users`（MyBatis-Plus Mapper），校验 `status='ACTIVE'`。
 5. **JWT 签发**：用 oauth2-resource-server 自带的 `oauth2-jose`（`JwtEncoder` + `NimbusJwtEncoder`）生成 RS256 令牌；RSA 密钥对从环境变量/配置注入（本地 dev 可用配置文件默认值，生产必须外部注入）；claims 契约见 `docs/api.md`"认证令牌"节；TTL 默认 30 分钟。
 6. **JWKS 端点**：`GET /api/v1/auth/jwks` 输出公钥 JWKSet，供各资源服务用 `jwk-set-uri` 本地验签。
-7. **改造登录接口**：真实校验（用户存在 + BCrypt 匹配 + 状态 ACTIVE），按 `docs/api.md` 契约返回 `accessToken/tokenType/expiresAt/role/passwordChangeRequired`；失败返回 `AUTH_INVALID_CREDENTIALS` 等错误码（当前 mock 响应字段比契约少两项，以此为准补齐）。
-8. **登录失败限流**：连续失败短暂锁定（约束见 `docs/architecture.md` §2.1.2）。Redis 未接入前先用内存计数并标注 TODO，接入后迁 Redis。
-9. **服务间接口**：创建学生账号、重置密码（供 contest-service 调用，幂等 + 审计），随 contest-service 开发一起做。
+7. **改造登录接口**：真实校验（用户存在 + BCrypt 匹配 + 状态 ACTIVE），按 `docs/api.md` 契约返回 `accessToken/tokenType/expiresAt/role/passwordChangeRequired`；失败返回 `AUTH_INVALID_CREDENTIALS` 等错误码（当时 mock 响应字段比契约少两项；本步已完成）。
+8. **登录失败限流**：连续失败短暂锁定（约束见 `docs/architecture.md` §2.1.2）。**最终实现**为 Redis + Lua（原子计数 + TTL），Redis 不可用时 fail-open 放行（见 `docs/middleware.md`）。
+9. **服务间接口**：创建学生账号、重置密码（供 contest-service 调用，幂等 + 审计）——**已完成**，路由为 `/api/v1/internal/students`（鉴权见 `docs/api.md` 端点总表）。
 
 自测方式见 `docs/deployment.md`"冒烟验证"。建议同时把 `springdoc-openapi-starter-webmvc-ui` 加进 pom（版本已管理），获得 Swagger UI 调试页面。
 
 ## 6. 测试约定（起步）
 
-- 各服务 pom 加 `spring-boot-starter-test`（Boot BOM 管理，当前所有模块都没有）；
+- 各服务 pom 加 `spring-boot-starter-test`（Boot BOM 管理；**现已全部加上，`lunar-common` 也有了**）；
 - 最低要求：控制器层 `@WebMvcTest` + MockMvc 覆盖成功/失败/未认证三条路径；领域逻辑（状态机、校验规则）写纯 JUnit 单测，不启动 Spring；
 - 数据库集成测试后续用 Testcontainers 引入，接入前不要写依赖本地库状态的测试。
 
 ## 7. 待确认决策与开发的阻塞关系
 
-`docs/exam-process.md` §10 的六项待确认不阻塞当前焦点（auth-service），但在实现对应模块前必须先拿到结论：
+`docs/exam-process.md` §10 的六项待确认不阻塞**当时**的焦点（auth-service，已完成），但在实现对应模块前必须先拿到结论：
 
 | 待确认项 | 阻塞 |
 |---|---|
