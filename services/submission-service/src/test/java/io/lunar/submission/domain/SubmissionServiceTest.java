@@ -1,5 +1,6 @@
 package io.lunar.submission.domain;
 
+import io.lunar.submission.domain.dto.SubmissionView;
 import io.lunar.submission.infra.OutboxEventEntity;
 import io.lunar.submission.infra.OutboxEventMapper;
 import io.lunar.submission.infra.SubmissionEntity;
@@ -76,7 +77,7 @@ class SubmissionServiceTest {
 
     @Test
     void submitWritesSubmissionAndOutboxInOneCall() {
-        SubmissionService.SubmissionView view = service.submit("c1", "p1", "cpp", "int main(){}",
+        SubmissionView view = service.submit("c1", "p1", "cpp", "int main(){}",
                 "key-1", "trace-1", "stu_1", "Bearer t");
 
         assertThat(view.status()).isEqualTo("QUEUED");
@@ -95,7 +96,7 @@ class SubmissionServiceTest {
         String fingerprint = sha256("p1|cpp|" + sha256("int main(){}"));
         when(submissionMapper.selectOne(any())).thenReturn(existing(fingerprint));
 
-        SubmissionService.SubmissionView view = service.submit("c1", "p1", "cpp", "int main(){}", "key-1", null,
+        SubmissionView view = service.submit("c1", "p1", "cpp", "int main(){}", "key-1", null,
                 "stu_1", "Bearer t");
 
         assertThat(view.submissionId()).isEqualTo("sub_existing");
@@ -140,7 +141,7 @@ class SubmissionServiceTest {
         SubmissionEntity submission = existing(null);
         when(submissionMapper.selectById("sub_existing")).thenReturn(submission);
 
-        SubmissionService.SubmissionView view = service.applyJudgment("sub_existing", "ACCEPTED", 100, 3,
+        SubmissionView view = service.applyJudgment("sub_existing", "ACCEPTED", 100, 3,
                 3, "trace-2");
 
         assertThat(view.status()).isEqualTo("ACCEPTED");

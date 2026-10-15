@@ -2,6 +2,9 @@ package io.lunar.problem.domain;
 
 import com.baomidou.mybatisplus.core.MybatisConfiguration;
 import com.baomidou.mybatisplus.core.metadata.TableInfoHelper;
+import io.lunar.problem.domain.dto.ProblemView;
+import io.lunar.problem.domain.dto.TestcasePayload;
+import io.lunar.problem.domain.dto.VersionView;
 import io.lunar.problem.infra.ProblemEntity;
 import io.lunar.problem.infra.ProblemMapper;
 import io.lunar.problem.infra.ProblemVersionEntity;
@@ -68,9 +71,9 @@ class ProblemServiceTest {
 
     @Test
     void createInsertsProblemVersionAndTestcases() {
-        ProblemService.ProblemView view = service.create("A+B", "求和", "1 2", "3", 1000, 131072, 32768, "c,cpp",
-                List.of(new ProblemService.TestcasePayload("01", "1 2", "3"),
-                        new ProblemService.TestcasePayload("02", "3 4", "7")),
+        ProblemView view = service.create("A+B", "求和", "1 2", "3", 1000, 131072, 32768, "c,cpp",
+                List.of(new TestcasePayload("01", "1 2", "3"),
+                        new TestcasePayload("02", "3 4", "7")),
                 "teacher_1");
 
         assertThat(view.problemId()).isNotBlank();
@@ -99,7 +102,7 @@ class ProblemServiceTest {
         when(versionMapper.selectList(any())).thenReturn(List.of(problemVersion("v1", "p1", 1, "PUBLISHED")));
         when(testcaseMapper.selectList(any())).thenReturn(List.of(testcase("01", "1 2", "3")));
 
-        ProblemService.VersionView view = service.createNewVersion("p1", "v1", null, "新题面",
+        VersionView view = service.createNewVersion("p1", "v1", null, "新题面",
                 null, null, null, null, null, null, null, "teacher_1");
 
         assertThat(view.versionNo()).isEqualTo(2);
@@ -118,7 +121,7 @@ class ProblemServiceTest {
         when(problemMapper.selectById("p1")).thenReturn(problem);
         when(versionMapper.selectById("v1")).thenReturn(problemVersion("v1", "p1", 1, "DRAFT"));
 
-        ProblemService.VersionView view = service.publishVersion("p1", "v1");
+        VersionView view = service.publishVersion("p1", "v1");
 
         assertThat(view.status()).isEqualTo("PUBLISHED");
         ArgumentCaptor<ProblemEntity> captor = ArgumentCaptor.forClass(ProblemEntity.class);
@@ -156,7 +159,7 @@ class ProblemServiceTest {
         when(problemMapper.selectById("p1")).thenReturn(problem);
         when(versionMapper.selectById("v1")).thenReturn(problemVersion("v1", "p1", 1, "PUBLISHED"));
 
-        ProblemService.VersionView view = service.getCurrentPublished("p1");
+        VersionView view = service.getCurrentPublished("p1");
 
         assertThat(view.title()).isEqualTo("A+B");
         assertThat(view.allowedLanguages()).containsExactly("c", "cpp", "java");

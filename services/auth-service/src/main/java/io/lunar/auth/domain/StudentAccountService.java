@@ -1,5 +1,6 @@
 package io.lunar.auth.domain;
 
+import io.lunar.auth.domain.dto.CreatedStudent;
 import io.lunar.auth.infra.UserEntity;
 import io.lunar.auth.infra.UserMapper;
 import io.lunar.common.security.Role;
@@ -22,9 +23,6 @@ import java.util.UUID;
 public class StudentAccountService {
 
     private static final Logger log = LoggerFactory.getLogger(StudentAccountService.class);
-
-    public record CreatedStudent(String studentId, String studentNo, String username,
-                                 String displayName, boolean passwordChangeRequired) {}
 
     private final UserMapper userMapper;
     private final PasswordEncoder passwordEncoder;

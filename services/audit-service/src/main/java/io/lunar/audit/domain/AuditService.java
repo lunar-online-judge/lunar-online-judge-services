@@ -1,5 +1,7 @@
 package io.lunar.audit.domain;
 
+import io.lunar.audit.domain.dto.AuditPage;
+import io.lunar.audit.domain.dto.AuditRecordView;
 import io.lunar.audit.infra.AuditLogEntity;
 import io.lunar.audit.infra.AuditLogMapper;
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
@@ -7,7 +9,6 @@ import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import org.springframework.stereotype.Service;
 
 import java.time.Instant;
-import java.util.List;
 import java.util.UUID;
 
 /**
@@ -17,12 +18,6 @@ import java.util.UUID;
  */
 @Service
 public class AuditService {
-
-    public record AuditRecordView(String id, String action, String actorId, String actorRole,
-                                  String targetType, String targetId, String contestId,
-                                  String detail, String traceId, Instant occurredAt) {}
-
-    public record AuditPage(List<AuditRecordView> items, long total, long page, long pageSize) {}
 
     private final AuditLogMapper auditLogMapper;
 

@@ -3,6 +3,7 @@ package io.lunar.contest.api;
 import io.lunar.common.api.ApiResponse;
 import io.lunar.common.web.RequestIdFilter;
 import io.lunar.contest.domain.ExamSessionService;
+import io.lunar.contest.domain.dto.SubmissionCheck;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.security.core.Authentication;
@@ -28,7 +29,7 @@ public class InternalSessionController {
 
     @GetMapping
     @PreAuthorize("hasRole('CANDIDATE')")
-    public ResponseEntity<ApiResponse<ExamSessionService.SubmissionCheck>> check(
+    public ResponseEntity<ApiResponse<SubmissionCheck>> check(
             @PathVariable String contestId,
             Authentication authentication,
             @RequestHeader(value = RequestIdFilter.HEADER, required = false) String requestId) {

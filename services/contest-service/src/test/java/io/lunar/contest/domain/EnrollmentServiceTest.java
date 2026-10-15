@@ -1,5 +1,6 @@
 package io.lunar.contest.domain;
 
+import io.lunar.contest.domain.dto.EnrollmentResult;
 import io.lunar.contest.infra.AuthInternalClient;
 import io.lunar.contest.infra.CandidateEntity;
 import io.lunar.contest.infra.CandidateMapper;
@@ -69,7 +70,7 @@ class EnrollmentServiceTest {
                 .thenReturn(Map.of("studentId", "stu_1", "username", "student_20260001",
                         "passwordChangeRequired", true));
 
-        EnrollmentService.EnrollmentResult view =
+        EnrollmentResult view =
                 service.add("c1", "20260001", "student_20260001", "张三", "init-pass-123", "tok", "teacher_1");
 
         assertThat(view.studentId()).isEqualTo("stu_1");
@@ -89,7 +90,7 @@ class EnrollmentServiceTest {
                 .thenReturn(Map.of("studentId", "stu_exists", "username", "student_20260001",
                         "displayName", "老账号"));
 
-        EnrollmentService.EnrollmentResult view =
+        EnrollmentResult view =
                 service.add("c1", "20260001", "student_20260001", "张三", "init-pass-123", "tok", "teacher_1");
 
         assertThat(view.studentId()).isEqualTo("stu_exists");
@@ -115,7 +116,7 @@ class EnrollmentServiceTest {
         when(authClient.findStudent("20260001", "student_20260001", "tok"))
                 .thenReturn(Map.of("studentId", "stu_1", "username", "student_20260001"));
 
-        EnrollmentService.EnrollmentResult view =
+        EnrollmentResult view =
                 service.add("c1", "20260001", "student_20260001", "张三", "init-pass-123", "tok", "teacher_1");
 
         assertThat(view.enrollmentStatus()).isEqualTo("ENROLLED");

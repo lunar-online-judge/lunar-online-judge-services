@@ -25,7 +25,7 @@
 
 - 一个服务一个 Maven 模块，包根 `io.lunar.<service>`，子包分层：
   - `api/`：REST 控制器；`api/dto/`：请求/响应 DTO（用 record）；
-  - `domain/`：领域模型、状态机、业务规则（不依赖 Spring Web）；
+  - `domain/`：领域模型、状态机、业务规则（不依赖 Spring Web）；`domain/dto/`：领域层读模型（视图/分页/结果，用 record）；
   - `infra/`：数据库访问、MQ 生产/消费、外部客户端适配器。
 - 响应统一用 `lunar-common` 的 `ApiResponse.success/failure(requestId, data, error)`；`X-Request-Id` 由 `RequestIdFilter` 自动透传，控制器取请求头传入响应。
 - 错误必须带稳定 `code`（大写下划线，`<域>_<原因>`），初始注册表见 `docs/api.md`，新码先登记再使用。

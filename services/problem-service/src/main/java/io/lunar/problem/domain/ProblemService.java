@@ -1,5 +1,11 @@
 package io.lunar.problem.domain;
 
+import io.lunar.problem.domain.dto.ProblemPage;
+import io.lunar.problem.domain.dto.ProblemSummary;
+import io.lunar.problem.domain.dto.ProblemView;
+import io.lunar.problem.domain.dto.TestcasePayload;
+import io.lunar.problem.domain.dto.TestcaseView;
+import io.lunar.problem.domain.dto.VersionView;
 import io.lunar.problem.infra.ProblemEntity;
 import io.lunar.problem.infra.ProblemMapper;
 import io.lunar.problem.infra.ProblemVersionEntity;
@@ -32,22 +38,6 @@ public class ProblemService {
     private static final int DEFAULT_MEMORY_LIMIT_KB = 262144;
     private static final int DEFAULT_OUTPUT_LIMIT_KB = 65536;
     private static final String DEFAULT_ALLOWED_LANGUAGES = "c,cpp,java,python";
-
-    public record TestcasePayload(String name, String inputContent, String expectedOutput) {}
-
-    public record ProblemView(String problemId, String title, String currentVersionId) {}
-
-    public record VersionView(String versionId, String problemId, int versionNo, String title, String statement,
-                              String sampleInput, String sampleOutput, int timeLimitMs, int memoryLimitKb,
-                              int outputLimitKb, List<String> allowedLanguages, String status,
-                              String createdBy, Instant createdAt, Instant publishedAt) {}
-
-    public record TestcaseView(String name, String inputContent, String expectedOutput) {}
-
-    /** 管理端列表行：不含题面与测试点，避免列表接口拉大字段。 */
-    public record ProblemSummary(String problemId, String title, String currentVersionId, Instant createdAt) {}
-
-    public record ProblemPage(List<ProblemSummary> items, long total, long page, long pageSize) {}
 
     private final ProblemMapper problemMapper;
     private final ProblemVersionMapper versionMapper;

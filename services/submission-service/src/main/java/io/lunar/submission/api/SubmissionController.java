@@ -5,6 +5,7 @@ import io.lunar.common.security.Role;
 import io.lunar.common.web.RequestIdFilter;
 import io.lunar.submission.api.dto.CreateSubmissionRequest;
 import io.lunar.submission.domain.SubmissionService;
+import io.lunar.submission.domain.dto.SubmissionView;
 import jakarta.validation.Valid;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.access.prepost.PreAuthorize;
@@ -38,20 +39,20 @@ public class SubmissionController {
 
     @PostMapping
     @PreAuthorize("hasRole('CANDIDATE')")
-    public ResponseEntity<ApiResponse<SubmissionService.SubmissionView>> submit(
+    public ResponseEntity<ApiResponse<SubmissionView>> submit(
             @Valid @RequestBody CreateSubmissionRequest request,
             Authentication authentication,
             @RequestHeader(value = "Idempotency-Key", required = false) String idempotencyKey,
             @RequestHeader(value = "Authorization", required = false) String authorization,
             @RequestHeader(value = RequestIdFilter.HEADER, required = false) String requestId) {
-        SubmissionService.SubmissionView view = submissionService.submit(request.contestId(), request.problemId(),
+        SubmissionView view = submissionService.submit(request.contestId(), request.problemId(),
                 request.language(), request.sourceCode(), idempotencyKey, requestId, authentication.getName(),
                 authorization);
         return ResponseEntity.ok(ApiResponse.success(requestId, view));
     }
 
     @GetMapping("/{id}")
-    public ResponseEntity<ApiResponse<SubmissionService.SubmissionView>> get(
+    public ResponseEntity<ApiResponse<SubmissionView>> get(
             @PathVariable String id,
             Authentication authentication,
             @RequestHeader(value = RequestIdFilter.HEADER, required = false) String requestId) {

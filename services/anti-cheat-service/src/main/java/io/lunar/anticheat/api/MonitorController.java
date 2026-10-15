@@ -3,6 +3,9 @@ package io.lunar.anticheat.api;
 import io.lunar.anticheat.api.dto.ReportEventRequest;
 import io.lunar.anticheat.api.dto.ReviewRequest;
 import io.lunar.anticheat.domain.RiskEventService;
+import io.lunar.anticheat.domain.dto.ReportedEvent;
+import io.lunar.anticheat.domain.dto.ReviewPage;
+import io.lunar.anticheat.domain.dto.RiskEventView;
 import io.lunar.common.api.ApiResponse;
 import io.lunar.common.api.Pagination;
 import io.lunar.common.web.RequestIdFilter;
@@ -37,18 +40,18 @@ public class MonitorController {
 
     @PostMapping("/events")
     @PreAuthorize("hasRole('CANDIDATE')")
-    public ResponseEntity<ApiResponse<RiskEventService.ReportedEvent>> report(
+    public ResponseEntity<ApiResponse<ReportedEvent>> report(
             @Valid @RequestBody ReportEventRequest request,
             Authentication authentication,
             @RequestHeader(value = RequestIdFilter.HEADER, required = false) String requestId) {
-        RiskEventService.ReportedEvent view = riskEventService.report(request.contestId(), authentication.getName(),
+        ReportedEvent view = riskEventService.report(request.contestId(), authentication.getName(),
                 request.eventType(), request.detail(), request.occurredAt(), request.problemId(), requestId);
         return ResponseEntity.ok(ApiResponse.success(requestId, view));
     }
 
     @GetMapping("/events")
     @PreAuthorize("hasAnyRole('TEACHER', 'ADMIN')")
-    public ResponseEntity<ApiResponse<RiskEventService.ReviewPage>> list(
+    public ResponseEntity<ApiResponse<ReviewPage>> list(
             @RequestParam(required = false) String contestId,
             @RequestParam(required = false) String studentId,
             @RequestParam(required = false) String severity,
@@ -62,13 +65,13 @@ public class MonitorController {
 
     @PostMapping("/events/{eventId}/review")
     @PreAuthorize("hasAnyRole('TEACHER', 'ADMIN')")
-    public ResponseEntity<ApiResponse<RiskEventService.RiskEventView>> review(
+    public ResponseEntity<ApiResponse<RiskEventView>> review(
             @PathVariable String eventId,
             @Valid @RequestBody ReviewRequest request,
             Authentication authentication,
             @RequestHeader(value = RequestIdFilter.HEADER, required = false) String requestId,
             @RequestHeader(value = "Authorization", required = false) String authorization) {
-        RiskEventService.RiskEventView view = riskEventService.review(eventId, request.action(), request.note(),
+        RiskEventView view = riskEventService.review(eventId, request.action(), request.note(),
                 authentication.getName(), authorization);
         return ResponseEntity.ok(ApiResponse.success(requestId, view));
     }

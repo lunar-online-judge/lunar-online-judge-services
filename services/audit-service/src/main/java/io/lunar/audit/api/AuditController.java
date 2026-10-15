@@ -2,6 +2,8 @@ package io.lunar.audit.api;
 
 import io.lunar.audit.api.dto.RecordRequest;
 import io.lunar.audit.domain.AuditService;
+import io.lunar.audit.domain.dto.AuditPage;
+import io.lunar.audit.domain.dto.AuditRecordView;
 import io.lunar.common.api.ApiResponse;
 import io.lunar.common.api.Pagination;
 import io.lunar.common.security.Role;
@@ -34,7 +36,7 @@ public class AuditController {
 
     @PostMapping("/api/v1/internal/audit/records")
     @PreAuthorize("isAuthenticated()")
-    public ResponseEntity<ApiResponse<AuditService.AuditRecordView>> record(
+    public ResponseEntity<ApiResponse<AuditRecordView>> record(
             @Valid @RequestBody RecordRequest request,
             Authentication authentication,
             @RequestHeader(value = RequestIdFilter.HEADER, required = false) String requestId) {
@@ -42,14 +44,14 @@ public class AuditController {
                 .map(GrantedAuthority::getAuthority)
                 .map(authority -> authority.replace(Role.AUTHORITY_PREFIX, ""))
                 .findFirst().orElse(null);
-        AuditService.AuditRecordView view = auditService.record(request.action(), authentication.getName(), actorRole,
+        AuditRecordView view = auditService.record(request.action(), authentication.getName(), actorRole,
                 request.targetType(), request.targetId(), request.contestId(), request.detail(), requestId);
         return ResponseEntity.ok(ApiResponse.success(requestId, view));
     }
 
     @GetMapping("/api/v1/audit/records")
     @PreAuthorize("hasAnyRole('TEACHER', 'ADMIN')")
-    public ResponseEntity<ApiResponse<AuditService.AuditPage>> query(
+    public ResponseEntity<ApiResponse<AuditPage>> query(
             @RequestParam(required = false) String action,
             @RequestParam(required = false) String actorId,
             @RequestParam(required = false) String contestId,

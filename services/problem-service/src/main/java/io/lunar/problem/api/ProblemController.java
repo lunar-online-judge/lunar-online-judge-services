@@ -6,6 +6,10 @@ import io.lunar.common.web.RequestIdFilter;
 import io.lunar.problem.api.dto.CreateProblemRequest;
 import io.lunar.problem.api.dto.CreateVersionRequest;
 import io.lunar.problem.domain.ProblemService;
+import io.lunar.problem.domain.dto.ProblemPage;
+import io.lunar.problem.domain.dto.ProblemView;
+import io.lunar.problem.domain.dto.TestcaseView;
+import io.lunar.problem.domain.dto.VersionView;
 import jakarta.validation.Valid;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.access.prepost.PreAuthorize;
@@ -38,11 +42,11 @@ public class ProblemController {
 
     @PostMapping
     @PreAuthorize("hasAnyRole('TEACHER', 'ADMIN')")
-    public ResponseEntity<ApiResponse<ProblemService.ProblemView>> create(
+    public ResponseEntity<ApiResponse<ProblemView>> create(
             @Valid @RequestBody CreateProblemRequest request,
             Authentication authentication,
             @RequestHeader(value = RequestIdFilter.HEADER, required = false) String requestId) {
-        ProblemService.ProblemView view = problemService.create(request.title(), request.statement(),
+        ProblemView view = problemService.create(request.title(), request.statement(),
                 request.sampleInput(), request.sampleOutput(), request.timeLimitMs(),
                 request.memoryLimitKb(), request.outputLimitKb(), request.allowedLanguages(),
                 request.testcases(), authentication.getName());
@@ -51,7 +55,7 @@ public class ProblemController {
 
     /** 分页列表（管理端）：keyword 模糊匹配标题。 */
     @GetMapping
-    public ResponseEntity<ApiResponse<ProblemService.ProblemPage>> list(
+    public ResponseEntity<ApiResponse<ProblemPage>> list(
             @RequestParam(defaultValue = Pagination.DEFAULT_PAGE) long page,
             @RequestParam(defaultValue = Pagination.DEFAULT_PAGE_SIZE) long pageSize,
             @RequestParam(required = false) String keyword,
@@ -61,7 +65,7 @@ public class ProblemController {
 
     /** 题目详情（考生视角）：当前发布版本的题面/样例/限制/语言；无测试点。 */
     @GetMapping("/{id}")
-    public ResponseEntity<ApiResponse<ProblemService.VersionView>> get(
+    public ResponseEntity<ApiResponse<VersionView>> get(
             @PathVariable String id,
             @RequestHeader(value = RequestIdFilter.HEADER, required = false) String requestId) {
         return ResponseEntity.ok(ApiResponse.success(requestId, problemService.getCurrentPublished(id)));
@@ -69,12 +73,12 @@ public class ProblemController {
 
     @PostMapping("/{id}/versions")
     @PreAuthorize("hasAnyRole('TEACHER', 'ADMIN')")
-    public ResponseEntity<ApiResponse<ProblemService.VersionView>> createVersion(
+    public ResponseEntity<ApiResponse<VersionView>> createVersion(
             @PathVariable String id,
             @Valid @RequestBody CreateVersionRequest request,
             Authentication authentication,
             @RequestHeader(value = RequestIdFilter.HEADER, required = false) String requestId) {
-        ProblemService.VersionView view = problemService.createNewVersion(id, request.baseVersionId(),
+        VersionView view = problemService.createNewVersion(id, request.baseVersionId(),
                 request.title(), request.statement(), request.sampleInput(), request.sampleOutput(),
                 request.timeLimitMs(), request.memoryLimitKb(), request.outputLimitKb(),
                 request.allowedLanguages(), request.testcases(), authentication.getName());
@@ -83,7 +87,7 @@ public class ProblemController {
 
     @GetMapping("/{id}/versions")
     @PreAuthorize("hasAnyRole('TEACHER', 'ADMIN')")
-    public ResponseEntity<ApiResponse<List<ProblemService.VersionView>>> listVersions(
+    public ResponseEntity<ApiResponse<List<VersionView>>> listVersions(
             @PathVariable String id,
             @RequestHeader(value = RequestIdFilter.HEADER, required = false) String requestId) {
         return ResponseEntity.ok(ApiResponse.success(requestId, problemService.listVersions(id)));
@@ -91,7 +95,7 @@ public class ProblemController {
 
     @PostMapping("/{id}/versions/{versionId}/publish")
     @PreAuthorize("hasAnyRole('TEACHER', 'ADMIN')")
-    public ResponseEntity<ApiResponse<ProblemService.VersionView>> publishVersion(
+    public ResponseEntity<ApiResponse<VersionView>> publishVersion(
             @PathVariable String id,
             @PathVariable String versionId,
             @RequestHeader(value = RequestIdFilter.HEADER, required = false) String requestId) {
@@ -101,7 +105,7 @@ public class ProblemController {
     /** 测试点视图：仅老师/管理员（判题链路后续走服务间接口复用本查询）。 */
     @GetMapping("/{id}/versions/{versionId}/testcases")
     @PreAuthorize("hasAnyRole('TEACHER', 'ADMIN')")
-    public ResponseEntity<ApiResponse<List<ProblemService.TestcaseView>>> listTestcases(
+    public ResponseEntity<ApiResponse<List<TestcaseView>>> listTestcases(
             @PathVariable String id,
             @PathVariable String versionId,
             @RequestHeader(value = RequestIdFilter.HEADER, required = false) String requestId) {

@@ -4,6 +4,7 @@ import io.lunar.auth.config.SecurityConfig;
 import io.lunar.auth.domain.AuthException;
 import io.lunar.auth.domain.AuthService;
 import io.lunar.auth.domain.JwksService;
+import io.lunar.auth.domain.dto.LoginResult;
 import io.lunar.common.security.Role;
 import io.lunar.common.web.WebCommonAutoConfiguration;
 import org.junit.jupiter.api.Test;
@@ -38,7 +39,7 @@ class AuthControllerTest {
     @MockitoBean JwksService jwksService;
     @MockitoBean JwtDecoder jwtDecoder;
 
-    private static final AuthService.LoginResult RESULT = new AuthService.LoginResult(
+    private static final LoginResult RESULT = new LoginResult(
             "user_1", "jwt-token-value", Instant.parse("2026-10-05T12:30:00Z"), Role.CANDIDATE, true);
 
     @Test

@@ -1,5 +1,6 @@
 package io.lunar.contest.domain;
 
+import io.lunar.contest.domain.dto.AnnouncementView;
 import io.lunar.contest.infra.AnnouncementConfirmEntity;
 import io.lunar.contest.infra.AnnouncementConfirmMapper;
 import io.lunar.contest.infra.AnnouncementEntity;
@@ -61,7 +62,7 @@ class AnnouncementServiceTest {
 
     @Test
     void publishInsertsAnnouncementWithOperator() {
-        AnnouncementService.AnnouncementView view = service.publish("c1", "注意考试时间", true, true, "teacher_1");
+        AnnouncementView view = service.publish("c1", "注意考试时间", true, true, "teacher_1");
 
         ArgumentCaptor<AnnouncementEntity> captor = ArgumentCaptor.forClass(AnnouncementEntity.class);
         verify(announcementMapper).insert(captor.capture());
@@ -83,7 +84,7 @@ class AnnouncementServiceTest {
                 announcement("a1", true), announcement("a2", false)));
         when(confirmMapper.selectList(any())).thenReturn(List.of());
 
-        List<AnnouncementService.AnnouncementView> views = service.listForCandidate("c1", "stu_1");
+        List<AnnouncementView> views = service.listForCandidate("c1", "stu_1");
 
         assertThat(views).hasSize(2);
         // 仅 require_confirmation 的公告记录送达
@@ -104,7 +105,7 @@ class AnnouncementServiceTest {
         delivered.setDeliveredAt(Instant.now());
         when(confirmMapper.selectList(any())).thenReturn(List.of(delivered));
 
-        List<AnnouncementService.AnnouncementView> views = service.listForCandidate("c1", "stu_1");
+        List<AnnouncementView> views = service.listForCandidate("c1", "stu_1");
 
         verify(confirmMapper, never()).insert(any(AnnouncementConfirmEntity.class));
         assertThat(views.get(0).deliveredAt()).isEqualTo(delivered.getDeliveredAt());

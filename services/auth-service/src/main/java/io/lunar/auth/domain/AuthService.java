@@ -1,5 +1,7 @@
 package io.lunar.auth.domain;
 
+import io.lunar.auth.domain.dto.IssuedToken;
+import io.lunar.auth.domain.dto.LoginResult;
 import io.lunar.auth.infra.UserEntity;
 import io.lunar.auth.infra.UserMapper;
 import io.lunar.common.security.Role;
@@ -7,17 +9,12 @@ import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Component;
 
-import java.time.Instant;
-
 /**
  * 登录编排：限流检查 → 用户加载 → BCrypt 校验 → 状态校验 → 签发令牌。
  * 用户不存在与密码错误对外不可区分（防枚举），均计入失败限流。
  */
 @Component
 public class AuthService {
-
-    public record LoginResult(String userId, String accessToken, Instant expiresAt,
-                              Role role, boolean passwordChangeRequired) {}
 
     private final UserMapper userMapper;
     private final PasswordEncoder passwordEncoder;
@@ -46,7 +43,7 @@ public class AuthService {
         }
 
         rateLimiter.reset(username);
-        JwtTokenService.IssuedToken token = tokenService.issue(user.getId(), Role.valueOf(user.getRole()));
+        IssuedToken token = tokenService.issue(user.getId(), Role.valueOf(user.getRole()));
         return new LoginResult(user.getId(), token.accessToken(), token.expiresAt(),
                 Role.valueOf(user.getRole()), Boolean.TRUE.equals(user.getPasswordChangeRequired()));
     }

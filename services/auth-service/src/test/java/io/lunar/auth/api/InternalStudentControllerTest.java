@@ -3,6 +3,7 @@ package io.lunar.auth.api;
 import io.lunar.auth.config.SecurityConfig;
 import io.lunar.auth.domain.StudentAccountService;
 import io.lunar.auth.domain.UserException;
+import io.lunar.auth.domain.dto.CreatedStudent;
 import io.lunar.common.web.WebCommonAutoConfiguration;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -40,8 +41,8 @@ class InternalStudentControllerTest {
     @MockitoBean StudentAccountService studentAccountService;
     @MockitoBean JwtDecoder jwtDecoder;
 
-    private static final StudentAccountService.CreatedStudent CREATED =
-            new StudentAccountService.CreatedStudent("stu_1", "20260001", "student_20260001", "张三", true);
+    private static final CreatedStudent CREATED =
+            new CreatedStudent("stu_1", "20260001", "student_20260001", "张三", true);
 
     @BeforeEach
     void setUp() {

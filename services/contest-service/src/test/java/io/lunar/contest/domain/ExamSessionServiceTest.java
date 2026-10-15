@@ -1,6 +1,7 @@
 package io.lunar.contest.domain;
 
 import io.lunar.contest.config.ExamSessionProperties;
+import io.lunar.contest.domain.dto.SessionView;
 import io.lunar.contest.infra.CandidateEntity;
 import io.lunar.contest.infra.CandidateMapper;
 import io.lunar.contest.infra.ContestEntity;
@@ -84,7 +85,7 @@ class ExamSessionServiceTest {
 
     @Test
     void enterCreatesActiveSession() {
-        ExamSessionService.SessionView view = service.enter("c1", "stu_1");
+        SessionView view = service.enter("c1", "stu_1");
 
         assertThat(view.status()).isEqualTo("ACTIVE");
         assertThat(view.remainingSeconds()).isGreaterThan(0);
@@ -129,7 +130,7 @@ class ExamSessionServiceTest {
     void enterRestoresExpiredSession() {
         when(sessionMapper.selectOne(any())).thenReturn(session("s1", "EXPIRED"));
 
-        ExamSessionService.SessionView view = service.enter("c1", "stu_1");
+        SessionView view = service.enter("c1", "stu_1");
 
         assertThat(view.status()).isEqualTo("ACTIVE");
         assertThat(view.sessionId()).isEqualTo("s1"); // 同一会话恢复，剩余时间保留
@@ -148,7 +149,7 @@ class ExamSessionServiceTest {
     void enterActiveSessionIsIdempotentHeartbeat() {
         when(sessionMapper.selectOne(any())).thenReturn(session("s1", "ACTIVE"));
 
-        ExamSessionService.SessionView view = service.enter("c1", "stu_1");
+        SessionView view = service.enter("c1", "stu_1");
 
         assertThat(view.sessionId()).isEqualTo("s1");
         ArgumentCaptor<SessionEntity> captor = ArgumentCaptor.forClass(SessionEntity.class);
@@ -168,7 +169,7 @@ class ExamSessionServiceTest {
     void heartbeatRefreshesActiveSession() {
         when(sessionMapper.selectOne(any())).thenReturn(session("s1", "ACTIVE"));
 
-        ExamSessionService.SessionView view = service.heartbeat("c1", "stu_1");
+        SessionView view = service.heartbeat("c1", "stu_1");
 
         assertThat(view.remainingSeconds()).isGreaterThan(0);
         verify(sessionMapper).updateById(any(SessionEntity.class));

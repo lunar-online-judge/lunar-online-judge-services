@@ -6,6 +6,7 @@ import io.lunar.auth.api.dto.ResetPasswordRequest;
 import io.lunar.auth.api.dto.StudentResponse;
 import io.lunar.auth.domain.StudentAccountService;
 import io.lunar.auth.domain.UserException;
+import io.lunar.auth.domain.dto.CreatedStudent;
 import io.lunar.common.api.ApiResponse;
 import io.lunar.common.web.RequestIdFilter;
 import jakarta.validation.Valid;
@@ -44,7 +45,7 @@ public class InternalStudentController {
             @RequestParam(required = false) String studentNo,
             @RequestParam(required = false) String username,
             @RequestHeader(value = RequestIdFilter.HEADER, required = false) String requestId) {
-        StudentAccountService.CreatedStudent found = studentAccountService.findStudent(studentNo, username);
+        CreatedStudent found = studentAccountService.findStudent(studentNo, username);
         if (found == null) {
             throw new UserException.NotFound();
         }
@@ -57,7 +58,7 @@ public class InternalStudentController {
             @Valid @RequestBody CreateStudentRequest request,
             Authentication authentication,
             @RequestHeader(value = RequestIdFilter.HEADER, required = false) String requestId) {
-        StudentAccountService.CreatedStudent created = studentAccountService.createStudent(
+        CreatedStudent created = studentAccountService.createStudent(
                 request.studentNo(), request.username(), request.displayName(),
                 request.initialPassword(), authentication.getName());
         return ResponseEntity.ok(ApiResponse.success(requestId, StudentResponse.of(created)));

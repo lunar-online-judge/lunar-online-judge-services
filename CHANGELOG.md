@@ -18,6 +18,7 @@
   - 提取魔法值常量：判题 verdict 与沙箱状态名、题目默认限制、outbox 批量大小、详情截断长度等
   - 风格扫描器命中 189 处 → 2 处（剩余 2 处为 `ApiResponse` 的 `data` 字段：`docs/api.md` 已定的 wire 契约名，按"项目约定优先"保留）；103 个测试全绿
   - 控制器内嵌的请求/响应 record 全部抽成独立类型，落在各服务的 `api.dto` 包（21 个：auth 6 / contest 7 / problem 2 / submission 2 / anti-cheat 2 / judge 1 / audit 1），Controller 只留端点与装配；`StudentResponse.of` / `ContestResponse.of` 由包级改为 `public` 以跨包调用，`docs/development-guide.md` 的包结构说明同步补上 `api/dto/`
+  - domain 层 Service 内嵌的 22 个 record（视图/分页/结果）同样抽成独立类型，收进各服务的 `domain.dto` 包（auth 3 / contest 7 / problem 6 / submission 1 / anti-cheat 3 / audit 2）；原先靠同包可见性写 `ProblemService.ProblemView` 这类限定名的引用方（10 个 Controller、3 个 `api.dto`、8 个测试）一律改为显式 import，同时清掉 4 个失效 import——JSON 字段与行为不变；嵌套类型扫描 58 处 → 36 处（剩余为 `XxxException` 子类与 config/infra 辅助类型，本轮不动），`docs/development-guide.md` 包结构说明补上 `domain/dto/`
 
 ### 修复
 

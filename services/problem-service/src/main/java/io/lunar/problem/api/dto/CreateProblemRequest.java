@@ -1,6 +1,6 @@
 package io.lunar.problem.api.dto;
 
-import io.lunar.problem.domain.ProblemService;
+import io.lunar.problem.domain.dto.TestcasePayload;
 import jakarta.validation.constraints.NotBlank;
 
 import java.util.List;
@@ -9,4 +9,4 @@ import java.util.List;
 public record CreateProblemRequest(@NotBlank String title, @NotBlank String statement,
                                    String sampleInput, String sampleOutput,
                                    Integer timeLimitMs, Integer memoryLimitKb, Integer outputLimitKb,
-                                   String allowedLanguages, List<ProblemService.TestcasePayload> testcases) {}
+                                   String allowedLanguages, List<TestcasePayload> testcases) {}

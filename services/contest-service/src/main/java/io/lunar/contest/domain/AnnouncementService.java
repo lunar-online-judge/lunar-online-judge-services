@@ -1,5 +1,6 @@
 package io.lunar.contest.domain;
 
+import io.lunar.contest.domain.dto.AnnouncementView;
 import io.lunar.contest.infra.AnnouncementConfirmEntity;
 import io.lunar.contest.infra.AnnouncementConfirmMapper;
 import io.lunar.contest.infra.AnnouncementEntity;
@@ -23,10 +24,6 @@ import java.util.stream.Collectors;
  */
 @Component
 public class AnnouncementService {
-
-    public record AnnouncementView(String announcementId, String content, boolean important,
-                                   boolean requireConfirmation, String createdBy, Instant createdAt,
-                                   Instant deliveredAt, Instant confirmedAt) {}
 
     private final AnnouncementMapper announcementMapper;
     private final AnnouncementConfirmMapper confirmMapper;

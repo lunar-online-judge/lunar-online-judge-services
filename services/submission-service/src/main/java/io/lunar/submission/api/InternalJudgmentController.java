@@ -4,6 +4,7 @@ import io.lunar.common.api.ApiResponse;
 import io.lunar.common.web.RequestIdFilter;
 import io.lunar.submission.api.dto.JudgmentRequest;
 import io.lunar.submission.domain.SubmissionService;
+import io.lunar.submission.domain.dto.SubmissionView;
 import jakarta.validation.Valid;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.access.prepost.PreAuthorize;
@@ -30,11 +31,11 @@ public class InternalJudgmentController {
 
     @PostMapping("/{id}/judged")
     @PreAuthorize("hasRole('ADMIN')")
-    public ResponseEntity<ApiResponse<SubmissionService.SubmissionView>> judged(
+    public ResponseEntity<ApiResponse<SubmissionView>> judged(
             @PathVariable String id,
             @Valid @RequestBody JudgmentRequest request,
             @RequestHeader(value = RequestIdFilter.HEADER, required = false) String requestId) {
-        SubmissionService.SubmissionView view = submissionService.applyJudgment(id, request.verdict(),
+        SubmissionView view = submissionService.applyJudgment(id, request.verdict(),
                 request.score(), request.passedCases(), request.totalCases(), requestId);
         return ResponseEntity.ok(ApiResponse.success(requestId, view));
     }

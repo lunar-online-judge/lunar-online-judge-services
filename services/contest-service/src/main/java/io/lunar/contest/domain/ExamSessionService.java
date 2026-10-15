@@ -1,6 +1,8 @@
 package io.lunar.contest.domain;
 
 import io.lunar.contest.config.ExamSessionProperties;
+import io.lunar.contest.domain.dto.SessionView;
+import io.lunar.contest.domain.dto.SubmissionCheck;
 import io.lunar.contest.infra.CandidateEntity;
 import io.lunar.contest.infra.CandidateMapper;
 import io.lunar.contest.infra.ContestEntity;
@@ -24,8 +26,6 @@ import java.util.UUID;
  */
 @Component
 public class ExamSessionService {
-
-    public record SessionView(String sessionId, String status, Instant startedAt, long remainingSeconds) {}
 
     private final SessionMapper sessionMapper;
     private final CandidateMapper candidateMapper;
@@ -121,9 +121,6 @@ public class ExamSessionService {
         }
         return session;
     }
-
-    public record SubmissionCheck(boolean canSubmit, String sessionStatus, String contestStatus,
-                                  long remainingSeconds) {}
 
     /** 服务间提交校验（供 submission-service）：会话 ACTIVE + 竞赛状态/时间窗口 + 名单 ENROLLED。 */
     public SubmissionCheck checkCanSubmit(String contestId, String studentId) {

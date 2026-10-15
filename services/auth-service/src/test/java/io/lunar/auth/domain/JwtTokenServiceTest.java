@@ -1,5 +1,6 @@
 package io.lunar.auth.domain;
 
+import io.lunar.auth.domain.dto.IssuedToken;
 import com.nimbusds.jose.crypto.RSASSAVerifier;
 import com.nimbusds.jose.jwk.JWKSet;
 import com.nimbusds.jose.jwk.RSAKey;
@@ -32,7 +33,7 @@ class JwtTokenServiceTest {
         JwtEncoder encoder = new NimbusJwtEncoder(new ImmutableJWKSet<>(new JWKSet(rsaKey)));
         JwtTokenService service = new JwtTokenService(encoder, 30);
 
-        JwtTokenService.IssuedToken token = service.issue("user_1", Role.TEACHER);
+        IssuedToken token = service.issue("user_1", Role.TEACHER);
 
         SignedJWT signed = SignedJWT.parse(token.accessToken());
         // RS256 签名可用对应公钥验证

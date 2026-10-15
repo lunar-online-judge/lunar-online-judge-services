@@ -1,5 +1,6 @@
 package io.lunar.contest.domain;
 
+import io.lunar.contest.domain.dto.ContestPage;
 import io.lunar.contest.infra.ContestEntity;
 import io.lunar.contest.infra.ContestMapper;
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
@@ -8,7 +9,6 @@ import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import org.springframework.stereotype.Component;
 
 import java.time.Instant;
-import java.util.List;
 import java.util.UUID;
 
 /**
@@ -17,9 +17,6 @@ import java.util.UUID;
  */
 @Component
 public class ContestService {
-
-    /** 管理端列表分页：items 为当前页竞赛。 */
-    public record ContestPage(List<ContestEntity> items, long total, long page, long pageSize) {}
 
     private final ContestMapper contestMapper;
 

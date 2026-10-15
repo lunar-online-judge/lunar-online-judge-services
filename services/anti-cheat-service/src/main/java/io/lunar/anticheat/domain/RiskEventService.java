@@ -1,5 +1,8 @@
 package io.lunar.anticheat.domain;
 
+import io.lunar.anticheat.domain.dto.ReportedEvent;
+import io.lunar.anticheat.domain.dto.ReviewPage;
+import io.lunar.anticheat.domain.dto.RiskEventView;
 import io.lunar.anticheat.infra.AuditClient;
 import io.lunar.anticheat.infra.OutboxEventEntity;
 import io.lunar.anticheat.infra.OutboxEventMapper;
@@ -14,7 +17,6 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.time.Instant;
-import java.util.List;
 import java.util.Map;
 import java.util.UUID;
 
@@ -32,16 +34,6 @@ public class RiskEventService {
 
     /** 明细入库前的最大长度（超出截断，避免恶意超长上报撑爆存储）。 */
     private static final int MAX_DETAIL_LENGTH = 2000;
-
-    public record ReportedEvent(String eventId, String riskEventId, String eventType, String severity,
-                                Instant occurredAt) {}
-
-    public record RiskEventView(String eventId, String contestId, String studentId, String problemId,
-                                String eventType, String severity, String detail, Instant occurredAt,
-                                Instant reportedAt, String reviewStatus, String reviewedBy,
-                                Instant reviewedAt, String reviewNote) {}
-
-    public record ReviewPage(List<RiskEventView> items, long total, long page, long pageSize) {}
 
     private final RiskEventMapper riskEventMapper;
     private final OutboxEventMapper outboxMapper;

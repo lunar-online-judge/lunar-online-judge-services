@@ -1,6 +1,7 @@
 package io.lunar.submission.domain;
 
 import io.lunar.common.judge.JudgeVerdict;
+import io.lunar.submission.domain.dto.SubmissionView;
 import io.lunar.submission.infra.OutboxEventEntity;
 import io.lunar.submission.infra.OutboxEventMapper;
 import io.lunar.submission.infra.SubmissionEntity;
@@ -35,10 +36,6 @@ import java.util.UUID;
 public class SubmissionService {
 
     private static final Logger log = LoggerFactory.getLogger(SubmissionService.class);
-
-    public record SubmissionView(String submissionId, String contestId, String problemId, String language,
-                                 String status, Integer score, Integer passedCases, Integer totalCases,
-                                 Instant createdAt) {}
 
     private final SubmissionMapper submissionMapper;
     private final OutboxEventMapper outboxMapper;

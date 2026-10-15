@@ -14,6 +14,10 @@ import io.lunar.contest.api.dto.ResetPasswordRequest;
 import io.lunar.contest.domain.AnnouncementService;
 import io.lunar.contest.domain.ContestService;
 import io.lunar.contest.domain.EnrollmentService;
+import io.lunar.contest.domain.dto.AnnouncementView;
+import io.lunar.contest.domain.dto.CandidatePage;
+import io.lunar.contest.domain.dto.ContestPage;
+import io.lunar.contest.domain.dto.EnrollmentResult;
 import io.lunar.contest.infra.ContestEntity;
 import jakarta.validation.Valid;
 import org.springframework.http.ResponseEntity;
@@ -69,7 +73,7 @@ public class ContestController {
             @RequestParam(defaultValue = Pagination.DEFAULT_PAGE_SIZE) long pageSize,
             @RequestParam(required = false) String status,
             @RequestHeader(value = RequestIdFilter.HEADER, required = false) String requestId) {
-        ContestService.ContestPage result = contestService.list(status, page, pageSize);
+        ContestPage result = contestService.list(status, page, pageSize);
         List<ContestResponse> items = result.items().stream().map(ContestResponse::of).toList();
         return ResponseEntity.ok(ApiResponse.success(requestId, new ContestListResponse(
                 items, result.total(), result.page(), result.pageSize())));
@@ -113,13 +117,13 @@ public class ContestController {
     /** 添加学生：账号不存在则经 auth 创建（存在则复用），并建立报名关系（docs/api.md"添加学生"）。 */
     @PostMapping("/{contestId}/students")
     @PreAuthorize("hasAnyRole('TEACHER', 'ADMIN')")
-    public ResponseEntity<ApiResponse<EnrollmentService.EnrollmentResult>> addStudent(
+    public ResponseEntity<ApiResponse<EnrollmentResult>> addStudent(
             @PathVariable String contestId,
             @Valid @RequestBody AddStudentRequest request,
             Authentication authentication,
             @RequestHeader(value = RequestIdFilter.HEADER, required = false) String requestId,
             @RequestHeader(value = "Authorization", required = false) String authorization) {
-        EnrollmentService.EnrollmentResult result = enrollmentService.add(contestId, request.studentNo(),
+        EnrollmentResult result = enrollmentService.add(contestId, request.studentNo(),
                 request.username(), request.displayName(), request.initialPassword(),
                 authorization, authentication.getName());
         return ResponseEntity.ok(ApiResponse.success(requestId, result));
@@ -128,7 +132,7 @@ public class ContestController {
     /** 分页查询竞赛名单；keyword 模糊匹配学号。 */
     @GetMapping("/{contestId}/students")
     @PreAuthorize("hasAnyRole('TEACHER', 'ADMIN')")
-    public ResponseEntity<ApiResponse<EnrollmentService.CandidatePage>> listStudents(
+    public ResponseEntity<ApiResponse<CandidatePage>> listStudents(
             @PathVariable String contestId,
             @RequestParam(defaultValue = Pagination.DEFAULT_PAGE) long page,
             @RequestParam(defaultValue = Pagination.DEFAULT_PAGE_SIZE) long pageSize,
@@ -168,12 +172,12 @@ public class ContestController {
     /** 发布公告（老师/管理员；docs/exam-process.md §8）。 */
     @PostMapping("/{contestId}/announcements")
     @PreAuthorize("hasAnyRole('TEACHER', 'ADMIN')")
-    public ResponseEntity<ApiResponse<AnnouncementService.AnnouncementView>> publishAnnouncement(
+    public ResponseEntity<ApiResponse<AnnouncementView>> publishAnnouncement(
             @PathVariable String contestId,
             @Valid @RequestBody PublishAnnouncementRequest request,
             Authentication authentication,
             @RequestHeader(value = RequestIdFilter.HEADER, required = false) String requestId) {
-        AnnouncementService.AnnouncementView view = announcementService.publish(contestId, request.content(),
+        AnnouncementView view = announcementService.publish(contestId, request.content(),
                 Boolean.TRUE.equals(request.important()), Boolean.TRUE.equals(request.requireConfirmation()),
                 authentication.getName());
         return ResponseEntity.ok(ApiResponse.success(requestId, view));
@@ -181,13 +185,13 @@ public class ContestController {
 
     /** 公告列表：老师/管理员看全部；考生拉取即送达（require_confirmation 记录 delivered_at）。 */
     @GetMapping("/{contestId}/announcements")
-    public ResponseEntity<ApiResponse<List<AnnouncementService.AnnouncementView>>> listAnnouncements(
+    public ResponseEntity<ApiResponse<List<AnnouncementView>>> listAnnouncements(
             @PathVariable String contestId,
             Authentication authentication,
             @RequestHeader(value = RequestIdFilter.HEADER, required = false) String requestId) {
         List<String> roles = authentication.getAuthorities().stream()
                 .map(GrantedAuthority::getAuthority).toList();
-        List<AnnouncementService.AnnouncementView> views =
+        List<AnnouncementView> views =
                 roles.contains(Role.AUTHORITY_PREFIX + Role.CANDIDATE.name())
                         && !roles.contains(Role.AUTHORITY_PREFIX + Role.ADMIN.name())
                         ? announcementService.listForCandidate(contestId, authentication.getName())

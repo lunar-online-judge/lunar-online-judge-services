@@ -1,5 +1,6 @@
 package io.lunar.auth.domain;
 
+import io.lunar.auth.domain.dto.IssuedToken;
 import io.lunar.common.security.Role;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.security.oauth2.jwt.JwtClaimsSet;
@@ -19,8 +20,6 @@ import java.util.UUID;
  */
 @Component
 public class JwtTokenService {
-
-    public record IssuedToken(String accessToken, Instant expiresAt) {}
 
     private final JwtEncoder jwtEncoder;
     private final Duration accessTtl;

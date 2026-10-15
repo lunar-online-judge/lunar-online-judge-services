@@ -4,6 +4,7 @@ import io.lunar.auth.api.dto.LoginRequest;
 import io.lunar.auth.api.dto.LoginResponse;
 import io.lunar.auth.domain.AuthService;
 import io.lunar.auth.domain.JwksService;
+import io.lunar.auth.domain.dto.LoginResult;
 import io.lunar.common.api.ApiResponse;
 import io.lunar.common.web.RequestIdFilter;
 import jakarta.validation.Valid;
@@ -36,7 +37,7 @@ public class AuthController {
     public ResponseEntity<ApiResponse<LoginResponse>> login(
             @Valid @RequestBody LoginRequest request,
             @RequestHeader(value = RequestIdFilter.HEADER, required = false) String requestId) {
-        AuthService.LoginResult result = authService.login(request.username(), request.password());
+        LoginResult result = authService.login(request.username(), request.password());
         LoginResponse body = new LoginResponse(result.userId(), result.accessToken(), TOKEN_TYPE_BEARER,
                 result.expiresAt(), result.role(), result.passwordChangeRequired());
         return ResponseEntity.ok(ApiResponse.success(requestId, body));
