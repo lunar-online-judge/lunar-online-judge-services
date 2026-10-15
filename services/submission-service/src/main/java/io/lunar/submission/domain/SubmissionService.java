@@ -8,6 +8,7 @@ import io.lunar.submission.infra.SubmissionEntity;
 import io.lunar.submission.infra.SubmissionMapper;
 import io.lunar.submission.infra.UpstreamClient;
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
+import com.baomidou.mybatisplus.core.conditions.update.LambdaUpdateWrapper;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.slf4j.Logger;
@@ -30,7 +31,7 @@ import java.util.UUID;
  * 五项校验中已实现三项——会话有效、竞赛进行中（contest 服务间判定）、语言允许（problem 白名单）；
  * 「题目属于竞赛」依赖随机分配关联表、「提交次数未超限」阈值待确认（exam-process §10），标记 TODO 不假装校验。
  * 幂等：Idempotency-Key 同学生唯一；同键同指纹返回首次结果（200），同键不同指纹 409 SUBMISSION_DUPLICATE。
- * 事务：submission(QUEUED) 与 Outbox(submission.created) 同一本地事务落库；Outbox 投递待 RocketMQ 接入。
+ * 事务：submission(QUEUED) 与 Outbox(submission.created) 同一本地事务落库，由 OutboxPublisher 投递。
  */
 @Service
 public class SubmissionService {
@@ -138,12 +139,26 @@ public class SubmissionService {
         }
         JudgeVerdict judged = JudgeVerdict.parse(verdict)
                 .orElseThrow(() -> new SubmissionException.InvalidStatusTransition("未知 verdict " + verdict));
+        Instant updatedAt = Instant.now();
+        // 条件更新（CAS）：仅当前态仍是我们读到的非终态时才写入——重复/乱序的判题结果不会覆盖终态
+        LambdaUpdateWrapper<SubmissionEntity> update = new LambdaUpdateWrapper<SubmissionEntity>()
+                .eq(SubmissionEntity::getId, submissionId)
+                .eq(SubmissionEntity::getStatus, submission.getStatus())
+                .set(SubmissionEntity::getStatus, judged.name())
+                .set(SubmissionEntity::getScore, score)
+                .set(SubmissionEntity::getPassedCases, passedCases)
+                .set(SubmissionEntity::getTotalCases, totalCases)
+                .set(SubmissionEntity::getUpdatedAt, updatedAt);
+        if (submissionMapper.update(null, update) == 0) {
+            SubmissionEntity current = submissionMapper.selectById(submissionId);
+            throw new SubmissionException.InvalidStatusTransition(
+                    current == null ? submission.getStatus() : current.getStatus());
+        }
         submission.setStatus(judged.name());
         submission.setScore(score);
         submission.setPassedCases(passedCases);
         submission.setTotalCases(totalCases);
-        submission.setUpdatedAt(Instant.now());
-        submissionMapper.updateById(submission);
+        submission.setUpdatedAt(updatedAt);
 
         writeOutbox("lunar-submission-judged", submissionId, traceId, new LinkedHashMap<>(Map.of(
                 "submissionId", submissionId,
@@ -175,7 +190,8 @@ public class SubmissionService {
             if ("ACTIVE".equals(sessionStatus)) {
                 throw new SubmissionException.ContestNotRunning("竞赛状态 " + contestStatus);
             }
-            throw new SubmissionException.NotSubmittable("会话状态 " + sessionStatus);
+            // 会话不存在/已过期/已终止：用注册表里的 SESSION_NOT_ACTIVE，而不是"不在名单"
+            throw new SubmissionException.SessionNotActive(sessionStatus);
         }
     }
 

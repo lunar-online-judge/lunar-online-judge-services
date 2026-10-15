@@ -9,6 +9,7 @@ import io.lunar.anticheat.infra.OutboxEventMapper;
 import io.lunar.anticheat.infra.RiskEventEntity;
 import io.lunar.anticheat.infra.RiskEventMapper;
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
+import com.baomidou.mybatisplus.core.conditions.update.LambdaUpdateWrapper;
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.slf4j.Logger;
@@ -23,9 +24,10 @@ import java.util.UUID;
 /**
  * 风险事件与人工审核（docs/exam-process.md §6）：
  * 上报宽容接收（severity 服务端计算，未知类型 MEDIUM 保守收下）；
- * 审核状态机 OPEN → ACKNOWLEDGED → CONFIRMED / DISMISSED（条件更新防并发，终态不可再动）；
+ * 审核状态机 OPEN → ACKNOWLEDGED → CONFIRMED / DISMISSED：写入走"前态条件更新"（CAS），
+ * 并发终审最多一个成功，终态不可再动；
  * 事件入库即写 Outbox（lunar-risk-event-created，gateway WebSocket 告警的未来消费方）；
- * 审计：audit-service 未建成，CONFIRM/DISMISS 先落结构化日志。
+ * 审计：CONFIRM/DISMISS 经 audit-service 账本留痕（尽力而为，失败不阻断审核）。
  */
 @Service
 public class RiskEventService {
@@ -116,11 +118,25 @@ public class RiskEventService {
         if (!legal) {
             throw new ReviewException.InvalidTransition(from, action);
         }
+        Instant reviewedAt = Instant.now();
+        // 条件更新（CAS）：仅当前态仍是 from 时才写入——两个并发终审最多一个成功，避免后提交者覆盖先提交的终态
+        LambdaUpdateWrapper<RiskEventEntity> update = new LambdaUpdateWrapper<RiskEventEntity>()
+                .eq(RiskEventEntity::getId, eventId)
+                .eq(RiskEventEntity::getReviewStatus, from)
+                .set(RiskEventEntity::getReviewStatus, to)
+                .set(RiskEventEntity::getReviewedBy, reviewerId)
+                .set(RiskEventEntity::getReviewedAt, reviewedAt)
+                .set(RiskEventEntity::getReviewNote, note);
+        if (riskEventMapper.update(null, update) == 0) {
+            // 前态已被其他请求改走：带上当前实际状态返回非法流转
+            RiskEventEntity current = riskEventMapper.selectById(eventId);
+            throw new ReviewException.InvalidTransition(
+                    current == null ? from : current.getReviewStatus(), action);
+        }
         riskEvent.setReviewStatus(to);
         riskEvent.setReviewedBy(reviewerId);
-        riskEvent.setReviewedAt(Instant.now());
+        riskEvent.setReviewedAt(reviewedAt);
         riskEvent.setReviewNote(note);
-        riskEventMapper.updateById(riskEvent);
         log.info("AUDIT event=RISK_EVENT_REVIEWED riskEventId={} {}->{} by={} note={}",
                 eventId, from, to, reviewerId, note);
         // 审计账本（尽力而为：audit-service 暂不可用时不阻断审核）

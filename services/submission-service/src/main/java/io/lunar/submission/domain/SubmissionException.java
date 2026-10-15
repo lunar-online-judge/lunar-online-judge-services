@@ -30,10 +30,17 @@ public class SubmissionException extends ApiException {
         }
     }
 
-    /** 403：不在竞赛名单或会话无效。 */
+    /** 403：不在竞赛名单。 */
     public static final class NotSubmittable extends SubmissionException {
         public NotSubmittable(String reason) {
             super("CONTEST_NOT_ENROLLED", 403, "当前不可提交：" + reason);
+        }
+    }
+
+    /** 409：考生会话不存在或未激活（docs/api.md 注册表：SESSION_NOT_ACTIVE）。 */
+    public static final class SessionNotActive extends SubmissionException {
+        public SessionNotActive(String reason) {
+            super("SESSION_NOT_ACTIVE", 409, "考试会话未激活，请重新进入考试：" + reason);
         }
     }
 

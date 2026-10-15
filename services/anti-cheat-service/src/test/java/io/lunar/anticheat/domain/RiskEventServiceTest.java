@@ -11,6 +11,7 @@ import com.baomidou.mybatisplus.core.metadata.TableInfoHelper;
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import org.apache.ibatis.builder.MapperBuilderAssistant;
 import org.junit.jupiter.api.BeforeAll;
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
 
@@ -20,6 +21,7 @@ import java.util.List;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.isNull;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
@@ -40,6 +42,12 @@ class RiskEventServiceTest {
                             new MybatisConfiguration(), ""),
                     entity);
         }
+    }
+
+    /** 审核写入是条件更新（CAS）：默认成功（影响 1 行），并发冲突用例单独覆盖为 0 行。 */
+    @BeforeEach
+    void stubConditionalUpdateSucceeds() {
+        when(riskEventMapper.update(isNull(), any())).thenReturn(1);
     }
 
     private static RiskEventEntity event(String id, String reviewStatus) {
@@ -116,6 +124,18 @@ class RiskEventServiceTest {
         assertThatThrownBy(() -> service.review("e1", "DISMISS", null, "teacher_1", "tok"))
                 .isInstanceOf(ReviewException.InvalidTransition.class);
         assertThatThrownBy(() -> service.review("e1", "ACKNOWLEDGE", null, "teacher_1", "tok"))
+                .isInstanceOf(ReviewException.InvalidTransition.class);
+    }
+
+    @Test
+    void concurrentReviewLosesConditionalUpdate() {
+        // 并发场景：读到 OPEN，但写入时前态已被改走（影响 0 行）→ 409，而不是覆盖先提交的终态
+        when(riskEventMapper.selectById("e1"))
+                .thenReturn(event("e1", "OPEN"))
+                .thenReturn(event("e1", "CONFIRMED"));
+        when(riskEventMapper.update(isNull(), any())).thenReturn(0);
+
+        assertThatThrownBy(() -> service.review("e1", "CONFIRM", "并发", "teacher_1", "tok"))
                 .isInstanceOf(ReviewException.InvalidTransition.class);
     }
 

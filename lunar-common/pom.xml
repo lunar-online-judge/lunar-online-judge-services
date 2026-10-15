@@ -7,10 +7,13 @@
         <dependency><groupId>org.springframework</groupId><artifactId>spring-context</artifactId></dependency>
         <dependency><groupId>org.springframework</groupId><artifactId>spring-web</artifactId></dependency>
         <dependency><groupId>jakarta.servlet</groupId><artifactId>jakarta.servlet-api</artifactId></dependency>
+        <!-- 仅日志门面编译需要（ApiExceptionHandler 兜底异常时记 error）；运行时由各服务自带的 spring-boot-starter-logging 提供 -->
+        <dependency><groupId>org.slf4j</groupId><artifactId>slf4j-api</artifactId><optional>true</optional></dependency>
         <!-- 仅 WebCommonAutoConfiguration 编译需要；运行时由各服务自带的 Boot 提供 -->
         <dependency><groupId>org.springframework.boot</groupId><artifactId>spring-boot-autoconfigure</artifactId><optional>true</optional></dependency>
         <dependency><groupId>org.springframework.boot</groupId><artifactId>spring-boot</artifactId><optional>true</optional></dependency>
         <!-- 仅 LoadBalancedRestClientAutoConfiguration 编译需要（@LoadBalanced）；无负载均衡器的服务不依赖它 -->
         <dependency><groupId>org.springframework.cloud</groupId><artifactId>spring-cloud-commons</artifactId><optional>true</optional></dependency>
+        <dependency><groupId>org.springframework.boot</groupId><artifactId>spring-boot-starter-test</artifactId><scope>test</scope></dependency>
     </dependencies>
 </project>

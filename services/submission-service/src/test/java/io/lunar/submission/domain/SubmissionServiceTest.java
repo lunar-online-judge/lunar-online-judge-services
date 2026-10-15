@@ -24,6 +24,7 @@ import java.util.Map;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.isNull;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
@@ -46,6 +47,8 @@ class SubmissionServiceTest {
     @BeforeEach
     void happyPathUpstream() {
         when(submissionMapper.selectOne(any())).thenReturn(null);
+        // 判决回写是条件更新（CAS）：默认成功（影响 1 行），并发冲突用例单独覆盖为 0 行
+        when(submissionMapper.update(isNull(), any())).thenReturn(1);
         when(upstream.checkSession(any(), any())).thenReturn(Map.of(
                 "canSubmit", true, "sessionStatus", "ACTIVE", "contestStatus", "RUNNING", "remainingSeconds", 3600));
         when(upstream.currentProblemVersion(any(), any())).thenReturn(Map.of(
@@ -117,8 +120,11 @@ class SubmissionServiceTest {
         when(upstream.checkSession(any(), any())).thenReturn(Map.of(
                 "canSubmit", false, "sessionStatus", "NONE", "contestStatus", "RUNNING", "remainingSeconds", 0));
 
+        // 会话未激活用注册表里的 SESSION_NOT_ACTIVE，而不是"不在名单"（CONTEST_NOT_ENROLLED）
         assertThatThrownBy(() -> service.submit("c1", "p1", "cpp", "x", null, null, "stu_1", "Bearer t"))
-                .isInstanceOf(SubmissionException.NotSubmittable.class);
+                .isInstanceOf(SubmissionException.SessionNotActive.class)
+                .extracting(exception -> ((SubmissionException) exception).code())
+                .isEqualTo("SESSION_NOT_ACTIVE");
     }
 
     @Test
@@ -159,6 +165,21 @@ class SubmissionServiceTest {
 
         assertThatThrownBy(() -> service.applyJudgment("sub_existing", "WRONG_ANSWER", 0, 0, 3, null))
                 .isInstanceOf(SubmissionException.InvalidStatusTransition.class);
+    }
+
+    @Test
+    void judgmentLosesConditionalUpdateOnConcurrentWrite() {
+        // 并发：读到 QUEUED，但写入时状态已被另一条判决改走（影响 0 行）→ 409，且不再补发 judged 事件
+        SubmissionEntity accepted = existing(null);
+        accepted.setStatus("ACCEPTED");
+        when(submissionMapper.selectById("sub_existing"))
+                .thenReturn(existing(null))
+                .thenReturn(accepted);
+        when(submissionMapper.update(isNull(), any())).thenReturn(0);
+
+        assertThatThrownBy(() -> service.applyJudgment("sub_existing", "WRONG_ANSWER", 0, 0, 3, "trace-3"))
+                .isInstanceOf(SubmissionException.InvalidStatusTransition.class);
+        verify(outboxMapper, never()).insert(any(OutboxEventEntity.class));
     }
 
     @Test

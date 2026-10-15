@@ -53,8 +53,9 @@ public class ProblemController {
         return ResponseEntity.ok(ApiResponse.success(requestId, view));
     }
 
-    /** 分页列表（管理端）：keyword 模糊匹配标题。 */
+    /** 分页列表（管理端）：keyword 模糊匹配标题；与创建/版本管理同权限，考生不通过该端点取题。 */
     @GetMapping
+    @PreAuthorize("hasAnyRole('TEACHER', 'ADMIN')")
     public ResponseEntity<ApiResponse<ProblemPage>> list(
             @RequestParam(defaultValue = Pagination.DEFAULT_PAGE) long page,
             @RequestParam(defaultValue = Pagination.DEFAULT_PAGE_SIZE) long pageSize,
