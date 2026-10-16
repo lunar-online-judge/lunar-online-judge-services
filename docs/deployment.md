@@ -89,10 +89,24 @@ java -jar services/judge-service/target/judge-service-0.1.0-SNAPSHOT.jar
 
 - `mvn spring-boot:run -pl <module>` 前必须先执行 `mvn -DskipTests install`，否则单模块解析不到 `lunar-common`（依赖解析失败）；**改过 `lunar-common` 后尤其要重装**——本地仓库里的旧 jar 仍能被解析（不报错），但新增的方法在运行时才炸 `NoSuchMethodError`（`Error` 不是 `Exception`，业务代码的 `catch (Exception)` 兜不住，表现为 MQ 消息无限重试、判题结果永不回写）。2026-10 实测踩过：给 `JudgeResult` 加 `passedCases()/totalCases()` 后没 install，judge 消费的每条消息都失败重试；
 - auth-service 连 Docker postgres 需设置 `POSTGRES_PORT=5433`（见上方端口表）；
-- **重启 auth-service 会让令牌"集体 401"几分钟**：未配置 `AUTH_JWT_PRIVATE_KEY` 时它每次启动生成临时开发密钥，而各资源服务的 JWKS 有缓存（Nimbus 默认 5 分钟，且 `kid` 不变时不会主动刷新）——表现为重启后**新登录拿到的令牌**在 problem/contest/submission 等资源服务上仍是 401。本地联调时要么等缓存过期或重启那些服务，要么给 auth 配置固定的开发密钥（生产本就要求外部注入）；
+- **重启 auth-service 会让令牌"集体 401"几分钟**（仅当未配置持久密钥时）：它每次启动生成临时开发密钥，而各资源服务的 JWKS 有缓存（Nimbus 默认 5 分钟，且 `kid` 不变时不会主动刷新）——表现为重启后**新登录拿到的令牌**在 problem/contest/submission 等资源服务上仍是 401。**生产用 `prod` profile 强制要求外部注入密钥**（见下方生产配置门禁），配置了持久密钥后重启不再影响已签发令牌；本地联调可显式给 auth 配置固定密钥，或等缓存过期/重启那些服务；
+- **生产配置门禁（`BACKEND_IMPROVEMENT_PLAN` BE-02）**：激活 `prod` profile（`SPRING_PROFILES_ACTIVE=prod`）时，lunar-common 的 `ProductionConfigGuard` 在应用就绪前校验下列规则，**不通过直接启动失败**（消息只含属性名与原因，不回显取值）：
+
+| 规则 | 为什么 |
+|---|---|
+| `spring.flyway.enabled` 必须为 true | 迁移未开启时 schema 可能不匹配；开启后由 Flyway 校验并拒绝启动 |
+| `spring.datasource.password` 不得以 `change-me` 开头 | 数据库口令必须外部注入 |
+| `service.identity.client-secret` 不得以 `change-me` 开头 | 服务客户端密钥必须与 auth 注册表一致并外部注入 |
+| `spring.cloud.nacos.discovery.fail-fast` 必须为 true | 否则配置中心不可达时静默用本地默认配置 |
+| `auth.jwt.private-key` 必须存在（auth） | 缺省会临时生成开发密钥：多实例互不认、重启令牌全失效 |
+| `spring.flyway.placeholders.dev_seed` 必须为 false（auth） | 开发种子管理员 `admin/admin123` 绝不能带进生产 |
+
+  属性缺失视为"该服务没有这项配置"而跳过（例如 judge 没有 DataSource）；本地 dev/test 不激活该 profile，行为完全不变。
+
+- **密钥轮换**（BE-02）：JWKS 与内部验签同时接受"当前密钥 + 退役公钥"，换密钥不会把未过期的旧 token 全部作废。步骤：① 先把**旧公钥**加入 `auth.jwt.retired-public-keys.<旧 kid>`（值=旧公钥 PEM，X.509）并重启；② 再把 `AUTH_JWT_PRIVATE_KEY` / `AUTH_JWT_KEY_ID` 换成新密钥并重启，新 token 自然带新 kid；③ 等一个 access token TTL（默认 30 分钟）后移除退役条目。JWKS 端点只发布公钥（可自查响应不含 `d` 等私钥字段），轮换窗口内多个 auth 实例互认对方的 token；
 - judge-service 有 `application.yml` 但**未设 `server.port`**（默认 8080，与 gateway 冲突），且 `JudgeEngine` Bean 需要明确激活条件：本地以 `SPRING_PROFILES_ACTIVE=mock SERVER_PORT=8085 java -jar ...` 启动（或设 `GO_JUDGE_BASE_URL` 切真实引擎），否则会因找不到 `JudgeEngine` Bean 而启动失败。
 
-**开发种子管理员**：`FLYWAY_ENABLED=true` 且 `AUTH_DEV_SEED=true`（默认）时，V3 迁移插入 `admin` / `admin123`（BCrypt 存储）；生产必须设置 `AUTH_DEV_SEED=false`。
+**开发种子管理员**：`FLYWAY_ENABLED=true` 且 `AUTH_DEV_SEED=true`（默认）时，V3 迁移插入 `admin` / `admin123`（BCrypt 存储）；**生产必须设置 `AUTH_DEV_SEED=false`**——`prod` profile 下这条由生产配置门禁强制（见上），不再是"靠自觉"。
 
 ## 冒烟验证
 
@@ -141,7 +155,9 @@ curl -s -i -H "X-Request-Id: test-123" http://localhost:8081/api/v1/auth/jwks | 
 | 配置项 | 说明 | 默认值 |
 |---|---|---|
 | `SERVER_PORT` | 服务 HTTP 端口 | 见上方端口表 |
-| `SPRING_PROFILES_ACTIVE` | 环境 profile；judge-service 需显式设为 `mock` 才会装配 `MockJudgeEngine`（未设置且无 `GO_JUDGE_BASE_URL` 时容器内没有 `JudgeEngine` Bean） | 未设置 |
+| `SPRING_PROFILES_ACTIVE` | 环境 profile；**设为 `prod` 会启用生产配置门禁（开发默认值直接启动失败）**；judge-service 需显式设为 `mock` 才会装配 `MockJudgeEngine`（未设置且无 `GO_JUDGE_BASE_URL` 时容器内没有 `JudgeEngine` Bean） | 未设置 |
+| `AUTH_JWT_KEY_ID` | 当前签发密钥的 kid（轮换时换新值） | `lunar-dev-1` |
+| `AUTH_JWT_RETIRED_PUBLIC_KEYS`（配置键 `auth.jwt.retired-public-keys.<kid>`） | 轮换窗口内的退役公钥（X.509 PEM），继续随 JWKS 发布 | 空 |
 | `FLYWAY_ENABLED` | 是否执行数据库迁移 | `false` |
 | `GO_JUDGE_BASE_URL` | go-judge 内网地址；**设置后 judge-service 自动启用 GoJudgeAdapter（优先于 mock profile）** | 未设置（此时需 `SPRING_PROFILES_ACTIVE=mock`，否则容器内没有 `JudgeEngine` Bean） |
 | `GO_JUDGE_CONNECT_TIMEOUT_MS` | go-judge 连接超时 | `2000` |

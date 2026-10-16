@@ -1,2 +1,3 @@
 io.lunar.common.web.WebCommonAutoConfiguration
 io.lunar.common.client.LoadBalancedRestClientAutoConfiguration
+io.lunar.common.config.ProductionConfigAutoConfiguration

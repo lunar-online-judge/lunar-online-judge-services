@@ -11,6 +11,8 @@
 > 另有一批本次审查新发现的"契约与实现不符"，可作为 BE-04 / BE-06 的补充输入（详见 `CHANGELOG.md` 的文档对齐条目与 `docs/api.md`）：事件信封只落库、上线消息只带 `payload`（`eventId` 幂等无法实现）；judge-service 未接入验签、`POST /api/v1/judge/submissions` 恒 401；`INTERNAL_ERROR` 注册但无产生路径、未分类异常不套统一信封；`CONTEST_NOT_ENROLLED` 被 submission 复用；风险复核的类注释自称"条件更新防并发"而代码是无条件更新。
 >
 > **BE-07 的前置已就位（2026-10）**：服务身份令牌（客户端凭证，`POST /api/v1/internal/service-tokens`，`roles=["SERVICE"]`）与 trace 贯通（`RequestIdFilter` 写 MDC、`AuditRecorder` 自动续接）已实现，审计动作 7 → 10 个（见 `CHANGELOG.md`）。**BE-07 的持久补偿仍未做**：审计目前是同步 HTTP 尽力而为，audit-service 不可用时会丢条目（仅结构化日志兜底），尚未改为"本地 audit outbox 同事务 + 异步投递 + `eventId` 幂等 + dead-letter + `originalOccurredAt`"。
+>
+> **BE-02 已落地（2026-10）**：`prod` profile 下的生产配置门禁（fail fast，含"缺持久 RSA 密钥""开发种子未关""数据库口令/客户端密钥是开发默认""配置中心未 fail-fast"）与密钥轮换窗口（JWKS 保留退役公钥、多实例互认）已实现并真机验收，见 `CHANGELOG.md` 与 `docs/deployment.md`。**仍未自动化**：首次管理员的"一次性受控初始化流程"目前是文档步骤（生产 `AUTH_DEV_SEED=false` + 受控初始化），未做成脚本/流程。
 
 ## 1. 目标与执行规则
 

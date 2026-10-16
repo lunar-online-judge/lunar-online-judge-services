@@ -45,6 +45,9 @@ auth:
     private-key: ${AUTH_JWT_PRIVATE_KEY:}
     key-id: ${AUTH_JWT_KEY_ID:lunar-dev-1}
     access-ttl-minutes: ${AUTH_JWT_TTL_MINUTES:30}
+    # 密钥轮换窗口（BE-02）：kid → 已退役公钥 PEM，继续随 JWKS 发布直到旧 token 全部过期；
+    # 未轮换过就留空。轮换步骤见 docs/deployment.md
+    retired-public-keys: {}
   # auth.login.* 不在此处定义：阈值与锁定时长由 Nacos 配置中心托管（dataId=auth-service.yml）。
   # 注意 spring.config.import 导入的配置优先级**低于**本地 yml，本地若也写一份会永远盖住 Nacos 的值；
   # 离线兜底由 LoginProperties 的字段默认值提供（5 次 / 5 分钟），环境变量仍可覆盖

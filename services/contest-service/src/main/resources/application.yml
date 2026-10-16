@@ -40,6 +40,11 @@ spring:
         jwt:
           # 本地验签：auth-service 的 JWKS 公钥（docs/api.md"认证令牌"）
           jwk-set-uri: ${AUTH_JWK_SET_URI:http://localhost:8081/api/v1/auth/jwks}
+service:
+  identity:
+    # 服务间身份（客户端凭证）密钥：必须与 auth-service 的注册表一致；生产用环境变量注入，
+    # 开发默认值会被 prod profile 的生产配置门禁拒绝（lunar-common 的 ProductionConfigGuard）
+    client-secret: ${SERVICE_CLIENT_SECRET:change-me-contest}
 server:
   port: ${SERVER_PORT:8082}
 

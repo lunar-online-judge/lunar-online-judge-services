@@ -65,7 +65,7 @@ public class ServiceClientConfig {
     @Bean
     ServiceTokenProvider serviceTokenProvider(ServiceTokenApi serviceTokenApi,
                                               @Value("${spring.application.name}") String serviceName,
-                                              @Value("${SERVICE_CLIENT_SECRET:change-me-submission}") String clientSecret) {
+                                              @Value("${service.identity.client-secret}") String clientSecret) {
         return new ServiceTokenProvider(serviceTokenApi, serviceName, clientSecret);
     }
 }

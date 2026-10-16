@@ -73,6 +73,11 @@
 
 ### 新增
 
+- **生产配置门禁与密钥轮换**（`BACKEND_IMPROVEMENT_PLAN` BE-02，P0：上线真实考试前的门槛）
+  - `lunar-common` 新增 `ProductionConfigGuard` 与自动装配：激活 `prod` profile 时在应用就绪前校验"绝不能是开发默认值"的配置，不通过**直接启动失败**；消息只含属性名与原因、**不回显取值**（不把口令/私钥写进日志）。通用规则：迁移必须开启、数据库口令与服务客户端密钥不得以 `change-me` 开头、配置中心必须 fail-fast；auth 追加"必须有持久 RSA 私钥""开发种子必须关闭"。属性缺失视为该服务没有这项配置而跳过（如 judge 无 DataSource），本地 dev/test 行为不变
+  - **密钥轮换**：auth 的 JWKS 与内部验签改为接受"当前密钥 + `auth.jwt.retired-public-keys` 中的退役公钥"，换密钥不会把未过期的旧 token 全部作废；新 token 自然带新 kid；JWKS 仍只发布公钥（无 `d` 等私钥字段）。顺带把内嵌的 `KeyMaterial` record 抽成独立文件 `JwtKeyMaterial`（仓库"一个类型一个文件"约定）
+  - 服务客户端密钥提升为具名属性 `service.identity.client-secret`（contest/submission），使门禁能统一校验
+  - 真机验收：`prod` + 开发默认值 → 四条违规一次列出并 fail fast；`prod` + 正确配置 → 门禁通过并正常启动；JWKS 同时发布 `kid-current` / `kid-retired` 且无私钥字段；持久密钥下令牌在资源服务互认（200，重启不再"集体 401"）
 - **服务间独立身份（客户端凭证）落地**（`BACKEND_IMPROVEMENT_PLAN` BE-01 推荐的路径，也是 BE-07 异步审计 worker 的前置）
   - auth-service 新增 `POST /api/v1/internal/service-tokens`（免认证端点，凭证在请求体；不经网关）：校验 clientId（服务名）+ clientSecret 后签发 `sub=服务名`、`roles=["SERVICE"]` 的短 TTL 令牌（默认 10 分钟），密钥用常量时间比较，客户端未注册与密钥错误返回同一新错误码 **`AUTH_INVALID_SERVICE_CLIENT`**（401）
   - `lunar-common` 新增共享的 `ServiceTokenApi` / `ServiceTokenRequest` / `ServiceTokenResponse` / `ServiceTokenProvider`（缓存 + 到期前 60 秒自动续签 + 并发只发一次请求）；`Role` 增加 `SERVICE`
