@@ -185,6 +185,7 @@ judge_schema, anti_cheat_schema, media_schema, audit_schema
 | `lunar-submission-created`   | submission        | judge、anti-cheat            | 新提交已落库 |
 | `lunar-submission-judged`    | judge             | submission、contest、gateway | 评测结果可用 |
 | `lunar-risk-event-created`   | media/anti-cheat  | anti-cheat、gateway、audit   | 风险事件     |
+| `lunar-risk-event-reviewed`  | anti-cheat        | （规划）分析读模型            | 审核流转（OPEN→ACKNOWLEDGED→CONFIRMED/DISMISSED） |
 | `lunar-screenshot-requested` | anti-cheat/media  | media                        | 请求截图     |
 | `lunar-screenshot-created`   | media             | anti-cheat、audit、gateway   | 截图已保存   |
 | `lunar-plagiarism-requested` | anti-cheat        | plagiarism-worker            | 异步查重     |
@@ -192,7 +193,9 @@ judge_schema, anti_cheat_schema, media_schema, audit_schema
 
 每条事件包含 `eventId`、`eventType`、`aggregateId`、`occurredAt`、`schemaVersion`、`traceId`；消费者必须幂等。
 
-**当前落地情况（与上表的差距）**：只有 3 个 Topic 在代码中存在——`lunar-submission-created`（submission 经 Outbox 生产 → judge 消费）、`lunar-submission-judged`（judge 直接发送，submission 也经 Outbox 生产 → **只有 submission 消费**）、`lunar-risk-event-created`（anti-cheat 经 Outbox 生产 → **暂无消费者**）。其余 4 个 Topic 未实现；contest / gateway / audit / media 作为消费者的角色也未实现（这些服务没有 RocketMQ 依赖）。另外，信封字段当前只存在于 `outbox_events` 表行中，**上线消息只带内层 `payload`**（消息头仅有 `KEYS=eventId` 与 `traceId`），因此"消费者按 `eventId` 幂等"目前无法落实——judge 的消费者没有任何去重。
+**当前落地情况（与上表的差距）**：4 个 Topic 在代码中存在——`lunar-submission-created`（submission 经 Outbox 生产 → judge 消费）、`lunar-submission-judged`（judge 直接发送 + submission 经 Outbox 生产 → **只有 submission 消费**）、`lunar-risk-event-created`（anti-cheat 经 Outbox 生产 → **暂无消费者**）、`lunar-risk-event-reviewed`（anti-cheat 经 Outbox 生产，与审核状态更新同事务 → **暂无消费者**）。其余 Topic 未实现；contest / gateway / audit / media 作为消费者的角色也未实现（这些服务没有 RocketMQ 依赖）。
+
+**事件信封已上线（消费端可真正按 `eventId` 幂等）**：消息体是完整信封（`eventId` / `eventType` / `aggregateId` / `occurredAt` / `schemaVersion` / `traceId` + 内层 `payload`）。去重落点：submission 用 `submission_schema.consumed_events`（与事实写入同一事务，`on conflict do nothing` 插入即判断）；judge 没有数据库，用 Redis 的 `ConsumedEventGuard`——**特意"先查、处理成功后再登记"**，若改成先 SETNX 占坑，评测中途失败后重投会因坑位已占而直接 ack，判决永久丢失。**灰度期兼容**：消费端同时接受"整条消息就是内层 payload"的旧格式（`lunar-common` 的 `EventMessages` 封装），旧格式没有 `eventId`，幂等退化为业务侧终态条件更新。详见 `docs/api.md`"事件信封"。
 
 ### MinIO
 

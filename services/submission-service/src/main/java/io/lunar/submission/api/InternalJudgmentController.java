@@ -35,7 +35,9 @@ public class InternalJudgmentController {
             @PathVariable String id,
             @Valid @RequestBody JudgmentRequest request,
             @RequestHeader(value = RequestIdFilter.HEADER, required = false) String requestId) {
-        SubmissionView view = submissionService.applyJudgment(id, request.verdict(),
+        // eventId 传 null：这是补偿重放端点，没有事件信封，幂等由终态条件更新（CAS）保证；
+        // 正常判决路径走 MQ 消费，那边由信封 eventId 过 consumed_events 闸门。
+        SubmissionView view = submissionService.applyJudgment(id, null, request.verdict(),
                 request.score(), request.passedCases(), request.totalCases(), requestId);
         return ResponseEntity.ok(ApiResponse.success(requestId, view));
     }

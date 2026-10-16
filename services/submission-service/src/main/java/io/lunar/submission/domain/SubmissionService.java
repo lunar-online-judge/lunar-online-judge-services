@@ -4,6 +4,7 @@ import io.lunar.common.audit.AuditRecorder;
 import io.lunar.common.judge.JudgeVerdict;
 import io.lunar.submission.config.SubmissionLimitProperties;
 import io.lunar.submission.domain.dto.SubmissionView;
+import io.lunar.submission.infra.ConsumedEventMapper;
 import io.lunar.submission.infra.OutboxEventEntity;
 import io.lunar.submission.infra.OutboxEventMapper;
 import io.lunar.submission.infra.SubmissionEntity;
@@ -41,18 +42,23 @@ public class SubmissionService {
 
     private static final Logger log = LoggerFactory.getLogger(SubmissionService.class);
 
+    /** 判决事件的消费组名：幂等闸门按它区分"同一 eventId 是否已被本消费者处理过"。 */
+    private static final String JUDGED_CONSUMER = "submission_judged_group";
+
     private final SubmissionMapper submissionMapper;
     private final OutboxEventMapper outboxMapper;
+    private final ConsumedEventMapper consumedEventMapper;
     private final UpstreamClient upstream;
     private final SubmissionLimitProperties limitProperties;
     private final AuditRecorder auditRecorder;
     private final ObjectMapper objectMapper = new ObjectMapper();
 
     public SubmissionService(SubmissionMapper submissionMapper, OutboxEventMapper outboxMapper,
-                             UpstreamClient upstream, SubmissionLimitProperties limitProperties,
-                             AuditRecorder auditRecorder) {
+                             ConsumedEventMapper consumedEventMapper, UpstreamClient upstream,
+                             SubmissionLimitProperties limitProperties, AuditRecorder auditRecorder) {
         this.submissionMapper = submissionMapper;
         this.outboxMapper = outboxMapper;
+        this.consumedEventMapper = consumedEventMapper;
         this.upstream = upstream;
         this.limitProperties = limitProperties;
         this.auditRecorder = auditRecorder;
@@ -153,10 +159,23 @@ public class SubmissionService {
         return toView(submission);
     }
 
-    /** 判决回写（判题链路内部接口；RocketMQ 接入后改为消费 lunar-submission-judged）。 */
+    /**
+     * 判决回写（判题链路；MQ 消费是正常路径，内部端点保留给补偿重放）。
+     *
+     * {@code eventId} 是信封事件 ID，可为空（旧格式消息与内部重放端点）：非空时先过幂等闸门，
+     * 重复投递直接返回当前状态——既不再改库，也不再补发 judged 事件。
+     */
     @Transactional
-    public SubmissionView applyJudgment(String submissionId, String verdict, Integer score,
+    public SubmissionView applyJudgment(String submissionId, String eventId, String verdict, Integer score,
                                         Integer passedCases, Integer totalCases, String traceId) {
+        if (isAlreadyProcessed(eventId)) {
+            SubmissionEntity processed = submissionMapper.selectById(submissionId);
+            if (processed == null) {
+                throw new SubmissionException.NotFound();
+            }
+            log.info("judged 事件重复投递，跳过：eventId={} submissionId={}", eventId, submissionId);
+            return toView(processed);
+        }
         SubmissionEntity submission = submissionMapper.selectById(submissionId);
         if (submission == null) {
             throw new SubmissionException.NotFound();
@@ -188,20 +207,45 @@ public class SubmissionService {
         submission.setTotalCases(totalCases);
         submission.setUpdatedAt(updatedAt);
 
-        writeOutbox("lunar-submission-judged", submissionId, traceId, new LinkedHashMap<>(Map.of(
-                "submissionId", submissionId,
-                "contestId", submission.getContestId(),
-                "studentId", submission.getStudentId(),
-                "verdict", judged.name(),
-                "score", score == null ? 0 : score,
-                "passedCases", passedCases == null ? 0 : passedCases,
-                "totalCases", totalCases == null ? 0 : totalCases)));
+        // judged 有两个生产者（judge 直发、本服务的内部回写端点），内层 payload 形状必须一致——
+        // analytics 读模型按同一套字段消费，形状不一致会让其中一路的 contestId/problemId 为空。
+        Map<String, Object> judgedPayload = new LinkedHashMap<>();
+        judgedPayload.put("submissionId", submissionId);
+        judgedPayload.put("contestId", submission.getContestId());
+        judgedPayload.put("problemId", submission.getProblemId());
+        judgedPayload.put("problemVersionId", submission.getProblemVersionId());
+        judgedPayload.put("studentId", submission.getStudentId());
+        judgedPayload.put("language", submission.getLanguage());
+        judgedPayload.put("verdict", judged.name());
+        judgedPayload.put("score", score == null ? 0 : score);
+        judgedPayload.put("passedCases", passedCases == null ? 0 : passedCases);
+        judgedPayload.put("totalCases", totalCases == null ? 0 : totalCases);
+        // 提交时间 = 受理提交的时刻，与 judge 直发路径语义一致（那边取 created 事件的 occurredAt）
+        judgedPayload.put("submittedAt",
+                submission.getCreatedAt() == null ? null : submission.getCreatedAt().toString());
+        judgedPayload.put("traceId", traceId == null ? "" : traceId);
+        writeOutbox("lunar-submission-judged", submissionId, traceId, judgedPayload);
         // 判决回写由 MQ 消费者触发（没有用户令牌）→ 走服务身份（账本 actor=submission-service、role=SERVICE）
         log.info("AUDIT event=SUBMISSION_JUDGED submissionId={} verdict={} score={}",
                 submissionId, judged.name(), score);
         auditRecorder.record("SUBMISSION_JUDGED", "SUBMISSION", submissionId, submission.getContestId(),
                 "verdict=" + judged.name() + " score=" + score, traceId, null);
         return toView(submission);
+    }
+
+    /**
+     * 幂等闸门（docs/api.md"事件信封"）：把 eventId 登记进 consumed_events，返回是否"已经处理过"。
+     *
+     * 与调用方在同一个事务里执行（调用方是 {@code @Transactional}），所以事务回滚时登记一起回滚——
+     * 这正是"登记"必须与"事实写入"同事务的原因：否则会出现登记成功、判决未落库、消息已 ack 的丢判决路径。
+     *
+     * eventId 为空（旧格式裸 payload 消息、内部重放端点）时不做闸门，退化为原有的终态保护（CAS）幂等。
+     */
+    private boolean isAlreadyProcessed(String eventId) {
+        if (eventId == null || eventId.isBlank()) {
+            return false;
+        }
+        return consumedEventMapper.tryMarkProcessed(eventId, JUDGED_CONSUMER) == 0;
     }
 
     /**

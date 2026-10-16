@@ -80,6 +80,7 @@ anti-cheat ──(plagiarism-requested)──> plagiarism-worker（独立部署�
 - 学生名单（2026-10-06）：`contest_schema.contest_candidates` 报名关系（唯一约束 contest_id+student_id，学号/账户名/显示名快照）；添加学生（auth 账号不存在则创建、存在则复用；REMOVED 行重新加入时激活）、**CSV 批量导入（multipart 上传，逐行等价于添加学生，逐行返回成功/失败原因，部分失败不回滚）**、分页名单（keyword 查学号）、重置密码（学生须在名单中）、移出（软删除 REMOVED）；重复报名 409、重复/未报名移出 403。**审计**：加入/重新加入/重置密码/移出四个动作写 audit-service 账本（`AuditRecorder` 尽力而为，失败不阻断；结构化日志同时保留兜底）。
 - 考生会话（2026-10-06）：`contest_schema.exam_sessions`（唯一约束 contest_id+student_id）；进入（名单+状态+时间窗口校验）、心跳、断线重连恢复、TERMINATED 终态拒绝重进；心跳超时（默认 2 分钟，`exam.session.heartbeat-timeout-minutes`）由 @Scheduled 扫描置 EXPIRED（条件更新多实例幂等）；管理端终止会话（`POST /{contestId}/students/{studentId}/session/terminate`，条件更新）与"移出名单即失效"（§9）已实现；重复登录踢设备的设备模型随客户端版本字段落地。
 - 状态推进与归档（2026-10-06）：PUBLISHED→RUNNING→FINISHED 由 `ContestScheduler` 按时间窗口自动推进（30s 周期，条件更新多实例幂等，无窗口的考试不参与）；心跳复核考试状态/窗口/名单；`POST /{id}/archive` 管理员归档（FINISHED→ARCHIVED）。**审计**：状态推进写账本（定时任务无用户令牌 → 服务身份令牌，账本 actor=contest-service、role=SERVICE）。
+- 服务间快照（2026-10）：`GET /api/v1/internal/contests/{contestId}/snapshot`（**只认服务身份** `roles=["SERVICE"]`）——一次给出考试元数据、全员名单（含 `REMOVED`，过滤留给使用方）与锁定题目版本，供分析型消费者定时拉取参照数据。已有的 `/internal/contests/{id}/session` 是**考生令牌**语义（判 `canSubmit`），分析服务用不了；实现见 `ContestSnapshotService`（单独成组件：它跨考试/名单/锁定题目三张表，塞进 `ContestService` 会让那个类同时承担生命周期规则与参照数据投影两件事）。
 - 公告（2026-10-06）：发布/考生拉取即送达/考生确认（幂等），表 announcements + announcement_confirms；指定题目公告与监考端确认情况查询随 problem/监考功能扩展。
 - 下一步：成绩查询与读模型（依赖评测链路）；状态变更事件推送 gateway（事件总线阶段）。
 
@@ -103,7 +104,7 @@ anti-cheat ──(plagiarism-requested)──> plagiarism-worker（独立部署�
 - 数据与基础设施：`submission_schema`（submissions + outbox_events）；**幂等键不存 Redis，以 DB 唯一约束为权威**（理由见 `docs/middleware.md`）。
 - 对外接口：`POST /api/v1/submissions`（考生；`Idempotency-Key` 幂等）、`GET /{id}`（学生看自己，老师/管理员可查任意）、`POST /api/v1/internal/submissions/{id}/judged`（判题回写过渡端点）；生产 `lunar-submission-created`、消费 `lunar-submission-judged`。
 - 当前实现（2026-10-06）：`submission_schema` 落库（submissions + outbox_events，独立 Flyway 历史表 `submission_history`）；五项校验实现四项——会话有效 + 竞赛进行中（contest 服务间判定 `/api/v1/internal/contests/{id}/session`）、语言白名单 + 判题限制（problem 服务间查询）、提交频率未超限（按学生做窗口计数，阈值经 Nacos `exam.submission.*` 热更新，默认每 60 秒 30 次，超限 429）；「题目属于竞赛」依赖随机分配表，仍未实现并在代码中标注；幂等=同键同指纹返首次、异指纹 409；提交与 Outbox（信封含 traceId）同一事务；判决回写更新状态并写 `lunar-submission-judged` Outbox；**审计**：提交动作写 audit-service 账本（`AuditRecorder` 尽力而为，traceId 透传）；9 个单测 + 真机闭环通过。
-- 事件总线（2026-10-07）：`OutboxPublisher`（2s 周期扫未发布事件行 → RocketMQTemplate 投递 → 标记 published_at，失败留待重试）；`JudgedConsumer` 消费 `lunar-submission-judged` 更新成绩读模型（终态保护幂等吞重复）。**审计**：判决回写写账本（MQ 消费者无用户令牌 → 服务身份令牌，actor=submission-service）。
+- 事件总线（2026-10-07，2026-10 更新）：`OutboxPublisher`（2s 周期扫未发布事件行 → RocketMQTemplate 投递 → 标记 published_at，失败留待重试；**消息体改为完整事件信封**，此前只发内层 payload 因此 `eventId` 传不出去）；`JudgedConsumer` 消费 `lunar-submission-judged` 更新成绩读模型——**幂等分两层**：信封 `eventId` 走 `submission_schema.consumed_events` 闸门（V2 迁移，`on conflict do nothing` 插入即判断，与状态回写**同一事务**，回滚时登记一起回滚，不会出现"登记了已处理、判决却没落库"的黑洞），无 `eventId` 的旧格式消息退化为终态条件更新（CAS）。**审计**：判决回写写账本（MQ 消费者无用户令牌 → 服务身份令牌，actor=submission-service）。
 - 下一步：题目归属校验（依赖随机分配表落地）；"该题最高有效分"聚合与成绩读模型；提交频率阈值目前是保守默认，正式考试前按考场规模调整 `exam.submission.*`。
 
 ## judge-service
@@ -116,7 +117,8 @@ anti-cheat ──(plagiarism-requested)──> plagiarism-worker（独立部署�
 - 对外接口：`POST /api/v1/judge/submissions`（代码存在但**当前不可用**：未接入验签，所有请求 401；也不落库、不发事件、测试点恒为空）；生产 `lunar-submission-judged`、消费 `lunar-submission-created`。
 - 当前实现：`JudgeServiceApplication`、`JudgeController`、`MockJudgeEngine`（mock profile）；`GoJudgeAdapter`（`infra/`，设置 `GO_JUDGE_BASE_URL` 即启用且优先于 mock）翻译 go-judge `POST /run` 协议并归一化 verdict，内置 C/C++/Java/Python/JavaScript/TypeScript 六种语言模板，14 个适配器单测通过；go-judge 容器由 `docker/compose.judge.yml` 提供（用 `docker/go-judge/Dockerfile` 构建带工具链的镜像）。**真机实测（2026-10）**：五种语言（C++/Python/Java/JS/TS）在同一个 go-judge 实例内编译/运行/比对均正常，C++ 的五类 verdict（ACCEPTED/WRONG_ANSWER/COMPILE_ERROR/RUNTIME_ERROR/TIME_LIMIT_EXCEEDED）均按预期归一化；但**经事件链路的真实评测目前必然 `SYSTEM_ERROR`**——消费者把 `testFiles` 硬编码为空，适配器在缺测试点时短路返回（见"下一步"）。唯一启用 spring-boot-maven-plugin 的模块。
 - 事件总线（2026-10-07，2026-10 更新）：`SubmissionCreatedConsumer` 消费 `lunar-submission-created` → JudgeEngine 执行 → 发布 `lunar-submission-judged`（verdict 归一化 + `passedCases`/`totalCases`，`score` 按测试点通过比例计算，通过全部为满分）；Mock 引擎模拟"提交即判对"供全链路演示，真实引擎 `GO_JUDGE_BASE_URL` 启用；**测试点随事件传输**（submission 经 problem 的服务间接口取到后放进 `testFiles`），真实引擎因此能出真实 verdict；新增 application.yml（rocketmq 配置，SERVER_PORT 仍需显式设置）。积压消息在消费组上线后自动补消费（观测验证）。
-- 下一步：judge_task 表与异步状态机（重试/超时补偿）；事件信封与消费端 `eventId` 去重；生产镜像锁定 digest 与工具链版本。
+- 事件信封与消费去重（2026-10）：`lunar-submission-created` 消费端新增 Redis 去重（`ConsumedEventGuard`，**特意"先查、处理成功后再登记"**——先 SETNX 占坑会在评测中途失败后让重投看到坑位已占而直接 ack，判决永久丢失；fail-open）；judged 事件改为发**完整信封**（带 `eventId`，消费端可真正幂等）并富化 `contestId`/`problemId`/`problemVersionId`/`studentId`/`language`/`submittedAt`——judge 没有数据库，只能把 created 事件里的身份原样带下去，而此前 judged 只有 `submissionId` 与 verdict，**除 submission 之外没有任何服务能独立消费这条事件**。
+- 下一步：judge_task 表与异步状态机（重试/超时补偿）；生产镜像锁定 digest 与工具链版本。
 
 ## anti-cheat-service
 
@@ -127,6 +129,7 @@ anti-cheat ──(plagiarism-requested)──> plagiarism-worker（独立部署�
 - 数据与基础设施：`anti_cheat_schema`；风险事件检索首期直接查 PostgreSQL（Elasticsearch 暂不使用）。
 - 对外接口：`POST /api/v1/monitor/events`（考生上报）、`GET /api/v1/monitor/events`（监考/管理分页查询）、`POST /api/v1/monitor/events/{eventId}/review`（人工审核）**均已实现**（见 `docs/api.md`）；生产 `lunar-risk-event-created`（经 Outbox）；**消费 `lunar-submission-created`、`lunar-risk-event-created`、`lunar-screenshot-created`、`lunar-plagiarism-completed` 均未实现**（有 rocketmq 依赖但没有任何消费者），规划中的 `lunar-screenshot-requested`、`lunar-plagiarism-requested` 也未生产。
 - 当前实现（2026-10-06/07）：`anti_cheat_schema.risk_events` 落库 + Outbox（`lunar-risk-event-created` → gateway 告警的未来消费方）；上报（考生客户端，severity 服务端规则表计算、未知类型保守 MEDIUM）；分页查询（竞赛/学生/等级/审核状态过滤）；审核状态机 OPEN→ACKNOWLEDGED→CONFIRMED/DISMISSED（条件更新防并发，终态保护，动作留痕日志待 audit 迁移）；9 个单测 + 真机闭环通过。
+- 审核流转事件（2026-10）：新增 `lunar-risk-event-reviewed`（`previousStatus`/`newStatus`/`reviewedBy`/`reviewedAt`，与审核状态更新**同一事务**）。此前风险事件只在**创建**时进 Outbox，只消费 `created` 的话分析侧的审核结论会永远停留在 `OPEN`；同时给 created 的 payload 补上 `problemId`。
 - 下一步：查重任务（JPlag，随 submission 聚合）；告警推送 gateway（WebSocket 阶段）；规则表可配置化；审核动作迁移 audit-service。
 
 ## media-service

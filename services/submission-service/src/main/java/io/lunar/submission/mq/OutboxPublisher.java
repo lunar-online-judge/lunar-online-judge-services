@@ -1,8 +1,11 @@
 package io.lunar.submission.mq;
 
+import io.lunar.common.event.EventEnvelope;
 import io.lunar.submission.infra.OutboxEventEntity;
 import io.lunar.submission.infra.OutboxEventMapper;
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
+import com.fasterxml.jackson.core.JsonProcessingException;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import org.apache.rocketmq.spring.core.RocketMQTemplate;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -15,8 +18,8 @@ import java.util.List;
 
 /**
  * Outbox 发布器（docs/architecture.md §8 第 4 步）：扫描未发布事件行，
- * 按事件类型投递到对应 Topic（消息体 = 事件 payload JSON），成功后标记 published_at。
- * 发送失败留在下一轮重试；消费者按 eventId 幂等。
+ * 按事件类型投递到对应 Topic（消息体 = 完整事件信封 JSON，见 docs/api.md"事件信封"），
+ * 成功后标记 published_at。发送失败留在下一轮重试；消费者按 eventId 幂等。
  */
 @Component
 public class OutboxPublisher {
@@ -25,6 +28,7 @@ public class OutboxPublisher {
 
     private final OutboxEventMapper outboxMapper;
     private final RocketMQTemplate rocketMQTemplate;
+    private final ObjectMapper objectMapper = new ObjectMapper();
 
     public OutboxPublisher(OutboxEventMapper outboxMapper, RocketMQTemplate rocketMQTemplate) {
         this.outboxMapper = outboxMapper;
@@ -39,7 +43,7 @@ public class OutboxPublisher {
                 .last("limit 100"));
         for (OutboxEventEntity event : pending) {
             try {
-                MessageBuilder<String> message = MessageBuilder.withPayload(event.getPayload())
+                MessageBuilder<String> message = MessageBuilder.withPayload(envelopeJsonOf(event))
                         .setHeader("KEYS", event.getEventId());
                 // traceId 为空时不能设该头：RocketMQ 拒绝空属性值（"property can not be null or blank string"），
                 // 设了整条消息就发不出去，事件会永远卡在 Outbox 里重试
@@ -55,5 +59,22 @@ public class OutboxPublisher {
                         event.getEventId(), event.getEventType(), exception);
             }
         }
+    }
+
+    /**
+     * 上线消息体 = 完整事件信封（docs/api.md"事件信封"）。
+     *
+     * 为什么不直接发 {@code event.getPayload()}：消费端要按 eventId 幂等，而裸 payload 不携带 eventId，
+     * 幂等在消费侧根本无法实现（judge 的 created 消费者此前没有任何去重，重复投递会重复评测）。
+     * 信封把 eventId 一并送到消费端。
+     */
+    private String envelopeJsonOf(OutboxEventEntity event) throws JsonProcessingException {
+        int schemaVersion = event.getSchemaVersion() == null
+                ? EventEnvelope.CURRENT_SCHEMA_VERSION
+                : event.getSchemaVersion();
+        return EventEnvelope.of(event.getEventId(), event.getEventType(), event.getAggregateId(),
+                        event.getOccurredAt(), schemaVersion, event.getTraceId(),
+                        objectMapper.readTree(event.getPayload()))
+                .toJson(objectMapper);
     }
 }

@@ -7,7 +7,7 @@
 | 中间件 | 镜像/版本 | 端口 | 用途 | 接入状态 |
 |---|---|---|---|---|
 | PostgreSQL | `postgres:16` | 5432（本地 Compose 映射 5433） | 唯一业务事实源，多 schema 隔离 | Compose 已提供；驱动 + Flyway 已在 6 个有库服务引入（auth / contest / problem / submission / anti-cheat / audit） |
-| Redis | `redis:7-alpine` | 6379 | 短期状态：限流计数（令牌、幂等、心跳、锁**有意不迁**，见下） | Compose 已提供；已接入 auth-service（登录失败限流） |
+| Redis | `redis:7-alpine` | 6379 | 短期状态：限流计数（令牌、幂等、心跳、锁**有意不迁**，见下）、事件消费去重 | Compose 已提供；已接入 auth-service（登录失败限流）与 judge-service（`lunar-submission-created` 消费去重） |
 | RocketMQ | `apache/rocketmq:5.3.1` | 9876 | 服务间异步事件总线（规划 7 个 Topic，当前落地 3 个） | 已接入：submission / anti-cheat 经 Outbox 生产，judge 消费 `lunar-submission-created`、submission 消费 `lunar-submission-judged`（全仓仅这 2 个消费者，rocketmq-spring 2.3.0） |
 | Nacos | `nacos/nacos-server:v3.0.3` | 8848 / 9848 / 8849（控制台） | 服务发现 + 配置中心 | 已接入：8 个服务均注册到 Nacos 并按服务名寻址，4 个服务有托管配置 |
 | MinIO | `minio/minio:latest` | 9000 / 9001 | 截图对象存储 | Compose 已提供；SDK 未接入 |
@@ -36,6 +36,7 @@
 **功能**（括号内为当前状态）：
 
 - 限流计数：**登录失败锁定已迁到 Redis**（auth-service，键 `auth:login:fail:*` / `auth:login:lock:*`，TTL 即锁定时长）；接口频控未开发；
+- 事件消费去重：**judge-service 已接入**（键 `judge:consumed:*`，TTL 默认 24 小时，`judge.consumer.consumed-event-ttl-hours` 可托管调参）。judge 没有数据库，幂等只能落在短期状态层；**有意采用"先查、处理成功后再登记"而不是先 SETNX 占坑**——先占坑会在评测中途失败后让重投看到坑位已占而直接 ack，判决永久丢失（fail-open：Redis 不可用时不去重，仍然评测）；
 - 令牌失效状态（登出/踢下线）：未开发；
 - 写操作 `Idempotency-Key` 幂等键：**仍以 PostgreSQL 唯一约束为权威，不迁 Redis**（理由见下）；
 - 考生会话心跳与会话在线状态：**未迁**，`contest_schema.exam_sessions` 仍是权威（理由见下）；
@@ -61,6 +62,8 @@
 - 与 PostgreSQL Outbox 配合实现可靠发布。**当前实现**：发布器按 `published_at is null` 扫描并投递，失败仅告警、留待下一轮重试；**死信表与管理员重放尚未实现**（也没有重试计数与退避）。
 
 **约束**：消费者必须按 `eventId` 幂等；重复消息不能把提交状态从终态改回运行态。
+
+**上线格式（2026-10 已落地）**：消息体是**完整事件信封**（`eventId` / `eventType` / `aggregateId` / `occurredAt` / `schemaVersion` / `traceId` + 内层 `payload`）。此前只发内层 payload，`eventId` 不随消息传输，消费侧的"按 eventId 幂等"根本无法实现；现在 submission 用 `consumed_events` 表闸门、judge 用 Redis 去重。消费端同时兼容旧的裸 payload 格式（灰度期），细节见 `docs/api.md`"事件信封"。
 
 **本地部署**：Compose 已包含 NameServer + broker（同为 `apache/rocketmq:5.3.1`）。broker 配置在 `docker/rocketmq/broker.conf`：单主 `ASYNC_MASTER`、堆内存调到 512m、`brokerIP1=127.0.0.1`（Spring 服务跑在宿主机的前提——否则 broker 向 NameServer 注册容器内网 IP，宿主机客户端连不上；服务容器化后注释掉该行即可）、开发期 `autoCreateTopicEnable=true`（生产必须关闭并显式建 Topic）。
 

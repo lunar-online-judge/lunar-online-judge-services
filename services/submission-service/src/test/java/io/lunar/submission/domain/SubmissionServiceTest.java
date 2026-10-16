@@ -3,6 +3,7 @@ package io.lunar.submission.domain;
 import io.lunar.common.audit.AuditRecorder;
 import io.lunar.submission.config.SubmissionLimitProperties;
 import io.lunar.submission.domain.dto.SubmissionView;
+import io.lunar.submission.infra.ConsumedEventMapper;
 import io.lunar.submission.infra.OutboxEventEntity;
 import io.lunar.submission.infra.OutboxEventMapper;
 import io.lunar.submission.infra.SubmissionEntity;
@@ -37,10 +38,11 @@ class SubmissionServiceTest {
 
     private final SubmissionMapper submissionMapper = mock(SubmissionMapper.class);
     private final OutboxEventMapper outboxMapper = mock(OutboxEventMapper.class);
+    private final ConsumedEventMapper consumedEventMapper = mock(ConsumedEventMapper.class);
     private final UpstreamClient upstream = mock(UpstreamClient.class);
     private final AuditRecorder auditRecorder = mock(AuditRecorder.class);
     private final SubmissionService service = new SubmissionService(
-            submissionMapper, outboxMapper, upstream, limitProperties(), auditRecorder);
+            submissionMapper, outboxMapper, consumedEventMapper, upstream, limitProperties(), auditRecorder);
 
     private static SubmissionLimitProperties limitProperties() {
         SubmissionLimitProperties properties = new SubmissionLimitProperties();
@@ -61,6 +63,9 @@ class SubmissionServiceTest {
         when(submissionMapper.selectOne(any())).thenReturn(null);
         // 频率限制默认未触发（窗口内 0 次提交），超限用例单独覆盖
         when(submissionMapper.selectCount(any())).thenReturn(0L);
+        // 幂等闸门默认"首次见到该 eventId"（返回 1）；重复投递用例单独覆盖为 0。
+        // 必须显式打桩：Mockito 对 int 返回值的默认值是 0，那会被读成"已处理过"而让所有用例短路。
+        when(consumedEventMapper.tryMarkProcessed(any(), any())).thenReturn(1);
         // 判决回写是条件更新（CAS）：默认成功（影响 1 行），并发冲突用例单独覆盖为 0 行
         when(submissionMapper.update(isNull(), any())).thenReturn(1);
         when(upstream.checkSession(any(), any())).thenReturn(Map.of(
@@ -200,7 +205,7 @@ class SubmissionServiceTest {
         SubmissionEntity submission = existing(null);
         when(submissionMapper.selectById("sub_existing")).thenReturn(submission);
 
-        SubmissionView view = service.applyJudgment("sub_existing", "ACCEPTED", 100, 3,
+        SubmissionView view = service.applyJudgment("sub_existing", "evt-judged-1", "ACCEPTED", 100, 3,
                 3, "trace-2");
 
         assertThat(view.status()).isEqualTo("ACCEPTED");
@@ -219,7 +224,7 @@ class SubmissionServiceTest {
         submission.setStatus("ACCEPTED");
         when(submissionMapper.selectById("sub_existing")).thenReturn(submission);
 
-        assertThatThrownBy(() -> service.applyJudgment("sub_existing", "WRONG_ANSWER", 0, 0, 3, null))
+        assertThatThrownBy(() -> service.applyJudgment("sub_existing", "evt-judged-2", "WRONG_ANSWER", 0, 0, 3, null))
                 .isInstanceOf(SubmissionException.InvalidStatusTransition.class);
     }
 
@@ -233,9 +238,33 @@ class SubmissionServiceTest {
                 .thenReturn(accepted);
         when(submissionMapper.update(isNull(), any())).thenReturn(0);
 
-        assertThatThrownBy(() -> service.applyJudgment("sub_existing", "WRONG_ANSWER", 0, 0, 3, "trace-3"))
+        assertThatThrownBy(() -> service.applyJudgment("sub_existing", "evt-judged-3", "WRONG_ANSWER", 0, 0, 3, "trace-3"))
                 .isInstanceOf(SubmissionException.InvalidStatusTransition.class);
         verify(outboxMapper, never()).insert(any(OutboxEventEntity.class));
+    }
+
+    /** 幂等闸门：同一 eventId 第二次到达时不得再改库、也不得再补发 judged 事件。 */
+    @Test
+    void duplicateJudgedEventIsSkippedByConsumedEventsGate() {
+        when(consumedEventMapper.tryMarkProcessed("evt-dup", "submission_judged_group")).thenReturn(0);
+        when(submissionMapper.selectById("sub_existing")).thenReturn(existing(null));
+
+        SubmissionView view = service.applyJudgment("sub_existing", "evt-dup", "ACCEPTED", 100, 3, 3, null);
+
+        assertThat(view.status()).isEqualTo("QUEUED");
+        verify(submissionMapper, never()).update(isNull(), any());
+        verify(outboxMapper, never()).insert(any(OutboxEventEntity.class));
+    }
+
+    /** 旧格式消息（无 eventId）不过闸门：退化为终态保护（CAS），仍正常回写。 */
+    @Test
+    void legacyMessageWithoutEventIdSkipsTheGate() {
+        when(submissionMapper.selectById("sub_existing")).thenReturn(existing(null));
+
+        service.applyJudgment("sub_existing", null, "ACCEPTED", 100, 3, 3, null);
+
+        verify(consumedEventMapper, never()).tryMarkProcessed(any(), any());
+        verify(submissionMapper).update(isNull(), any());
     }
 
     @Test

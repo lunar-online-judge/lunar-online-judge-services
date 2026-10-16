@@ -99,7 +99,11 @@ HTTP 前缀统一为 `/api/v1`。各服务经 gateway 对外暴露；客户端�
 
 所有 RocketMQ 事件包含统一信封字段：`eventId`、`eventType`、`aggregateId`、`occurredAt`、`schemaVersion`、`traceId`；消费者必须按 `eventId` 幂等。Topic 清单见 `docs/architecture.md` 第 5 节。
 
-**当前实现与契约的差距（务必知悉）**：信封字段目前只落在各服务的 `outbox_events` 行里，**上线消息体只带内层 `payload` JSON**，消息头只带 `KEYS=eventId` 与 `traceId`——`aggregateId` / `schemaVersion` / `occurredAt` 不随消息传输；judge-service 直接发送 `lunar-submission-judged` 时连 `eventId` 都没有。因此"按 `eventId` 幂等"目前**无法实现**：judge 的 `lunar-submission-created` 消费者没有任何去重（重复投递会重复评测并重复发 judged），submission 侧只靠"终态前置检查"兜底。补信封与消费端去重属待办（见 `BACKEND_IMPROVEMENT_PLAN.md`）。
+**上线格式（已实现）**：消息体就是完整信封 JSON，内层业务数据在 `payload` 字段；消息头带 `KEYS=eventId` 与 `traceId`（traceId 为空时**省略该头**——RocketMQ 拒绝空属性值，历史上曾有事件因此永久卡在 Outbox）。实现见 `lunar-common` 的 `EventEnvelope`（生产者包装）与 `EventMessages`（消费者解包）。
+
+**灰度兼容（务必知悉）**：生产者与消费者无法同时发布，因此消费端**必须同时认两种形态**——带信封的新消息，与"整条消息就是内层 payload"的旧消息。`EventMessages.payloadOf` 已封装该兼容，判定依据是 `eventId` + `eventType` + `payload` 三个字段同时存在（只看 `payload` 字段会把"内层恰好含 payload 字段"的旧消息剥壳、丢掉业务数据）。旧格式没有 `eventId`，此时幂等退化为业务侧的终态条件更新（CAS）。
+
+**消费端去重（已实现）**：submission 用 `submission_schema.consumed_events` 闸门，与事实写入同一事务（`insert ... on conflict do nothing`，插入即判断）；judge-service 没有数据库，用 Redis 的 `ConsumedEventGuard`。judge 侧有意采用"**先查、处理成功后再登记**"而不是"先 SETNX 占坑"：后者会在评测中途失败后让重投看到坑位已占而直接 ack，判决永久丢失；先查后写的代价只是极端并发下多评一次。两者都 fail-open（短期状态层不可用不影响主链路）。
 
 ### WebSocket（**尚未实现**，以下为约定）
 
@@ -107,7 +111,7 @@ HTTP 前缀统一为 `/api/v1`。各服务经 gateway 对外暴露；客户端�
 
 ## 端点总表
 
-下表与代码一致（共 46 个端点，分布在 16 个控制器）。"鉴权"列是 `@PreAuthorize` / `SecurityConfig` 的实际规则；"任意已认证"表示当前只要求有效令牌、**尚未做资源范围校验**（属待办，见 `BACKEND_IMPROVEMENT_PLAN.md` BE-01）。
+下表与代码一致（共 47 个端点，分布在 17 个控制器）。"鉴权"列是 `@PreAuthorize` / `SecurityConfig` 的实际规则；"任意已认证"表示当前只要求有效令牌、**尚未做资源范围校验**（属待办，见 `BACKEND_IMPROVEMENT_PLAN.md` BE-01）。
 
 | 服务 | 方法 | 路径 | 鉴权 | 状态 |
 |---|---|---|---|---|
@@ -152,9 +156,10 @@ HTTP 前缀统一为 `/api/v1`。各服务经 gateway 对外暴露；客户端�
 | contest | POST | `/api/v1/contests/{contestId}/session` | CANDIDATE | 已实现（进入/恢复；校验名单 + 状态 + 时间窗口） |
 | contest | POST | `/api/v1/contests/{contestId}/session/heartbeat` | CANDIDATE | 已实现（心跳 + 剩余秒数） |
 | contest | GET | `/api/v1/internal/contests/{contestId}/session` | CANDIDATE（转发学生令牌） | 已实现（供 submission 判定 `canSubmit`） |
+| contest | GET | `/api/v1/internal/contests/{contestId}/snapshot` | **SERVICE** | 已实现（考试快照：考试元数据 + 全员名单（含 `REMOVED`）+ 锁定题目版本；供分析型消费者拉取参照数据。考生令牌语义的 `/session` 不具备这个用途，且快照含全员名单，不能凭"内网 + 任意已认证令牌"取走） |
 | anti-cheat | POST | `/api/v1/monitor/events` | CANDIDATE | 已实现（severity 由服务端规则表计算） |
 | anti-cheat | GET | `/api/v1/monitor/events` | **ADMIN** | 已实现（分页：竞赛/学生/等级/审核状态过滤；**BE-01 先收紧为管理员专用**——风险事件只知道 contestId、不知道竞赛归属，跨服务范围查询落地前按兼容说明继续 ADMIN-only） |
-| anti-cheat | POST | `/api/v1/monitor/events/{eventId}/review` | **ADMIN** | 已实现（OPEN→ACKNOWLEDGED→CONFIRMED/DISMISSED；写入走前态条件更新，并发终审最多一个成功；角色同上一行，先收紧为管理员） |
+| anti-cheat | POST | `/api/v1/monitor/events/{eventId}/review` | **ADMIN** | 已实现（OPEN→ACKNOWLEDGED→CONFIRMED/DISMISSED；写入走前态条件更新，**并发终审恰好一个成功、另一个 409**，终态不可再动；**终态必须填原因**，空白/超长 400 `MONITOR_REVIEW_REASON_INVALID`；角色同上一行，先收紧为管理员） |
 | audit | POST | `/api/v1/internal/audit/records` | 任意已认证 | 已实现（服务间写入；注意规则是 `isAuthenticated()`，未限制为 TEACHER/ADMIN。调用方：contest / auth / submission / anti-cheat，经 lunar-common 的 `AuditRecorder` 尽力而为写入。请求体可选字段缺省传 `null`——`contestId` 是 uuid 列，传空串会被 PostgreSQL 拒绝。SERVICE 令牌写入时 `sub` 落 `service_id`、`actor_id` 留空） |
 | audit | GET | `/api/v1/audit/records` | TEACHER/ADMIN | 已实现（追加式账本查询） |
 

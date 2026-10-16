@@ -17,6 +17,14 @@ spring:
         fail-fast: ${NACOS_FAIL_FAST:false}
   application:
     name: judge-service
+  data:
+    redis:
+      # 消费去重（judge 无数据库，见 infra/ConsumedEventGuard 的"先查后登记"取舍）：
+      # Redis 不可用时 fail-open——不去重、继续评测，判题链路的可用性优先
+      host: ${REDIS_HOST:localhost}
+      port: ${REDIS_PORT:6379}
+      timeout: ${REDIS_TIMEOUT_MS:1000}ms
+      connect-timeout: ${REDIS_CONNECT_TIMEOUT_MS:500}ms
 
 rocketmq:
   name-server: ${ROCKETMQ_NAMESRV_ADDR:localhost:9876}

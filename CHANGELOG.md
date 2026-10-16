@@ -73,6 +73,11 @@
 
 ### 新增
 
+- **风险复核的原因校验与并发实测（`BACKEND_IMPROVEMENT_PLAN` BE-03，P0）**
+  - 终态结论（`CONFIRM`/`DISMISS`）**必须填写原因**（空白/纯空格 400 新错误码 `MONITOR_REVIEW_REASON_INVALID`），原因长度上限 500 字符；单一事件不能自动判作弊，处置必须可追溯
+  - 审核日志按纯文本处理（换行/制表符折成空格并截断），避免污染结构化日志字段
+  - **并发 CAS 经真机实测确认已生效**（计划里"selectById→检查→updateById"的证据已过时）：两个并发终审恰好一个 200、一个 409，终态只有一次有效流转且不可重写
+  - **未做**（计划 BE-03 的其余部分）：上报时对 `contestId`/`problemId` 的报名/会话/分配校验（需 anti-cheat 跨服务查询）、迟到事件的可接受时间窗口、`clientEventId` 重放去重、上报速率与请求体大小限制
 - **提交所属关系与版本快照（`BACKEND_IMPROVEMENT_PLAN` BE-04，P0）**：考试锁定的题目版本成为提交与判题的权威
   - contest 新增 `contest_problems`（V6 迁移）：加入题目时**必须指定并锁定 `problemVersionId`**，之后全局再发布新版本也不会改变正在进行的考试的题面与测试数据；提供加入/清单/移出（限考试归属者或 ADMIN，BE-01 范围校验）与服务间"取该考试锁定版本"接口
   - submission 的版本来源改为**考试锁定值**（新增 `ContestServiceApi.lockedProblemVersion`），判题限制也取自该版本（新增 problem 的 `GET /api/v1/internal/problems/{problemId}/versions/{versionId}`，只认服务身份）；`problemVersionId` 随 `lunar-submission-created` 事件送到判题引擎，**测试点也按这个版本取**——不再有"提交表存快照、执行时取全局 current 版本"的错位
@@ -175,9 +180,19 @@
   - 实测：8 个服务注册 + 4 个服务加载配置 + 热更新（改 Nacos 不重启即生效，日志 `Receive Nacos config change` → `Refresh keys changed: [auth.login.max-failures]`）+ 142 条端到端断言全绿
   - 过程记录：升级前先用独立容器对 3.0.3 做探测（端口/鉴权/命名空间/发布途径），确认无阻塞后才切生产编排；期间发现并绕开两个 3.x 细节——控制台/管理 API 需登录、v1 配置 API 已移除
 
+- **事件信封正式上线：消费端从此可以按 `eventId` 幂等**（此前消息体只带内层 `payload`，`eventId` 不随消息传输，`docs/api.md` 已记录该差距）
+  - `lunar-common` 新增 `EventEnvelope`（生产者：把内层 payload 包成 `eventId`/`eventType`/`aggregateId`/`occurredAt`/`schemaVersion`/`traceId` + `payload` 的完整信封，缺字段在构造点直接拒绝）与 `EventMessages`（消费者：统一解包并**同时兼容旧的裸 payload**，判定依据是三个信封字段同时存在——只看 `payload` 字段会把"内层恰好有 payload 字段"的旧消息剥壳丢数据）；含 4 个单测钉住兼容语义
+  - submission / anti-cheat 的 `OutboxPublisher` 改发完整信封；judge 直发的 `lunar-submission-judged` 同样带信封与 `KEYS=eventId` 头
+  - judge 的 `lunar-submission-created` 消费去重：新增 `ConsumedEventGuard`（Redis——judge 没有数据库）。**有意"先查、处理成功后再登记"而不是先 SETNX 占坑**：先占坑会在评测中途失败后让重投看到"坑位已占"而直接 ack，判决永久丢失；代价只是极端并发下多评一次。fail-open，Redis 不可用时不去重但仍然评测
+  - submission 的 `lunar-submission-judged` 消费去重：新增 `submission_schema.consumed_events` 幂等闸门（V2 迁移）与 `ConsumedEventMapper.tryMarkProcessed`（`on conflict do nothing`，插入与判断合一），与状态回写**同一事务**——事务回滚时登记一起回滚，不会留下"登记了已处理、判决却没落库"的黑洞
+- **`lunar-submission-judged` 富化提交身份**：补齐 `contestId`/`problemId`/`problemVersionId`/`studentId`/`language`/`submittedAt`
+  - 起因：judge 没有数据库，只能把 created 事件里的身份字段原样带下去；此前 judged 只有 `submissionId` 与 verdict，**除 submission 之外没有任何服务能独立消费这条事件**（分析读模型要靠它建"考试×学生×题目"事实表）
+  - 该事件有两个生产者（judge 直发、submission 的内部回写端点），两条路径的内层 payload 形状已对齐，否则其中一路的 `contestId`/`problemId` 会为空
+- **contest 新增服务级快照端点** `GET /api/v1/internal/contests/{contestId}/snapshot`（只认 `roles=["SERVICE"]`）：一次给出考试元数据、全员名单（含 `REMOVED`，过滤留给使用方）与锁定题目版本。已有的 `/internal/contests/{id}/session` 是**考生令牌**语义，分析型消费者无法使用
+- **anti-cheat 新增审核流转事件** `lunar-risk-event-reviewed`（与审核状态更新同事务）：风险事件此前只在**创建**时进 Outbox，只消费 created 的话分析侧的审核结论会永远停留在 `OPEN`；同时给 created 的 payload 补上 `problemId`（`Map.of` 换成 `LinkedHashMap`——`problemId` 允许为空，而 `Map.of` 遇到 null 值直接抛 NPE）
+
 ### 计划中
 
-- 事件信封上线与消费端按 `eventId` 幂等（当前消息体只带 `payload`，judge 的消费者没有任何去重）
 - **测试点传输到评测引擎**：`SubmissionCreatedConsumer` 把 `testFiles` 硬编码为空、`GoJudgeAdapter` 在缺测试点时短路返回 `SYSTEM_ERROR`，因此真实引擎永远拿不到测试数据（需在"事件携带测试点"与"judge 回源 problem-service"之间选一个，后者还要先落服务间身份）
 - `judge_task` 异步评测状态机（重试/超时补偿/指数退避）、死信表与管理员重放
 - 竞赛级授权范围（owner/grant）与 `INVIGILATOR` 权限矩阵

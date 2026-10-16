@@ -117,6 +117,26 @@ class RiskEventServiceTest {
         assertThat(view.reviewStatus()).isEqualTo("CONFIRMED");
     }
 
+    /**
+     * 审核流转必须进 Outbox：风险事件只在**创建**时发事件，若审核不补一条，
+     * 分析侧的审核结论会永远停留在 OPEN（CONFIRMED/DISMISSED 根本传不出去）。
+     */
+    @Test
+    void reviewWritesReviewedOutboxEventInSameTransaction() {
+        when(riskEventMapper.selectById("e1")).thenReturn(event("e1", "OPEN"));
+
+        service.review("e1", "CONFIRM", "证据确凿", "teacher_1", "tok");
+
+        ArgumentCaptor<OutboxEventEntity> captor = ArgumentCaptor.forClass(OutboxEventEntity.class);
+        verify(outboxMapper).insert(captor.capture());
+        assertThat(captor.getValue().getEventType()).isEqualTo("lunar-risk-event-reviewed");
+        assertThat(captor.getValue().getAggregateId()).isEqualTo("e1");
+        assertThat(captor.getValue().getPayload())
+                .contains("\"previousStatus\":\"OPEN\"")
+                .contains("\"newStatus\":\"CONFIRMED\"")
+                .contains("\"reviewedBy\":\"teacher_1\"");
+    }
+
     @Test
     void terminalStatusCannotBeReviewedAgain() {
         when(riskEventMapper.selectById("e1")).thenReturn(event("e1", "CONFIRMED"));
