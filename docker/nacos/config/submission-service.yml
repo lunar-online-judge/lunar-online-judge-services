@@ -2,3 +2,10 @@
 outbox:
   # 注意：@Scheduled 在启动时解析该值，改后需重启 submission-service 才生效
   publish-interval-ms: 2000
+# 提交频率限制（docs/exam-process.md §7）：@ConfigurationProperties 热更新，改后无需重启
+exam:
+  submission:
+    # 统计窗口（秒）
+    window-seconds: 60
+    # 单学生在窗口内的提交次数上限，达到即返回 429 SUBMISSION_LIMIT_EXCEEDED
+    max-per-window: 30

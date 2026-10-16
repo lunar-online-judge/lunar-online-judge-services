@@ -1,6 +1,7 @@
 package io.lunar.submission.domain;
 
 import io.lunar.common.judge.JudgeVerdict;
+import io.lunar.submission.config.SubmissionLimitProperties;
 import io.lunar.submission.domain.dto.SubmissionView;
 import io.lunar.submission.infra.OutboxEventEntity;
 import io.lunar.submission.infra.OutboxEventMapper;
@@ -28,8 +29,9 @@ import java.util.UUID;
 
 /**
  * 提交流程（docs/architecture.md §8）：
- * 五项校验中已实现三项——会话有效、竞赛进行中（contest 服务间判定）、语言允许（problem 白名单）；
- * 「题目属于竞赛」依赖随机分配关联表、「提交次数未超限」阈值待确认（exam-process §10），标记 TODO 不假装校验。
+ * 五项校验中已实现四项——会话有效、竞赛进行中（contest 服务间判定）、语言允许（problem 白名单）、
+ * 提交频率未超限（按学生做窗口计数，阈值经 Nacos 热更新）；「题目属于竞赛」依赖随机分配关联表
+ * （docs/exam-process.md §3 未落地），代码中标注而不假装校验。
  * 幂等：Idempotency-Key 同学生唯一；同键同指纹返回首次结果（200），同键不同指纹 409 SUBMISSION_DUPLICATE。
  * 事务：submission(QUEUED) 与 Outbox(submission.created) 同一本地事务落库，由 OutboxPublisher 投递。
  */
@@ -41,13 +43,15 @@ public class SubmissionService {
     private final SubmissionMapper submissionMapper;
     private final OutboxEventMapper outboxMapper;
     private final UpstreamClient upstream;
+    private final SubmissionLimitProperties limitProperties;
     private final ObjectMapper objectMapper = new ObjectMapper();
 
     public SubmissionService(SubmissionMapper submissionMapper, OutboxEventMapper outboxMapper,
-                             UpstreamClient upstream) {
+                             UpstreamClient upstream, SubmissionLimitProperties limitProperties) {
         this.submissionMapper = submissionMapper;
         this.outboxMapper = outboxMapper;
         this.upstream = upstream;
+        this.limitProperties = limitProperties;
     }
 
     @Transactional
@@ -76,8 +80,8 @@ public class SubmissionService {
         Integer timeLimitMs = asInt(problem.get("timeLimitMs"));
         Integer memoryLimitKb = asInt(problem.get("memoryLimitKb"));
 
-        // TODO: 校验四「题目属于竞赛」依赖竞赛题目分配表（exam-process §3 随机分配未落地）；
-        // TODO: 校验五「提交次数未超限」阈值待确认（exam-process §5），确认前不做硬限制。
+        // 校验四「题目属于竞赛」仍依赖竞赛题目分配表（exam-process §3 随机分配未落地）。
+        enforceRateLimit(studentId);
 
         SubmissionEntity submission = new SubmissionEntity();
         submission.setId(UUID.randomUUID().toString());
@@ -171,6 +175,22 @@ public class SubmissionService {
         log.info("AUDIT event=SUBMISSION_JUDGED submissionId={} verdict={} score={}",
                 submissionId, judged.name(), score);
         return toView(submission);
+    }
+
+    /**
+     * 校验五（docs/exam-process.md §7）：窗口内提交频率限制与反滥用。
+     * 计数以 submissions 表为权威（本服务不依赖 Redis），窗口与阈值可经 Nacos 热更新；
+     * 并发提交可能同时通过计数——这是软限制，可接受，不为此引入分布式锁。
+     */
+    private void enforceRateLimit(String studentId) {
+        Instant windowStart = Instant.now().minusSeconds(limitProperties.getWindowSeconds());
+        Long recentSubmissions = submissionMapper.selectCount(new LambdaQueryWrapper<SubmissionEntity>()
+                .eq(SubmissionEntity::getStudentId, studentId)
+                .ge(SubmissionEntity::getCreatedAt, windowStart));
+        if (recentSubmissions != null && recentSubmissions >= limitProperties.getMaxPerWindow()) {
+            throw new SubmissionException.LimitExceeded(
+                    limitProperties.getMaxPerWindow(), limitProperties.getWindowSeconds());
+        }
     }
 
     /** 校验一/二：会话有效 + 竞赛进行中（contest 服务间判定，转发学生令牌）。 */

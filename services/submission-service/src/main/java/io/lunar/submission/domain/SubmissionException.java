@@ -30,6 +30,14 @@ public class SubmissionException extends ApiException {
         }
     }
 
+    /** 429：窗口内提交次数超限（频率限制与反滥用，阈值可配）。 */
+    public static final class LimitExceeded extends SubmissionException {
+        public LimitExceeded(int maxPerWindow, int windowSeconds) {
+            super("SUBMISSION_LIMIT_EXCEEDED", 429,
+                    "提交过于频繁：每 " + windowSeconds + " 秒最多 " + maxPerWindow + " 次");
+        }
+    }
+
     /** 403：不在竞赛名单。 */
     public static final class NotSubmittable extends SubmissionException {
         public NotSubmittable(String reason) {

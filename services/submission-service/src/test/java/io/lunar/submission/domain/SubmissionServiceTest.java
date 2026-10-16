@@ -1,5 +1,6 @@
 package io.lunar.submission.domain;
 
+import io.lunar.submission.config.SubmissionLimitProperties;
 import io.lunar.submission.domain.dto.SubmissionView;
 import io.lunar.submission.infra.OutboxEventEntity;
 import io.lunar.submission.infra.OutboxEventMapper;
@@ -35,7 +36,15 @@ class SubmissionServiceTest {
     private final SubmissionMapper submissionMapper = mock(SubmissionMapper.class);
     private final OutboxEventMapper outboxMapper = mock(OutboxEventMapper.class);
     private final UpstreamClient upstream = mock(UpstreamClient.class);
-    private final SubmissionService service = new SubmissionService(submissionMapper, outboxMapper, upstream);
+    private final SubmissionService service = new SubmissionService(
+            submissionMapper, outboxMapper, upstream, limitProperties());
+
+    private static SubmissionLimitProperties limitProperties() {
+        SubmissionLimitProperties properties = new SubmissionLimitProperties();
+        properties.setWindowSeconds(60);
+        properties.setMaxPerWindow(30);
+        return properties;
+    }
 
     @BeforeAll
     static void initMpMetadata() {
@@ -47,6 +56,8 @@ class SubmissionServiceTest {
     @BeforeEach
     void happyPathUpstream() {
         when(submissionMapper.selectOne(any())).thenReturn(null);
+        // 频率限制默认未触发（窗口内 0 次提交），超限用例单独覆盖
+        when(submissionMapper.selectCount(any())).thenReturn(0L);
         // 判决回写是条件更新（CAS）：默认成功（影响 1 行），并发冲突用例单独覆盖为 0 行
         when(submissionMapper.update(isNull(), any())).thenReturn(1);
         when(upstream.checkSession(any(), any())).thenReturn(Map.of(
@@ -113,6 +124,19 @@ class SubmissionServiceTest {
 
         assertThatThrownBy(() -> service.submit("c1", "p1", "cpp", "int main(){}", "key-1", null, "stu_1", "Bearer t"))
                 .isInstanceOf(SubmissionException.Duplicate.class);
+    }
+
+    @Test
+    void rateLimitExceededWhenWindowIsFull() {
+        // 校验五（exam-process §7）：窗口内已达上限 → 429，且不落库、不发事件
+        when(submissionMapper.selectCount(any())).thenReturn(30L);
+
+        assertThatThrownBy(() -> service.submit("c1", "p1", "cpp", "x", null, null, "stu_1", "Bearer t"))
+                .isInstanceOf(SubmissionException.LimitExceeded.class)
+                .extracting(exception -> ((SubmissionException) exception).code())
+                .isEqualTo("SUBMISSION_LIMIT_EXCEEDED");
+        verify(submissionMapper, never()).insert(any(SubmissionEntity.class));
+        verify(outboxMapper, never()).insert(any(OutboxEventEntity.class));
     }
 
     @Test
