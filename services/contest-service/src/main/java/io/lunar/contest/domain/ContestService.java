@@ -1,5 +1,6 @@
 package io.lunar.contest.domain;
 
+import io.lunar.common.security.AccessScope;
 import io.lunar.contest.domain.dto.ContestPage;
 import io.lunar.contest.infra.ContestEntity;
 import io.lunar.contest.infra.ContestMapper;
@@ -33,6 +34,8 @@ public class ContestService {
         contest.setStartAt(startAt);
         contest.setEndAt(endAt);
         contest.setCreatedBy(createdBy);
+        // 创建者即归属者（BE-01）：created_by 是事实，owner 是权限；转移归属是独立审核动作
+        contest.setOwnerTeacherId(createdBy);
         contest.setCreatedAt(Instant.now());
         contest.setUpdatedAt(Instant.now());
         contestMapper.insert(contest);
@@ -47,11 +50,26 @@ public class ContestService {
         return contest;
     }
 
-    /** 分页列表（管理端）：按创建时间倒序，可选状态过滤。 */
-    public ContestPage list(String status, long page, long pageSize) {
+    /**
+     * 按授权范围取考试（BE-01）：越权一律按"不存在"处理（404 隐藏存在），
+     * 避免用 403 泄露"这个 ID 确实存在"。学生侧入口（进入考试/心跳/公告）不走本方法。
+     */
+    public ContestEntity getOwned(String id, AccessScope scope) {
+        ContestEntity contest = get(id);
+        if (!scope.allows(contest.getOwnerTeacherId())) {
+            throw new ContestException.NotFound();
+        }
+        return contest;
+    }
+
+    /** 分页列表（管理端）：先叠加服务端范围（老师只看自己的），再套用户筛选，total 同样落在范围内。 */
+    public ContestPage list(String status, long page, long pageSize, AccessScope scope) {
         Page<ContestEntity> pageRequest = new Page<>(page, pageSize);
         LambdaQueryWrapper<ContestEntity> query = new LambdaQueryWrapper<ContestEntity>()
                 .orderByDesc(ContestEntity::getCreatedAt);
+        if (!scope.global()) {
+            query.eq(ContestEntity::getOwnerTeacherId, scope.ownerId());
+        }
         if (status != null && !status.isBlank()) {
             query.eq(ContestEntity::getStatus, status);
         }

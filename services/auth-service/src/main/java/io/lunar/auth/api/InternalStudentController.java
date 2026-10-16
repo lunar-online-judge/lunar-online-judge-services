@@ -73,8 +73,7 @@ public class InternalStudentController {
             Authentication authentication,
             @RequestHeader(value = RequestIdFilter.HEADER, required = false) String requestId,
             @RequestHeader(value = "Authorization", required = false) String authorization) {
-        studentAccountService.resetStudentPassword(studentId, request.temporaryPassword(),
-                authentication.getName(), authorization);
+        studentAccountService.resetStudentPassword(studentId, request.temporaryPassword(), authorization);
         return ResponseEntity.ok(ApiResponse.success(requestId, new PasswordResetResponse(true)));
     }
 }

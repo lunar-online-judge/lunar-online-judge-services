@@ -49,8 +49,12 @@ public class MonitorController {
         return ResponseEntity.ok(ApiResponse.success(requestId, view));
     }
 
+    /**
+     * 事件分页（管理端）：**仅 ADMIN**。BE-01 要求按资源范围过滤，而风险事件只知道 contestId、
+     * 不知道竞赛归属；跨服务的范围查询落地前先收紧为管理员专用（BACKEND_IMPROVEMENT_PLAN 的兼容说明）。
+     */
     @GetMapping("/events")
-    @PreAuthorize("hasAnyRole('TEACHER', 'ADMIN')")
+    @PreAuthorize("hasRole('ADMIN')")
     public ResponseEntity<ApiResponse<ReviewPage>> list(
             @RequestParam(required = false) String contestId,
             @RequestParam(required = false) String studentId,
@@ -63,8 +67,9 @@ public class MonitorController {
                 riskEventService.list(contestId, studentId, severity, reviewStatus, page, pageSize)));
     }
 
+    /** 审核风险事件（终态不可再动）：同上，先收紧为管理员专用，待范围查询落地再放开给被分配的监考。 */
     @PostMapping("/events/{eventId}/review")
-    @PreAuthorize("hasAnyRole('TEACHER', 'ADMIN')")
+    @PreAuthorize("hasRole('ADMIN')")
     public ResponseEntity<ApiResponse<RiskEventView>> review(
             @PathVariable String eventId,
             @Valid @RequestBody ReviewRequest request,

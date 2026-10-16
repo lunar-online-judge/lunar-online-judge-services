@@ -2,6 +2,7 @@ package io.lunar.problem.api;
 
 import io.lunar.common.api.ApiResponse;
 import io.lunar.common.api.Pagination;
+import io.lunar.common.security.AccessScope;
 import io.lunar.common.web.RequestIdFilter;
 import io.lunar.problem.api.dto.CreateProblemRequest;
 import io.lunar.problem.api.dto.CreateVersionRequest;
@@ -60,8 +61,10 @@ public class ProblemController {
             @RequestParam(defaultValue = Pagination.DEFAULT_PAGE) long page,
             @RequestParam(defaultValue = Pagination.DEFAULT_PAGE_SIZE) long pageSize,
             @RequestParam(required = false) String keyword,
+            Authentication authentication,
             @RequestHeader(value = RequestIdFilter.HEADER, required = false) String requestId) {
-        return ResponseEntity.ok(ApiResponse.success(requestId, problemService.list(keyword, page, pageSize)));
+        return ResponseEntity.ok(ApiResponse.success(requestId,
+                problemService.list(keyword, page, pageSize, AccessScope.of(authentication))));
     }
 
     /** 题目详情（考生视角）：当前发布版本的题面/样例/限制/语言；无测试点。 */
@@ -79,6 +82,7 @@ public class ProblemController {
             @Valid @RequestBody CreateVersionRequest request,
             Authentication authentication,
             @RequestHeader(value = RequestIdFilter.HEADER, required = false) String requestId) {
+        problemService.requireOwned(id, AccessScope.of(authentication));
         VersionView view = problemService.createNewVersion(id, request.baseVersionId(),
                 request.title(), request.statement(), request.sampleInput(), request.sampleOutput(),
                 request.timeLimitMs(), request.memoryLimitKb(), request.outputLimitKb(),
@@ -90,7 +94,9 @@ public class ProblemController {
     @PreAuthorize("hasAnyRole('TEACHER', 'ADMIN')")
     public ResponseEntity<ApiResponse<List<VersionView>>> listVersions(
             @PathVariable String id,
+            Authentication authentication,
             @RequestHeader(value = RequestIdFilter.HEADER, required = false) String requestId) {
+        problemService.requireOwned(id, AccessScope.of(authentication));
         return ResponseEntity.ok(ApiResponse.success(requestId, problemService.listVersions(id)));
     }
 
@@ -99,17 +105,21 @@ public class ProblemController {
     public ResponseEntity<ApiResponse<VersionView>> publishVersion(
             @PathVariable String id,
             @PathVariable String versionId,
+            Authentication authentication,
             @RequestHeader(value = RequestIdFilter.HEADER, required = false) String requestId) {
+        problemService.requireOwned(id, AccessScope.of(authentication));
         return ResponseEntity.ok(ApiResponse.success(requestId, problemService.publishVersion(id, versionId)));
     }
 
-    /** 测试点视图：仅老师/管理员（判题链路后续走服务间接口复用本查询）。 */
+    /** 测试点视图：仅老师/管理员（限自己范围内的题目）；判题链路走内部端点，用服务身份访问。 */
     @GetMapping("/{id}/versions/{versionId}/testcases")
     @PreAuthorize("hasAnyRole('TEACHER', 'ADMIN')")
     public ResponseEntity<ApiResponse<List<TestcaseView>>> listTestcases(
             @PathVariable String id,
             @PathVariable String versionId,
+            Authentication authentication,
             @RequestHeader(value = RequestIdFilter.HEADER, required = false) String requestId) {
+        problemService.requireOwned(id, AccessScope.of(authentication));
         return ResponseEntity.ok(ApiResponse.success(requestId, problemService.listTestcases(id, versionId)));
     }
 }

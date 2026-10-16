@@ -138,7 +138,7 @@ class InternalStudentControllerTest {
     void resetPasswordReturnsPasswordChangeRequired() throws Exception {
         Mockito.doNothing()
                 .when(studentAccountService).resetStudentPassword(eq("stu_1"), eq("temp-pass-456"),
-                        eq("teacher_1"), eq("Bearer token-value"));
+                        eq("Bearer token-value"));
 
         mockMvc.perform(post("/api/v1/internal/students/stu_1/password-reset")
                         .header("Authorization", "Bearer token-value")

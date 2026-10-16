@@ -124,7 +124,7 @@ HTTP 前缀统一为 `/api/v1`。各服务经 gateway 对外暴露；客户端�
 | problem | GET | `/api/v1/problems/{id}/versions` | TEACHER/ADMIN | 已实现（版本列表） |
 | problem | POST | `/api/v1/problems/{id}/versions/{versionId}/publish` | TEACHER/ADMIN | 已实现（发布并切换 `current_version_id`，发布后版本不可变） |
 | problem | GET | `/api/v1/problems/{id}/versions/{versionId}/testcases` | TEACHER/ADMIN | 已实现（仅老师/管理员；判题链路走下面的内部端点） |
-| problem | GET | `/api/v1/internal/problems/{problemId}/versions/{versionId}/testcases` | 任意已认证（服务间） | 已实现（**不经网关**，只能内网直连；submission 取到后随 `lunar-submission-created` 事件送到评测引擎；超限 413 `PROBLEM_TESTDATA_TOO_LARGE`） |
+| problem | GET | `/api/v1/internal/problems/{problemId}/versions/{versionId}/testcases` | **SERVICE**（服务身份令牌） | 已实现（**不经网关**，只能内网直连；**只认服务身份**——测试数据不能靠"内网 + 考生/教师令牌"取走，BE-01；submission 用自己的服务令牌取到后随 `lunar-submission-created` 事件送到评测引擎；超限 413 `PROBLEM_TESTDATA_TOO_LARGE`） |
 | submission | POST | `/api/v1/submissions` | CANDIDATE | 已实现（幂等 + 会话/竞赛/语言/频率四项校验 + Outbox；**题目归属校验未实现**，依赖随机分配表） |
 | submission | GET | `/api/v1/submissions/{id}` | 任意已认证（本人；TEACHER/ADMIN 可查任意） | 已实现（权限在 Service 内判定，方法上无 `@PreAuthorize`） |
 | submission | POST | `/api/v1/internal/submissions/{id}/judged` | ADMIN | 已实现（判题回写过渡端点） |
@@ -148,8 +148,8 @@ HTTP 前缀统一为 `/api/v1`。各服务经 gateway 对外暴露；客户端�
 | contest | POST | `/api/v1/contests/{contestId}/session/heartbeat` | CANDIDATE | 已实现（心跳 + 剩余秒数） |
 | contest | GET | `/api/v1/internal/contests/{contestId}/session` | CANDIDATE（转发学生令牌） | 已实现（供 submission 判定 `canSubmit`） |
 | anti-cheat | POST | `/api/v1/monitor/events` | CANDIDATE | 已实现（severity 由服务端规则表计算） |
-| anti-cheat | GET | `/api/v1/monitor/events` | TEACHER/ADMIN | 已实现（分页：竞赛/学生/等级/审核状态过滤） |
-| anti-cheat | POST | `/api/v1/monitor/events/{eventId}/review` | TEACHER/ADMIN | 已实现（OPEN→ACKNOWLEDGED→CONFIRMED/DISMISSED；写入走前态条件更新，并发终审最多一个成功） |
+| anti-cheat | GET | `/api/v1/monitor/events` | **ADMIN** | 已实现（分页：竞赛/学生/等级/审核状态过滤；**BE-01 先收紧为管理员专用**——风险事件只知道 contestId、不知道竞赛归属，跨服务范围查询落地前按兼容说明继续 ADMIN-only） |
+| anti-cheat | POST | `/api/v1/monitor/events/{eventId}/review` | **ADMIN** | 已实现（OPEN→ACKNOWLEDGED→CONFIRMED/DISMISSED；写入走前态条件更新，并发终审最多一个成功；角色同上一行，先收紧为管理员） |
 | audit | POST | `/api/v1/internal/audit/records` | 任意已认证 | 已实现（服务间写入；注意规则是 `isAuthenticated()`，未限制为 TEACHER/ADMIN。调用方：contest / auth / submission / anti-cheat，经 lunar-common 的 `AuditRecorder` 尽力而为写入。请求体可选字段缺省传 `null`——`contestId` 是 uuid 列，传空串会被 PostgreSQL 拒绝。SERVICE 令牌写入时 `sub` 落 `service_id`、`actor_id` 留空） |
 | audit | GET | `/api/v1/audit/records` | TEACHER/ADMIN | 已实现（追加式账本查询） |
 

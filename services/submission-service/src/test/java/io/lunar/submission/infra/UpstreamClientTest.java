@@ -1,8 +1,11 @@
 package io.lunar.submission.infra;
 
 import io.lunar.common.api.ApiResponse;
+import io.lunar.common.identity.ServiceTokenProvider;
+import io.lunar.common.identity.ServiceTokenResponse;
 import org.junit.jupiter.api.Test;
 
+import java.time.Instant;
 import java.util.List;
 import java.util.Map;
 
@@ -16,7 +19,12 @@ class UpstreamClientTest {
     private final ContestServiceApi contestApi = mock(ContestServiceApi.class);
     private final ProblemServiceApi problemApi = mock(ProblemServiceApi.class);
     private final ProblemInternalApi problemInternalApi = mock(ProblemInternalApi.class);
-    private final UpstreamClient client = new UpstreamClient(contestApi, problemApi, problemInternalApi);
+    private final ServiceTokenProvider serviceTokenProvider = new ServiceTokenProvider(
+            request -> ApiResponse.success("req-token", new ServiceTokenResponse(
+                    "service-token", "Bearer", Instant.now().plusSeconds(600), "SERVICE")),
+            "submission-service", "secret");
+    private final UpstreamClient client = new UpstreamClient(contestApi, problemApi, problemInternalApi,
+            serviceTokenProvider);
 
     @Test
     void checkSessionUnwrapsEnvelopeAndForwardsBearerToken() {
@@ -35,11 +43,12 @@ class UpstreamClientTest {
     }
 
     @Test
-    void problemTestcasesUnwrapsEnvelopeAndForwardsBearerToken() {
-        when(problemInternalApi.testcases("p1", "v1", "Bearer tok"))
+    void problemTestcasesUsesServiceIdentityToken() {
+        // 测试点接口只接受服务身份（BE-01）：这里断言带的是服务令牌，而不是转发的用户令牌
+        when(problemInternalApi.testcases("p1", "v1", "Bearer service-token"))
                 .thenReturn(ApiResponse.success("req-3", List.of(Map.of("name", "case1", "inputContent", "1 2"))));
 
-        List<Map<String, Object>> testcases = client.problemTestcases("p1", "v1", "tok");
+        List<Map<String, Object>> testcases = client.problemTestcases("p1", "v1");
 
         assertThat(testcases).hasSize(1);
         assertThat(testcases.get(0)).containsEntry("name", "case1");

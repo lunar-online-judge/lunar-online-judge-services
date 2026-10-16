@@ -33,3 +33,6 @@ Desktop.ini
 # ---- 前端 ----
 node_modules/
 dist/
+
+# ---- 面试准备材料（本地，不纳入版本控制）----
+interview/

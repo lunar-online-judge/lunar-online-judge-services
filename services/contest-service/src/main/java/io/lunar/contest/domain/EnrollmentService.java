@@ -186,6 +186,14 @@ public class EnrollmentService {
         return null;
     }
 
+    /** 该学生是否已报名该考试：考生读取考试资源（详情/公告）的范围判定（BE-01）。 */
+    public boolean isEnrolled(String contestId, String studentId) {
+        return candidateMapper.selectCount(new LambdaQueryWrapper<CandidateEntity>()
+                .eq(CandidateEntity::getContestId, contestId)
+                .eq(CandidateEntity::getStudentId, studentId)
+                .eq(CandidateEntity::getStatus, "ENROLLED")) > 0;
+    }
+
     /** 分页查询名单；keyword 匹配学号快照。 */
     public CandidatePage list(String contestId, long page, long pageSize, String keyword) {
         LambdaQueryWrapper<CandidateEntity> query = new LambdaQueryWrapper<CandidateEntity>()

@@ -134,11 +134,51 @@ class ContestControllerTest {
     @Test
     void unknownContestReturns404WithStableCode() throws Exception {
         decoderRoles("ADMIN");
-        when(contestService.get("nope")).thenThrow(new ContestException.NotFound());
+        when(contestService.getOwned(eq("nope"), any())).thenThrow(new ContestException.NotFound());
 
         mockMvc.perform(get("/api/v1/contests/nope").header("Authorization", "Bearer token-value"))
                 .andExpect(status().isNotFound())
                 .andExpect(jsonPath("$.error.code").value("CONTEST_NOT_FOUND"));
+    }
+
+    /** BE-01：老师对别人的考试，详情按"不存在"处理（404 隐藏存在，而不是 403 泄露）。 */
+    @Test
+    void teacherCannotReadContestOutsideScope() throws Exception {
+        decoderRoles("TEACHER");
+        when(contestService.getOwned(eq("c9"), any())).thenThrow(new ContestException.NotFound());
+
+        mockMvc.perform(get("/api/v1/contests/c9").header("Authorization", "Bearer token-value"))
+                .andExpect(status().isNotFound())
+                .andExpect(jsonPath("$.error.code").value("CONTEST_NOT_FOUND"));
+    }
+
+    /** BE-01：老师对别人考试的名单入口同样被范围校验挡住。 */
+    @Test
+    void teacherCannotListStudentsOfContestOutsideScope() throws Exception {
+        decoderRoles("TEACHER");
+        when(contestService.getOwned(eq("c9"), any())).thenThrow(new ContestException.NotFound());
+
+        mockMvc.perform(get("/api/v1/contests/c9/students").header("Authorization", "Bearer token-value"))
+                .andExpect(status().isNotFound());
+    }
+
+    /** BE-01：考生只能读自己已报名的考试；未报名按不存在处理。 */
+    @Test
+    void candidateCannotReadUnenrolledContest() throws Exception {
+        when(enrollmentService.isEnrolled("c1", "user_1")).thenReturn(false);
+
+        mockMvc.perform(get("/api/v1/contests/c1").header("Authorization", "Bearer token-value"))
+                .andExpect(status().isNotFound());
+    }
+
+    @Test
+    void enrolledCandidateCanReadContest() throws Exception {
+        when(enrollmentService.isEnrolled("c1", "user_1")).thenReturn(true);
+        when(contestService.get("c1")).thenReturn(CONTEST);
+
+        mockMvc.perform(get("/api/v1/contests/c1").header("Authorization", "Bearer token-value"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.id").value("c1"));
     }
 
     @Test

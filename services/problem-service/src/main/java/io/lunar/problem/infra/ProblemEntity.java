@@ -19,6 +19,9 @@ public class ProblemEntity {
 
     private String createdBy;
 
+    /** 有权管理该题目的老师（BE-01 资源范围）；为空则仅 ADMIN 可见。 */
+    private String ownerTeacherId;
+
     private Instant createdAt;
 
     private Instant updatedAt;
@@ -31,6 +34,8 @@ public class ProblemEntity {
     public void setCurrentVersionId(String currentVersionId) { this.currentVersionId = currentVersionId; }
     public String getCreatedBy() { return createdBy; }
     public void setCreatedBy(String createdBy) { this.createdBy = createdBy; }
+    public String getOwnerTeacherId() { return ownerTeacherId; }
+    public void setOwnerTeacherId(String ownerTeacherId) { this.ownerTeacherId = ownerTeacherId; }
     public Instant getCreatedAt() { return createdAt; }
     public void setCreatedAt(Instant createdAt) { this.createdAt = createdAt; }
     public Instant getUpdatedAt() { return updatedAt; }

@@ -93,23 +93,25 @@ public class StudentAccountService {
         return new CreatedStudent(user.getId(), studentNo, username, displayName, true);
     }
 
-    /** 重置学生密码：新临时密码立即哈希，置 passwordChangeRequired；不返回任何密码材料。 */
-    public void resetStudentPassword(String studentId, String temporaryPassword, String operatorTeacherId,
-                                     String operatorToken) {
+    /**
+     * 重置学生密码：新临时密码立即哈希，置 passwordChangeRequired；不返回任何密码材料。
+     * BE-01：只允许重置 CANDIDATE 账号（目标非学生按不存在处理，避免探测账号）；
+     * **重置不改变账号归属**——`managedByTeacherId` 表达管理关系，不是"最近一次操作人"。
+     */
+    public void resetStudentPassword(String studentId, String temporaryPassword, String operatorToken) {
         if (temporaryPassword == null || temporaryPassword.length() < 8) {
             throw new UserException.WeakPassword();
         }
         UserEntity user = userMapper.selectById(studentId);
-        if (user == null) {
+        if (user == null || !Role.CANDIDATE.name().equals(user.getRole())) {
             throw new UserException.NotFound();
         }
         user.setPasswordHash(passwordEncoder.encode(temporaryPassword));
         user.setPasswordChangeRequired(true);
-        user.setManagedByTeacherId(operatorTeacherId);
         user.setUpdatedAt(Instant.now());
         userMapper.updateById(user);
 
-        log.info("AUDIT event=STUDENT_PASSWORD_RESET studentId={} managedBy={}", studentId, operatorTeacherId);
+        log.info("AUDIT event=STUDENT_PASSWORD_RESET studentId={}", studentId);
         auditRecorder.record("STUDENT_PASSWORD_RESET", "STUDENT_ACCOUNT", studentId, null,
                 "重置为临时密码", null, operatorToken);
     }

@@ -1,5 +1,6 @@
 package io.lunar.problem.domain;
 
+import io.lunar.common.security.AccessScope;
 import io.lunar.problem.config.TestdataProperties;
 import io.lunar.problem.domain.dto.ProblemPage;
 import io.lunar.problem.domain.dto.ProblemSummary;
@@ -64,6 +65,8 @@ public class ProblemService {
         problem.setId(problemId);
         problem.setTitle(title);
         problem.setCreatedBy(operatorId);
+        // 创建者即归属者（BE-01）：created_by 是事实，owner 是权限
+        problem.setOwnerTeacherId(operatorId);
         problem.setCreatedAt(Instant.now());
         problem.setUpdatedAt(Instant.now());
         problemMapper.insert(problem);
@@ -137,11 +140,14 @@ public class ProblemService {
         return toView(version);
     }
 
-    /** 分页列表（管理端）：按创建时间倒序，keyword 模糊匹配标题。 */
-    public ProblemPage list(String keyword, long page, long pageSize) {
+    /** 分页列表（管理端）：先叠加服务端范围（老师只看自己的），再套关键词筛选，total 同样在范围内。 */
+    public ProblemPage list(String keyword, long page, long pageSize, AccessScope scope) {
         Page<ProblemEntity> pageRequest = new Page<>(page, pageSize);
         LambdaQueryWrapper<ProblemEntity> query = new LambdaQueryWrapper<ProblemEntity>()
                 .orderByDesc(ProblemEntity::getCreatedAt);
+        if (!scope.global()) {
+            query.eq(ProblemEntity::getOwnerTeacherId, scope.ownerId());
+        }
         if (keyword != null && !keyword.isBlank()) {
             query.like(ProblemEntity::getTitle, keyword.trim());
         }
@@ -219,6 +225,16 @@ public class ProblemService {
             throw new ProblemException.NotFound();
         }
         return problem;
+    }
+
+    /**
+     * 管理端资源范围校验（BE-01）：题目不在调用者范围内时按"不存在"处理（404 隐藏存在）。
+     * 版本、测试点、发布等入口都先过这一关，直接拿 ID 调子资源无法绕过。
+     */
+    public void requireOwned(String problemId, AccessScope scope) {
+        if (!scope.allows(requireProblem(problemId).getOwnerTeacherId())) {
+            throw new ProblemException.NotFound();
+        }
     }
 
     private ProblemVersionEntity createVersion(String problemId, int versionNo,

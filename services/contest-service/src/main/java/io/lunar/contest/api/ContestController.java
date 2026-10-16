@@ -2,6 +2,7 @@ package io.lunar.contest.api;
 
 import io.lunar.common.api.ApiResponse;
 import io.lunar.common.api.Pagination;
+import io.lunar.common.security.AccessScope;
 import io.lunar.common.security.Role;
 import io.lunar.common.web.RequestIdFilter;
 import io.lunar.contest.api.dto.AddStudentRequest;
@@ -12,6 +13,7 @@ import io.lunar.contest.api.dto.PasswordResetResponse;
 import io.lunar.contest.api.dto.PublishAnnouncementRequest;
 import io.lunar.contest.api.dto.ResetPasswordRequest;
 import io.lunar.contest.domain.AnnouncementService;
+import io.lunar.contest.domain.ContestException;
 import io.lunar.contest.domain.ContestService;
 import io.lunar.contest.domain.EnrollmentService;
 import io.lunar.contest.domain.ExamSessionService;
@@ -44,8 +46,11 @@ import java.nio.charset.StandardCharsets;
 import java.util.List;
 
 /**
- * 考试生命周期入口（docs/exam-process.md §1）：
- * 老师创建/提交审核，管理员审核发布；角色校验在路由层，资源范围校验随名单/授权功能继续细化。
+ * 考试生命周期入口（docs/exam-process.md §1）。
+ *
+ * 授权分两层（BACKEND_IMPROVEMENT_PLAN BE-01）：路由层 `@PreAuthorize` 管角色，
+ * 资源层用 {@link AccessScope} 管"这一场考试归不归我"——管理端每个入口都先做范围校验，
+ * 越权与不存在同样返回 404（不泄露资源是否存在）；考生侧入口只按"是否已报名"放行。
  */
 @RestController
 @RequestMapping("/api/v1/contests")
@@ -75,24 +80,28 @@ public class ContestController {
         return ResponseEntity.ok(ApiResponse.success(requestId, ContestResponse.of(contest)));
     }
 
-    /** 分页列表（管理端）：按创建时间倒序，可选状态过滤。 */
+    /** 分页列表（管理端）：先叠加服务端范围（老师只看自己的），再套用户筛选，total 同样在范围内。 */
     @GetMapping
     public ResponseEntity<ApiResponse<ContestListResponse>> list(
             @RequestParam(defaultValue = Pagination.DEFAULT_PAGE) long page,
             @RequestParam(defaultValue = Pagination.DEFAULT_PAGE_SIZE) long pageSize,
             @RequestParam(required = false) String status,
+            Authentication authentication,
             @RequestHeader(value = RequestIdFilter.HEADER, required = false) String requestId) {
-        ContestPage result = contestService.list(status, page, pageSize);
+        ContestPage result = contestService.list(status, page, pageSize, AccessScope.of(authentication));
         List<ContestResponse> items = result.items().stream().map(ContestResponse::of).toList();
         return ResponseEntity.ok(ApiResponse.success(requestId, new ContestListResponse(
                 items, result.total(), result.page(), result.pageSize())));
     }
 
+    /** 详情：老师/管理员限自己范围内；考生限已报名的考试；其余按不存在处理。 */
     @GetMapping("/{id}")
     public ResponseEntity<ApiResponse<ContestResponse>> get(
             @PathVariable String id,
+            Authentication authentication,
             @RequestHeader(value = RequestIdFilter.HEADER, required = false) String requestId) {
-        return ResponseEntity.ok(ApiResponse.success(requestId, ContestResponse.of(contestService.get(id))));
+        return ResponseEntity.ok(ApiResponse.success(requestId,
+                ContestResponse.of(readableContest(id, authentication))));
     }
 
     /** 提交管理员审核：DRAFT -> REVIEWING。 */
@@ -100,9 +109,10 @@ public class ContestController {
     @PreAuthorize("hasAnyRole('TEACHER', 'ADMIN')")
     public ResponseEntity<ApiResponse<ContestResponse>> review(
             @PathVariable String id,
+            Authentication authentication,
             @RequestHeader(value = RequestIdFilter.HEADER, required = false) String requestId) {
         return ResponseEntity.ok(ApiResponse.success(requestId,
-                ContestResponse.of(contestService.submitForReview(id))));
+                ContestResponse.of(contestService.submitForReview(ownedContestId(id, authentication)))));
     }
 
     /** 管理员审核通过并发布：REVIEWING -> PUBLISHED。 */
@@ -132,7 +142,7 @@ public class ContestController {
             Authentication authentication,
             @RequestHeader(value = RequestIdFilter.HEADER, required = false) String requestId,
             @RequestHeader(value = "Authorization", required = false) String authorization) {
-        EnrollmentResult result = enrollmentService.add(contestId, request.studentNo(),
+        EnrollmentResult result = enrollmentService.add(ownedContestId(contestId, authentication), request.studentNo(),
                 request.username(), request.displayName(), request.initialPassword(),
                 authorization, authentication.getName());
         return ResponseEntity.ok(ApiResponse.success(requestId, result));
@@ -146,9 +156,10 @@ public class ContestController {
             @RequestParam(defaultValue = Pagination.DEFAULT_PAGE) long page,
             @RequestParam(defaultValue = Pagination.DEFAULT_PAGE_SIZE) long pageSize,
             @RequestParam(required = false) String keyword,
+            Authentication authentication,
             @RequestHeader(value = RequestIdFilter.HEADER, required = false) String requestId) {
         return ResponseEntity.ok(ApiResponse.success(requestId,
-                enrollmentService.list(contestId, page, pageSize, keyword)));
+                enrollmentService.list(ownedContestId(contestId, authentication), page, pageSize, keyword)));
     }
 
     /**
@@ -165,7 +176,7 @@ public class ContestController {
             @RequestHeader(value = RequestIdFilter.HEADER, required = false) String requestId,
             @RequestHeader(value = "Authorization", required = false) String authorization) throws IOException {
         String csvContent = new String(file.getBytes(), StandardCharsets.UTF_8);
-        RosterImportResult result = enrollmentService.importRoster(contestId, csvContent,
+        RosterImportResult result = enrollmentService.importRoster(ownedContestId(contestId, authentication), csvContent,
                 authorization, authentication.getName());
         return ResponseEntity.ok(ApiResponse.success(requestId, result));
     }
@@ -180,8 +191,8 @@ public class ContestController {
             Authentication authentication,
             @RequestHeader(value = RequestIdFilter.HEADER, required = false) String requestId,
             @RequestHeader(value = "Authorization", required = false) String authorization) {
-        enrollmentService.resetPassword(contestId, studentId, request.temporaryPassword(),
-                authorization, authentication.getName());
+        enrollmentService.resetPassword(ownedContestId(contestId, authentication), studentId,
+                request.temporaryPassword(), authorization, authentication.getName());
         return ResponseEntity.ok(ApiResponse.success(requestId, new PasswordResetResponse(true)));
     }
 
@@ -194,7 +205,8 @@ public class ContestController {
             Authentication authentication,
             @RequestHeader(value = RequestIdFilter.HEADER, required = false) String requestId,
             @RequestHeader(value = "Authorization", required = false) String authorization) {
-        enrollmentService.remove(contestId, studentId, authorization, authentication.getName());
+        enrollmentService.remove(ownedContestId(contestId, authentication), studentId,
+                authorization, authentication.getName());
         return ResponseEntity.ok(ApiResponse.success(requestId, null));
     }
 
@@ -204,9 +216,10 @@ public class ContestController {
     public ResponseEntity<ApiResponse<SessionView>> terminateSession(
             @PathVariable String contestId,
             @PathVariable String studentId,
+            Authentication authentication,
             @RequestHeader(value = RequestIdFilter.HEADER, required = false) String requestId) {
         return ResponseEntity.ok(ApiResponse.success(requestId,
-                examSessionService.terminate(contestId, studentId)));
+                examSessionService.terminate(ownedContestId(contestId, authentication), studentId)));
     }
 
     /** 发布公告（老师/管理员；docs/exam-process.md §8）。 */
@@ -217,25 +230,21 @@ public class ContestController {
             @Valid @RequestBody PublishAnnouncementRequest request,
             Authentication authentication,
             @RequestHeader(value = RequestIdFilter.HEADER, required = false) String requestId) {
-        AnnouncementView view = announcementService.publish(contestId, request.content(),
+        AnnouncementView view = announcementService.publish(ownedContestId(contestId, authentication), request.content(),
                 Boolean.TRUE.equals(request.important()), Boolean.TRUE.equals(request.requireConfirmation()),
                 authentication.getName());
         return ResponseEntity.ok(ApiResponse.success(requestId, view));
     }
 
-    /** 公告列表：老师/管理员看全部；考生拉取即送达（require_confirmation 记录 delivered_at）。 */
+    /** 公告列表：老师/管理员看全部（限自己范围内）；考生拉取即送达（require_confirmation 记录 delivered_at）。 */
     @GetMapping("/{contestId}/announcements")
     public ResponseEntity<ApiResponse<List<AnnouncementView>>> listAnnouncements(
             @PathVariable String contestId,
             Authentication authentication,
             @RequestHeader(value = RequestIdFilter.HEADER, required = false) String requestId) {
-        List<String> roles = authentication.getAuthorities().stream()
-                .map(GrantedAuthority::getAuthority).toList();
-        List<AnnouncementView> views =
-                roles.contains(Role.AUTHORITY_PREFIX + Role.CANDIDATE.name())
-                        && !roles.contains(Role.AUTHORITY_PREFIX + Role.ADMIN.name())
-                        ? announcementService.listForCandidate(contestId, authentication.getName())
-                        : announcementService.listForOperator(contestId);
+        List<AnnouncementView> views = isCandidateOnly(authentication)
+                ? announcementService.listForCandidate(requireEnrolled(contestId, authentication), authentication.getName())
+                : announcementService.listForOperator(ownedContestId(contestId, authentication));
         return ResponseEntity.ok(ApiResponse.success(requestId, views));
     }
 
@@ -247,7 +256,43 @@ public class ContestController {
             @PathVariable String announcementId,
             Authentication authentication,
             @RequestHeader(value = RequestIdFilter.HEADER, required = false) String requestId) {
-        announcementService.confirm(contestId, announcementId, authentication.getName());
+        announcementService.confirm(requireEnrolled(contestId, authentication), announcementId,
+                authentication.getName());
         return ResponseEntity.ok(ApiResponse.success(requestId, null));
+    }
+
+    /**
+     * 管理端资源范围校验（BE-01）：不在范围内与不存在同样抛 404，返回校验通过的 ID。
+     * 直接以 ID 调用 detail/名单/重置等入口无法绕过——每个入口都过这一关。
+     */
+    private String ownedContestId(String contestId, Authentication authentication) {
+        contestService.getOwned(contestId, AccessScope.of(authentication));
+        return contestId;
+    }
+
+    /** 考生侧资源范围：必须已报名该考试，否则按不存在处理。 */
+    private String requireEnrolled(String contestId, Authentication authentication) {
+        if (!enrollmentService.isEnrolled(contestId, authentication.getName())) {
+            throw new ContestException.NotFound();
+        }
+        return contestId;
+    }
+
+    /** 详情读取：老师/管理员走归属范围，考生走报名范围，其余一律不存在。 */
+    private ContestEntity readableContest(String id, Authentication authentication) {
+        if (isCandidateOnly(authentication)) {
+            requireEnrolled(id, authentication);
+            return contestService.get(id);
+        }
+        return contestService.getOwned(id, AccessScope.of(authentication));
+    }
+
+    /** 是否"纯考生"（有 CANDIDATE 且没有 TEACHER/ADMIN）：决定走考生侧还是管理侧范围。 */
+    private static boolean isCandidateOnly(Authentication authentication) {
+        List<String> authorities = authentication.getAuthorities().stream()
+                .map(GrantedAuthority::getAuthority).toList();
+        return authorities.contains(Role.AUTHORITY_PREFIX + Role.CANDIDATE.name())
+                && !authorities.contains(Role.AUTHORITY_PREFIX + Role.ADMIN.name())
+                && !authorities.contains(Role.AUTHORITY_PREFIX + Role.TEACHER.name());
     }
 }

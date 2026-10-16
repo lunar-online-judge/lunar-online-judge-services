@@ -68,7 +68,7 @@ class SubmissionServiceTest {
         when(upstream.currentProblemVersion(any(), any())).thenReturn(Map.of(
                 "versionId", "v1", "allowedLanguages", List.of("cpp", "c"),
                 "timeLimitMs", 1000, "memoryLimitKb", 131072));
-        when(upstream.problemTestcases(any(), any(), any())).thenReturn(List.of(
+        when(upstream.problemTestcases(any(), any())).thenReturn(List.of(
                 Map.of("name", "case1", "inputContent", "1 2", "expectedOutput", "3")));
     }
 

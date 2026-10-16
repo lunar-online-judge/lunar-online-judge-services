@@ -29,9 +29,12 @@ public class InternalProblemController {
         this.problemService = problemService;
     }
 
-    /** 判题链路取测试点（docs/architecture.md §8 第 5 步）：submission 取到后随事件送到 judge。 */
+    /**
+     * 判题链路取测试点（docs/architecture.md §8 第 5 步）：submission 取到后随事件送到 judge。
+     * **只允许服务身份**（`roles=["SERVICE"]`）——测试数据绝不能因为"内网 + 任意已认证令牌"而被考生令牌取走（BE-01）。
+     */
     @GetMapping("/{problemId}/versions/{versionId}/testcases")
-    @PreAuthorize("isAuthenticated()")
+    @PreAuthorize("hasRole('SERVICE')")
     public ResponseEntity<ApiResponse<List<TestcaseView>>> listTestcasesForJudging(
             @PathVariable String problemId,
             @PathVariable String versionId,

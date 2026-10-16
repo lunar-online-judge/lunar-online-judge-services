@@ -53,8 +53,13 @@ public class AuditController {
         return ResponseEntity.ok(ApiResponse.success(requestId, view));
     }
 
+    /**
+     * 管理端查询：**仅 ADMIN**。BE-01 要求审计列表也按资源范围过滤，而账本只知道 contestId、
+     * 不知道竞赛归属；在跨服务的范围查询落地前，先收紧为管理员专用（BACKEND_IMPROVEMENT_PLAN 的兼容说明：
+     * "前端在完成测试并更新角色矩阵前继续 ADMIN-only"）。
+     */
     @GetMapping("/api/v1/audit/records")
-    @PreAuthorize("hasAnyRole('TEACHER', 'ADMIN')")
+    @PreAuthorize("hasRole('ADMIN')")
     public ResponseEntity<ApiResponse<AuditPage>> query(
             @RequestParam(required = false) String action,
             @RequestParam(required = false) String actorId,

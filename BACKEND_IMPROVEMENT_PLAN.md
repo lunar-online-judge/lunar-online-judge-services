@@ -13,6 +13,8 @@
 > **BE-07 的前置已就位（2026-10）**：服务身份令牌（客户端凭证，`POST /api/v1/internal/service-tokens`，`roles=["SERVICE"]`）与 trace 贯通（`RequestIdFilter` 写 MDC、`AuditRecorder` 自动续接）已实现，审计动作 7 → 10 个（见 `CHANGELOG.md`）。**BE-07 的持久补偿仍未做**：审计目前是同步 HTTP 尽力而为，audit-service 不可用时会丢条目（仅结构化日志兜底），尚未改为"本地 audit outbox 同事务 + 异步投递 + `eventId` 幂等 + dead-letter + `originalOccurredAt`"。
 >
 > **BE-02 已落地（2026-10）**：`prod` profile 下的生产配置门禁（fail fast，含"缺持久 RSA 密钥""开发种子未关""数据库口令/客户端密钥是开发默认""配置中心未 fail-fast"）与密钥轮换窗口（JWKS 保留退役公钥、多实例互认）已实现并真机验收，见 `CHANGELOG.md` 与 `docs/deployment.md`。**仍未自动化**：首次管理员的"一次性受控初始化流程"目前是文档步骤（生产 `AUTH_DEV_SEED=false` + 受控初始化），未做成脚本/流程。
+>
+> **BE-01 已落地一部分（2026-10）**：contest / problem 的**归属范围**（`owner_teacher_id` + 管理端入口范围校验，越权按 404 隐藏存在；列表 total 也在范围内）、考生侧按报名放行、内部测试点接口收紧为只认服务身份、auth 密码重置的目标角色与"不改归属"、风险与审计查询先收紧为 ADMIN——均已实现并真机验收（见 `CHANGELOG.md`）。**仍未做**：`INVIGILATOR` 的"被分配考试"关系（监考分配模型）、题目分配与考生可见题目的范围、anti-cheat/audit 的跨服务范围查询（当前用 ADMIN-only 兜住）、权限转移的独立审核动作。
 
 ## 1. 目标与执行规则
 

@@ -2,6 +2,7 @@ package io.lunar.problem.domain;
 
 import com.baomidou.mybatisplus.core.MybatisConfiguration;
 import com.baomidou.mybatisplus.core.metadata.TableInfoHelper;
+import io.lunar.common.security.AccessScope;
 import io.lunar.problem.config.TestdataProperties;
 import io.lunar.problem.domain.dto.ProblemView;
 import io.lunar.problem.domain.dto.TestcasePayload;
@@ -155,6 +156,29 @@ class ProblemServiceTest {
 
         assertThatThrownBy(() -> service.listTestcasesForJudging("p1", "v1"))
                 .isInstanceOf(ProblemException.TestdataTooLarge.class);
+    }
+
+    /** BE-01：题目归属不在调用者范围内时按"不存在"处理（404 隐藏存在）。 */
+    @Test
+    void requireOwnedRejectsProblemOfAnotherTeacher() {
+        ProblemEntity problem = new ProblemEntity();
+        problem.setId("p1");
+        problem.setOwnerTeacherId("teacher_b");
+        when(problemMapper.selectById("p1")).thenReturn(problem);
+
+        assertThatThrownBy(() -> service.requireOwned("p1", new AccessScope(false, "teacher_a")))
+                .isInstanceOf(ProblemException.NotFound.class);
+    }
+
+    @Test
+    void requireOwnedAllowsOwnerAndAdmin() {
+        ProblemEntity problem = new ProblemEntity();
+        problem.setId("p1");
+        problem.setOwnerTeacherId("teacher_a");
+        when(problemMapper.selectById("p1")).thenReturn(problem);
+
+        service.requireOwned("p1", new AccessScope(false, "teacher_a"));
+        service.requireOwned("p1", new AccessScope(true, "admin_1"));
     }
 
     @Test

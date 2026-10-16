@@ -86,7 +86,7 @@ public class SubmissionService {
         // 判题链路取测试点（problem 服务间端点）：随 created 事件送到评测引擎；
         // 不取的话真实引擎没有测试数据，只能返回 SYSTEM_ERROR（docs/architecture.md §8 第 5 步）
         Map<String, String> testFiles = toTestFiles(
-                upstream.problemTestcases(problemId, problemVersionId, operatorToken));
+                upstream.problemTestcases(problemId, problemVersionId));
 
         // 校验四「题目属于竞赛」仍依赖竞赛题目分配表（exam-process §3 随机分配未落地）。
         enforceRateLimit(studentId);

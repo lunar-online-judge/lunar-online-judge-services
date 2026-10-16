@@ -1,6 +1,7 @@
 package io.lunar.submission.infra;
 
 import io.lunar.common.api.ApiResponse;
+import io.lunar.common.identity.ServiceTokenProvider;
 import org.springframework.stereotype.Component;
 
 import java.util.List;
@@ -23,12 +24,14 @@ public class UpstreamClient {
     private final ContestServiceApi contestApi;
     private final ProblemServiceApi problemApi;
     private final ProblemInternalApi problemInternalApi;
+    private final ServiceTokenProvider serviceTokenProvider;
 
     public UpstreamClient(ContestServiceApi contestApi, ProblemServiceApi problemApi,
-                          ProblemInternalApi problemInternalApi) {
+                          ProblemInternalApi problemInternalApi, ServiceTokenProvider serviceTokenProvider) {
         this.contestApi = contestApi;
         this.problemApi = problemApi;
         this.problemInternalApi = problemInternalApi;
+        this.serviceTokenProvider = serviceTokenProvider;
     }
 
     /** 提交判定：canSubmit/sessionStatus/contestStatus/remainingSeconds（contest-service）。 */
@@ -41,10 +44,10 @@ public class UpstreamClient {
         return unwrap(problemApi.currentVersion(problemId, bearer(operatorToken)));
     }
 
-    /** 判题链路的测试点（problem-service 服务间端点）：超限时上游返回 413，异常原样抛出。 */
-    public List<Map<String, Object>> problemTestcases(String problemId, String versionId, String operatorToken) {
+    /** 判题链路的测试点（problem 服务间端点）：**用服务身份令牌**调用，超限时上游返回 413。 */
+    public List<Map<String, Object>> problemTestcases(String problemId, String versionId) {
         ApiResponse<List<Map<String, Object>>> response =
-                problemInternalApi.testcases(problemId, versionId, bearer(operatorToken));
+                problemInternalApi.testcases(problemId, versionId, bearer(serviceTokenProvider.token()));
         return response == null || response.data() == null ? List.of() : response.data();
     }
 

@@ -73,6 +73,15 @@
 
 ### 新增
 
+- **资源授权范围（`BACKEND_IMPROVEMENT_PLAN` BE-01，P0）**：把"角色校验"补成"角色 + 资源归属"两层
+  - `lunar-common` 新增 `AccessScope`：ADMIN 全局、TEACHER 仅自己拥有的资源；身份只取令牌的 authorities/sub，**不取请求体、查询参数或任何代理头里的 actor 字段**
+  - contest / problem 新增 `owner_teacher_id`（迁移按 `created_by` 回填，**回填不到的存量行仅 ADMIN 可见**——不给旧数据默认开放）；创建即归属创建者，`created_by` 保留为"谁创建"的事实
+  - 管理端入口一律先做范围校验，越权与不存在同样返回 **404**（不泄露资源是否存在）：contest 的详情/名单/导入/重置密码/移出/终止会话/公告/提交审核，problem 的列表/新版本/版本列表/发布/测试点；列表查询**先叠加服务端范围再套用户筛选，分页 total 同样落在范围内**
+  - 考生侧：考试详情与公告按"是否已报名"放行（新增 `EnrollmentService.isEnrolled`），读别人报名的考试按不存在处理
+  - **内部测试点接口收紧为只认服务身份**（`roles=["SERVICE"]`）：此前 submission 用考生令牌调用，等于"内网 + 任意已认证令牌"就能取走测试数据；现在 submission 用自己的服务令牌取
+  - auth 密码重置：目标必须是 CANDIDATE（否则按不存在处理），且**重置不再改写 `managedByTeacherId`**（归属不是"最近操作人"）
+  - 风险事件查询/审核与审计账本查询**先收紧为 ADMIN 专用**：它们只知道 contestId、不知道竞赛归属，跨服务的范围查询落地前按计划兼容说明继续 ADMIN-only
+  - 真机验收（教师 A / 教师 B 两个账号）：B 读 A 的竞赛详情、名单、题目版本、测试点，以及提交 A 的审核、发布 A 的版本，全部 **404**；B 的竞赛/题目列表不含 A 的资源；A 与 ADMIN 正常；教师/ADMIN 令牌调内部测试点接口 **403**、服务令牌 **200**；教师查风险/审计 **403**、ADMIN **200**
 - **生产配置门禁与密钥轮换**（`BACKEND_IMPROVEMENT_PLAN` BE-02，P0：上线真实考试前的门槛）
   - `lunar-common` 新增 `ProductionConfigGuard` 与自动装配：激活 `prod` profile 时在应用就绪前校验"绝不能是开发默认值"的配置，不通过**直接启动失败**；消息只含属性名与原因、**不回显取值**（不把口令/私钥写进日志）。通用规则：迁移必须开启、数据库口令与服务客户端密钥不得以 `change-me` 开头、配置中心必须 fail-fast；auth 追加"必须有持久 RSA 私钥""开发种子必须关闭"。属性缺失视为该服务没有这项配置而跳过（如 judge 无 DataSource），本地 dev/test 行为不变
   - **密钥轮换**：auth 的 JWKS 与内部验签改为接受"当前密钥 + `auth.jwt.retired-public-keys` 中的退役公钥"，换密钥不会把未过期的旧 token 全部作废；新 token 自然带新 kid；JWKS 仍只发布公钥（无 `d` 等私钥字段）。顺带把内嵌的 `KeyMaterial` record 抽成独立文件 `JwtKeyMaterial`（仓库"一个类型一个文件"约定）
