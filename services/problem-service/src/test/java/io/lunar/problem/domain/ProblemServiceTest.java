@@ -115,6 +115,25 @@ class ProblemServiceTest {
     }
 
     @Test
+    void newVersionFallsBackToCurrentVersionWhenBaseAbsent() {
+        // baseVersionId 缺省时基于题目当前版本（DTO 注释与 docs/api.md 的约定）
+        ProblemEntity problem = new ProblemEntity();
+        problem.setId("p1");
+        problem.setCurrentVersionId("v1");
+        when(problemMapper.selectById("p1")).thenReturn(problem);
+        when(versionMapper.selectById("v1")).thenReturn(problemVersion("v1", "p1", 1, "PUBLISHED"));
+        when(versionMapper.selectList(any())).thenReturn(List.of(problemVersion("v1", "p1", 1, "PUBLISHED")));
+        when(testcaseMapper.selectList(any())).thenReturn(List.of(testcase("01", "1 2", "3")));
+
+        VersionView view = service.createNewVersion("p1", null, null, null,
+                null, null, null, null, null, null, null, "teacher_1");
+
+        assertThat(view.versionNo()).isEqualTo(2);
+        verify(versionMapper).selectById("v1");
+        verify(testcaseMapper).insert(any(TestcaseEntity.class));
+    }
+
+    @Test
     void publishSwitchesCurrentVersion() {
         ProblemEntity problem = new ProblemEntity();
         problem.setId("p1");

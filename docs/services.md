@@ -41,6 +41,8 @@ media ──(screenshot-created)──> anti-cheat、audit、gateway
 anti-cheat ──(plagiarism-requested)──> plagiarism-worker（独立部署）
 ```
 
+**当前已实现的调用（Spring 原生声明式 HTTP 接口 `@HttpExchange`，转发原始 Bearer 令牌、内网直连不经网关）**：contest→auth（学生账号创建/查询/重置，`AuthServiceApi`）、submission→contest（提交判定，`ContestServiceApi`）、submission→problem（题目当前版本，`ProblemServiceApi`）、anti-cheat→audit（审核留痕，`AuditServiceApi`）。上图其余箭头（contest→problem、contest→audit、事件链路的多数消费方）尚未实现。
+
 ## gateway-service
 
 统一入口，本身不含业务逻辑。
@@ -87,7 +89,7 @@ anti-cheat ──(plagiarism-requested)──> plagiarism-worker（独立部署�
 - 不负责：测试数据绝不能通过公开题目 API 返回给考生。
 - 数据与基础设施：`problem_schema`。
 - 对外接口：`POST /api/v1/problems`（题目+首版本+测试点）、`GET /{id}`（考生视角：当前发布版本，**不含测试点**）、`POST /{id}/versions`（新版本，可复制已有版本）、`GET /{id}/versions`、`POST /{id}/versions/{versionId}/publish`、`GET /{id}/versions/{versionId}/testcases`（仅老师/管理员/判题链路）。
-- 当前实现（2026-10-06）：`problem_schema` 落库（problems + problem_versions + testcases，独立 Flyway 历史表 `problem_history`）；版本模型——创建即 v1 草稿，发布后不可变，改动建新版本（复制+覆盖），发布时切换 `current_version_id`；判题限制（CPU/内存/输出）与语言白名单（逗号分隔）；JWT 资源服务器 + 角色控制；8 个单测 + 真机闭环（含"考生视图无测试点"安全约束验证）。测试点数据 v1 直接落库，大文件对象存储迁移留后。
+- 当前实现（2026-10-06）：`problem_schema` 落库（problems + problem_versions + testcases，独立 Flyway 历史表 `problem_history`）；版本模型——创建即 v1 草稿，发布后不可变，改动建新版本（复制+覆盖，`baseVersionId` 缺省时基于当前版本），发布时切换 `current_version_id`；判题限制（CPU/内存/输出）与语言白名单（逗号分隔）；JWT 资源服务器 + 角色控制；8 个单测 + 真机闭环（含"考生视图无测试点"安全约束验证）。测试点数据 v1 直接落库，大文件对象存储迁移留后。
 - 下一步：测试点对象存储引用；语言执行模板配置；供 judge-service 的服务间测试点接口（复用管理查询）。
 
 ## submission-service

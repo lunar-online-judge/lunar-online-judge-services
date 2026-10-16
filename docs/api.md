@@ -116,7 +116,7 @@ HTTP 前缀统一为 `/api/v1`。各服务经 gateway 对外暴露；客户端�
 | problem | POST | `/api/v1/problems` | TEACHER/ADMIN | 已实现（题目 + 首版本 + 测试点） |
 | problem | GET | `/api/v1/problems` | TEACHER/ADMIN | 已实现（分页 + keyword，管理端列表） |
 | problem | GET | `/api/v1/problems/{id}` | 任意已认证 | 已实现（考生视角：当前发布版本，不含测试点） |
-| problem | POST | `/api/v1/problems/{id}/versions` | TEACHER/ADMIN | 已实现（新版本，可基于已有版本复制；请求体当前无校验注解） |
+| problem | POST | `/api/v1/problems/{id}/versions` | TEACHER/ADMIN | 已实现（新版本：`baseVersionId` 缺省时基于题目当前版本，字段缺省沿用基线；无当前版本时 404） |
 | problem | GET | `/api/v1/problems/{id}/versions` | TEACHER/ADMIN | 已实现（版本列表） |
 | problem | POST | `/api/v1/problems/{id}/versions/{versionId}/publish` | TEACHER/ADMIN | 已实现（发布并切换 `current_version_id`，发布后版本不可变） |
 | problem | GET | `/api/v1/problems/{id}/versions/{versionId}/testcases` | TEACHER/ADMIN | 已实现（仅老师/管理员；"供 judge 取测试点"的服务间接口未实现） |

@@ -7,6 +7,13 @@
 
 ### 重构
 
+- **服务间调用改用 Spring 原生声明式 HTTP 接口（`@HttpExchange` + `RestClient`）**（原为各服务手写 `RestClient` 调用）
+  - 四个接口（`AuthServiceApi` / `ContestServiceApi` / `ProblemServiceApi` / `AuditServiceApi`）声明路径、参数与 `Authorization` 头；各服务的 `ServiceClientConfig` 用 lunar-common 的 `HttpServiceClientFactory` 把它们装配成 Bean——Spring Framework 6.2 只有 `HttpServiceProxyFactory`，接口自动注册（`@ImportHttpServices` 分组）要 Framework 7 / Boot 4，所以显式装配；baseUrl 默认服务名、`*_BASE_URL` 可覆盖为固定地址排障
+  - 三个客户端类（`AuthInternalClient` / `UpstreamClient` / `AuditClient`）保留为适配层，只做三件事：解上游 `ApiResponse` 信封、把"查不到（404）"收敛成 null、转发 Bearer 令牌——业务调用点零改动
+  - **评估过 OpenFeign 并放弃**：官方已把该项目标为 feature-complete 并建议迁往 Spring HTTP Service Clients，且需多引一个 starter；原生方案零新增依赖、与 MVC 共用 `HttpMessageConverters`、自带 Micrometer Observation
+  - 恢复 lunar-common 的 `LoadBalancedRestClientAutoConfiguration`（这次交给 Boot 的 `RestClientBuilderConfigurer` 配置，从而继承 `spring.http.client.*` 超时与 observation；用 `ObjectProvider` 容忍该 Bean 缺席），并恢复装配冒烟测试（唯一 Builder、Boot 的 Builder 退避、无 loadbalancer 时不装配）
+  - 超时显式固化：`spring.http.client.connect-timeout: 2s` / `read-timeout: 10s`（启动期解析，改后需重启）
+  - 新增 3 个适配层单测（信封解包、404→null、令牌与 traceId 透传）；顺带修掉 BE-07 记录的一处缺陷：`AuditClient.record` 的 `traceId` 参数此前从未使用，现作为 `X-Request-Id` 透传，audit-service 用它作为账本 traceId
 - **全局异常处理统一到 lunar-common**（原来 6 份重复实现，其中 4 份内嵌在 Controller 里）
   - 新增 `ApiException` 抽象基类（`code` + `httpStatus`），六个域异常（`AuthException` / `UserException` / `ContestException` / `ProblemException` / `SubmissionException` / `ReviewException`）改为继承它，删掉各自复制的字段与访问器
   - 新增 `ApiExceptionHandler`（`@RestControllerAdvice`，由 `WebCommonAutoConfiguration` 注册为 Bean）：处理所有 `ApiException` 子类 + `MethodArgumentNotValidException`，错误响应格式全平台一致
@@ -32,6 +39,11 @@
 
 ### 修复
 
+- **Outbox 事件因空的 traceId 头永远发不出去**（真机全量 API 测试发现）：`OutboxPublisher` 无条件 `setHeader("traceId", event.getTraceId())`，调用方未带 `X-Request-Id` 时该值为 null → RocketMQ 抛 `IllegalArgumentException: The name or value of property can not be null or blank string!`，事件**永久卡在 Outbox 里每 2 秒重试一次**（真机表现：提交后判题结果永远不回来）
+  - 改为仅在 traceId 非空时设该头（submission 与 anti-cheat 两个发布器同修）；修复后两个服务未发布事件数归零，历史积压的 21 条全部投递成功
+  - 冒烟用例专门覆盖该场景：不带 `X-Request-Id` 提交 → 事件链路（Outbox → RocketMQ → judge → judged → 回写）端到端跑通、状态变 `ACCEPTED`
+- **`baseVersionId` 缺省时新建题目版本返回 404**（真机全量 API 测试发现）：`CreateVersionRequest` 的注释与 `docs/api.md` 都写明"baseVersionId 为空则基于当前发布版本"，但 `createNewVersion` 直接 `selectById(null)` → 抛 `PROBLEM_VERSION_NOT_FOUND`，把"缺参数"报成了"版本不存在"
+  - 按注释实现回退：缺省时取题目当前版本，题目尚无发布版本时仍返回 404（语义正确）；补 1 个单测覆盖回退路径
 - **并发终态保护缺失（TOCTOU）**：风险事件审核与判题回写都是"读-判-写"的**无条件更新**——两个并发终审会互相覆盖，重复或乱序的判题消息也可能把终态改回去（`RiskEventService` 的类注释还自称"条件更新防并发"，与代码不符）
   - 两处写入改为**前态条件更新**（`where id=? and status/review_status=读到的前态`），影响 0 行时重新读取实际状态并返回 409（`MONITOR_INVALID_TRANSITION` / `SUBMISSION_INVALID_TRANSITION`）：并发下最多一个成功，终态不可再动，失败方也不会补发事件
   - 各加 1 个测试覆盖"并发失败方"路径（`RiskEventServiceTest.concurrentReviewLosesConditionalUpdate`、`SubmissionServiceTest.judgmentLosesConditionalUpdateOnConcurrentWrite`）

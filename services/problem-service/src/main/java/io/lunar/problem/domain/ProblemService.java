@@ -75,8 +75,12 @@ public class ProblemService {
                                         String title, String statement, String sampleInput, String sampleOutput,
                                         Integer timeLimitMs, Integer memoryLimitKb, Integer outputLimitKb,
                                         String allowedLanguages, List<TestcasePayload> testcases, String operatorId) {
-        requireProblem(problemId);
-        ProblemVersionEntity base = versionMapper.selectById(baseVersionId);
+        ProblemEntity problem = requireProblem(problemId);
+        // baseVersionId 缺省时基于题目当前版本（DTO 注释与 docs/api.md 的约定）；无当前版本时按"版本不存在"返回 404
+        String resolvedBaseVersionId = (baseVersionId == null || baseVersionId.isBlank())
+                ? problem.getCurrentVersionId()
+                : baseVersionId;
+        ProblemVersionEntity base = versionMapper.selectById(resolvedBaseVersionId);
         if (base == null || !problemId.equals(base.getProblemId())) {
             throw new ProblemException.VersionNotFound();
         }
@@ -98,7 +102,7 @@ public class ProblemService {
         // 未显式传测试点时复制基础版本的测试点
         if (testcases == null || testcases.isEmpty()) {
             List<TestcaseEntity> baseTestcases = testcaseMapper.selectList(
-                    new LambdaQueryWrapper<TestcaseEntity>().eq(TestcaseEntity::getVersionId, baseVersionId));
+                    new LambdaQueryWrapper<TestcaseEntity>().eq(TestcaseEntity::getVersionId, resolvedBaseVersionId));
             for (TestcaseEntity testcase : baseTestcases) {
                 insertTestcase(created.getId(), testcase.getName(), testcase.getInputContent(),
                         testcase.getExpectedOutput());

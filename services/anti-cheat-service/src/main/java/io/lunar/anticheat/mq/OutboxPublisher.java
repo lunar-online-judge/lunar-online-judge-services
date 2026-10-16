@@ -38,11 +38,14 @@ public class OutboxPublisher {
                 .last("limit " + PUBLISH_BATCH_SIZE));
         for (OutboxEventEntity event : pending) {
             try {
-                rocketMQTemplate.syncSend(event.getEventType(),
-                        MessageBuilder.withPayload(event.getPayload())
-                                .setHeader("KEYS", event.getEventId())
-                                .setHeader("traceId", event.getTraceId())
-                                .build());
+                MessageBuilder<String> message = MessageBuilder.withPayload(event.getPayload())
+                        .setHeader("KEYS", event.getEventId());
+                // traceId 为空时不能设该头：RocketMQ 拒绝空属性值（"property can not be null or blank string"），
+                // 设了整条消息就发不出去，事件会永远卡在 Outbox 里重试
+                if (event.getTraceId() != null && !event.getTraceId().isBlank()) {
+                    message.setHeader("traceId", event.getTraceId());
+                }
+                rocketMQTemplate.syncSend(event.getEventType(), message.build());
                 event.setPublishedAt(Instant.now());
                 outboxMapper.updateById(event);
                 log.info("Outbox published eventId={} type={}", event.getEventId(), event.getEventType());
