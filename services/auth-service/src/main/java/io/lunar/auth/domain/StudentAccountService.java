@@ -107,6 +107,8 @@ public class StudentAccountService {
             throw new UserException.NotFound();
         }
         user.setPasswordHash(passwordEncoder.encode(temporaryPassword));
+        // 敏感重置必须让已签发的令牌失效（BE-09）：JWT 离线校验，不标记的话旧令牌在到期前照样能用
+        user.setTokensValidAfter(Instant.now());
         user.setPasswordChangeRequired(true);
         user.setUpdatedAt(Instant.now());
         userMapper.updateById(user);

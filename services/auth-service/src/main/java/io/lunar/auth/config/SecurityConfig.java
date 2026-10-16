@@ -41,6 +41,8 @@ public class SecurityConfig {
                 .authorizeHttpRequests(auth -> auth
                         .requestMatchers(HttpMethod.POST, "/api/v1/auth/login").permitAll()
                         .requestMatchers(HttpMethod.GET, "/api/v1/auth/jwks").permitAll()
+                        // 令牌失效时间线查询（BE-09）：与 JWKS 同一信任模型——只在集群内部可达（网关不路由 internal），无需令牌
+                        .requestMatchers(HttpMethod.GET, "/api/v1/internal/users/*/tokens-valid-after").permitAll()
                         // 服务令牌签发：调用方此刻还没有令牌，凭证就是 clientId/clientSecret（内网直连，不经网关）
                         .requestMatchers(HttpMethod.POST, "/api/v1/internal/service-tokens").permitAll()
                         // 服务间接口：学生账号管理（操作者老师/管理员令牌，由 contest 转发）

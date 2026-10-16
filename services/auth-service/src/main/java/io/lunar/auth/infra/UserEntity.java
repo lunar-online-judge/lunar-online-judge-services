@@ -33,6 +33,9 @@ public class UserEntity {
 
     private Instant createdAt;
 
+    /** 此时间之前签发的令牌一律无效（BE-09）；NULL 表示从未失效过。 */
+    private Instant tokensValidAfter;
+
     private Instant updatedAt;
 
     public String getId() { return id; }
@@ -57,4 +60,6 @@ public class UserEntity {
     public void setCreatedAt(Instant createdAt) { this.createdAt = createdAt; }
     public Instant getUpdatedAt() { return updatedAt; }
     public void setUpdatedAt(Instant updatedAt) { this.updatedAt = updatedAt; }
+    public Instant getTokensValidAfter() { return tokensValidAfter; }
+    public void setTokensValidAfter(Instant tokensValidAfter) { this.tokensValidAfter = tokensValidAfter; }
 }

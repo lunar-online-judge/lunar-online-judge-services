@@ -1,5 +1,7 @@
 # Lunar Online Judge：后续后端优化计划
 
+> **BE-09 已落地（2026-10）**：①签发带 `aud`，资源服务统一校验 `iss` + `aud`（lunar-common 自动装配，`auth.jwt.strict-validation=false` 可关）；②**会话失效承诺**——`users.tokens_valid_after` + auth 的 `tokens-valid-after` 内部查询 + lunar-common 的 `TokenRevocationValidator`（本地缓存 30 秒 = 承诺时限，auth 不可达 fail-open）；敏感重置会置失效点。真机验收：置失效点后旧令牌 401、新登录令牌 200。**踩坑记录**：内部端点一开始被 auth 自身安全链拦成 401，导致吊销静默失效（fail-open 放行）——已在 `SecurityConfig` 放行并复验。**仍未做**：账号禁用路径、logout 端点。
+
 > **BE-09 第一部分已落地（2026-10）**：签发带 `aud`，资源服务统一校验 `iss` + `aud`（lunar-common 自动装配，可用 `auth.jwt.strict-validation=false` 关闭）。真机验收：期望 issuer 故意配错时合法令牌直接 401，恢复后 200。**仍未做（第二部分）**：禁用/重置/退出后的会话失效承诺——旧 JWT 在到期前（默认 30 分钟）仍有效，需要定 tokenVersion/撤销缓存与传播时限。
 
 > **judge 的判决 Outbox 已落地（2026-10）**：judge 引入 `judge_schema.outbox_events`（V1）+ 数据源/Flyway + `OutboxPublisher`（含 attempts/指数退避/死信），消费者改为"判决先落本地、异步投递"。真机验收：正常链路 judged 经 Outbox 投递且端到端无回归；5MB 毒消息退避到 attempts=10 后转死信。**仍未做**：judge 的死信重放接口、`judge_task` 异步评测状态机。

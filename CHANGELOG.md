@@ -73,6 +73,14 @@
 
 ### 新增
 
+- **会话失效承诺：令牌失效时间线（`BACKEND_IMPROVEMENT_PLAN` BE-09 第二部分）**
+  - 问题：JWT 是离线校验的，**禁用账号或重置密码不会让已签发的令牌失效**——旧令牌在到期前（默认 30 分钟）照样能用
+  - `auth_schema.users` 加 `tokens_valid_after`（V4）：记录"此时间之前签发的令牌一律无效"；敏感重置（`resetStudentPassword`）把它置为当前时刻
+  - auth 新增 `GET /api/v1/internal/users/{userId}/tokens-valid-after`（**与 JWKS 同一信任模型**：只在集群内部可达、网关不路由、无需令牌；已在 `SecurityConfig` 放行）
+  - lunar-common 的 `TokenRevocationValidator`：拿令牌 `iat` 与该值比较，早于失效点即拒绝；**本地缓存 30 秒**（`auth.jwt.revocation-cache-seconds`）= 失效传播的**承诺时限**；auth 不可达时 **fail-open**（只 warn，与登录限流/消费去重的降级策略一致）
+  - **真机验收**：旧令牌先 200 → 置失效点 → 等缓存过期（35s）→ **旧令牌 401** → 重新登录的新令牌 200
+  - **过程记录（重要）**：第一次验证时旧令牌仍是 200——原因是新内部端点被 auth 自己的安全过滤链拦成 **401**，资源服务按 fail-open 放行，**整套吊销静默失效**。放行白名单后重验通过；这条"配了但不生效"的坑已写进本节，避免以后重犯
+  - **仍未做**：账号**禁用**路径（当前只有敏感重置会置失效点，禁用接口/状态机未实现）；退出登录（无 logout 端点）
 - **JWT 的 issuer/audience 校验（`BACKEND_IMPROVEMENT_PLAN` BE-09 第一部分）**
   - 问题：各资源服务只配了 `jwk-set-uri`，于是**只验签名与时间**——任何用同一把密钥签出的令牌都能通过，`iss`/`aud` 形同装饰
   - auth 签发时带上 **`aud`**（`auth.jwt.audience`，默认 `lunar-api`；用户令牌与服务身份令牌共用同一签发路径，两者都带）

@@ -14,7 +14,10 @@ import org.springframework.security.oauth2.jwt.JwtClaimValidator;
 import org.springframework.security.oauth2.jwt.JwtDecoder;
 import org.springframework.security.oauth2.jwt.JwtValidators;
 import org.springframework.security.oauth2.jwt.NimbusJwtDecoder;
+import org.springframework.web.client.RestClient;
 
+import java.net.URI;
+import java.time.Duration;
 import java.util.List;
 
 /**
@@ -37,13 +40,26 @@ public class JwtValidationAutoConfiguration {
     public JwtDecoder jwtDecoder(
             @Value("${spring.security.oauth2.resourceserver.jwt.jwk-set-uri}") String jwkSetUri,
             @Value("${auth.jwt.issuer:auth-service}") String issuer,
-            @Value("${auth.jwt.audience:lunar-api}") String audience) {
+            @Value("${auth.jwt.audience:lunar-api}") String audience,
+            @Value("${auth.jwt.revocation-cache-seconds:30}") long revocationCacheSeconds) {
         NimbusJwtDecoder decoder = NimbusJwtDecoder.withJwkSetUri(jwkSetUri).build();
         OAuth2TokenValidator<Jwt> validator = new DelegatingOAuth2TokenValidator<>(
                 JwtValidators.createDefaultWithIssuer(issuer),
                 new JwtClaimValidator<List<String>>(JwtClaimNames.AUD,
-                        audiences -> audiences != null && audiences.contains(audience)));
+                        audiences -> audiences != null && audiences.contains(audience)),
+                new TokenRevocationValidator(RestClient.create(), tokensValidAfterUri(jwkSetUri),
+                        Duration.ofSeconds(revocationCacheSeconds)));
         decoder.setJwtValidator(validator);
         return decoder;
+    }
+
+    /**
+     * 由 JWKS 地址推导失效时间线查询地址：两者同属 auth 服务，用同一个 host:port 即可，
+     * 避免再引入一个必须与 JWKS 保持一致的配置项（不一致会导致吊销静默失效）。
+     */
+    private static String tokensValidAfterUri(String jwkSetUri) {
+        URI jwkSet = URI.create(jwkSetUri);
+        return jwkSet.getScheme() + "://" + jwkSet.getAuthority()
+                + "/api/v1/internal/users/{userId}/tokens-valid-after";
     }
 }
