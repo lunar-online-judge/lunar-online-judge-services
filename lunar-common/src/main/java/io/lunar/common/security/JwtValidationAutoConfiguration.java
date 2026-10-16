@@ -7,7 +7,9 @@ import org.springframework.boot.autoconfigure.condition.ConditionalOnMissingBean
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.context.annotation.Bean;
 import org.springframework.security.oauth2.core.DelegatingOAuth2TokenValidator;
+import org.springframework.security.oauth2.core.OAuth2Error;
 import org.springframework.security.oauth2.core.OAuth2TokenValidator;
+import org.springframework.security.oauth2.core.OAuth2TokenValidatorResult;
 import org.springframework.security.oauth2.jwt.Jwt;
 import org.springframework.security.oauth2.jwt.JwtClaimNames;
 import org.springframework.security.oauth2.jwt.JwtClaimValidator;
@@ -37,6 +39,8 @@ public class JwtValidationAutoConfiguration {
 
     @Bean
     @ConditionalOnMissingBean(JwtDecoder.class)
+    // 没有配 JWKS 的服务（如 judge，它不走资源服务器）不该因为缺这个属性起不来：条件放在方法上
+    @ConditionalOnProperty("spring.security.oauth2.resourceserver.jwt.jwk-set-uri")
     public JwtDecoder jwtDecoder(
             @Value("${spring.security.oauth2.resourceserver.jwt.jwk-set-uri}") String jwkSetUri,
             @Value("${auth.jwt.issuer:auth-service}") String issuer,
@@ -45,8 +49,12 @@ public class JwtValidationAutoConfiguration {
         NimbusJwtDecoder decoder = NimbusJwtDecoder.withJwkSetUri(jwkSetUri).build();
         OAuth2TokenValidator<Jwt> validator = new DelegatingOAuth2TokenValidator<>(
                 JwtValidators.createDefaultWithIssuer(issuer),
-                new JwtClaimValidator<List<String>>(JwtClaimNames.AUD,
-                        audiences -> audiences != null && audiences.contains(audience)),
+                // 用 Jwt#getAudience()（已经是 List<String>）而不是 JwtClaimValidator<List<String>>：
+                // 单元素 aud 会被 Nimbus 解成 String，泛型校验器强转会抛 ClassCastException（实测会变成 500）
+                token -> token.getAudience() != null && token.getAudience().contains(audience)
+                        ? OAuth2TokenValidatorResult.success()
+                        : OAuth2TokenValidatorResult.failure(
+                                new OAuth2Error("invalid_token", "令牌受众不匹配", null)),
                 new TokenRevocationValidator(RestClient.create(), tokensValidAfterUri(jwkSetUri),
                         Duration.ofSeconds(revocationCacheSeconds)));
         decoder.setJwtValidator(validator);

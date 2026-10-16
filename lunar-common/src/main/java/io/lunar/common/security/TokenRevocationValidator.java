@@ -46,18 +46,24 @@ public class TokenRevocationValidator implements OAuth2TokenValidator<Jwt> {
 
     @Override
     public OAuth2TokenValidatorResult validate(Jwt token) {
-        String userId = token.getSubject();
-        Instant issuedAt = token.getIssuedAt();
-        if (userId == null || issuedAt == null) {
-            // 没有 sub/iat 的令牌交给其它校验器判断（这里不做额外约束）
+        try {
+            String userId = token.getSubject();
+            Instant issuedAt = token.getIssuedAt();
+            if (userId == null || issuedAt == null) {
+                // 没有 sub/iat 的令牌交给其它校验器判断（这里不做额外约束）
+                return OAuth2TokenValidatorResult.success();
+            }
+            Instant validAfter = tokensValidAfter(userId);
+            if (validAfter != null && issuedAt.isBefore(validAfter)) {
+                return OAuth2TokenValidatorResult.failure(
+                        new OAuth2Error("invalid_token", "令牌已失效（账号被禁用或密码被重置）", null));
+            }
+            return OAuth2TokenValidatorResult.success();
+        } catch (RuntimeException exception) {
+            // 校验器自身出问题不能把整条链路变成 500：按未失效放行（与 auth 不可达时同一策略），但要留痕
+            log.warn("令牌失效校验异常，按未失效放行（fail-open）", exception);
             return OAuth2TokenValidatorResult.success();
         }
-        Instant validAfter = tokensValidAfter(userId);
-        if (validAfter != null && issuedAt.isBefore(validAfter)) {
-            return OAuth2TokenValidatorResult.failure(
-                    new OAuth2Error("invalid_token", "令牌已失效（账号被禁用或密码被重置）", null));
-        }
-        return OAuth2TokenValidatorResult.success();
     }
 
     /** 查询（带缓存）某用户的失效时间线；查不到或回源失败都返回 null（按"没有失效点"处理）。 */
