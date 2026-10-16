@@ -31,7 +31,7 @@ class JwtTokenServiceTest {
                 .keyID("test-key")
                 .build();
         JwtEncoder encoder = new NimbusJwtEncoder(new ImmutableJWKSet<>(new JWKSet(rsaKey)));
-        JwtTokenService service = new JwtTokenService(encoder, 30);
+        JwtTokenService service = new JwtTokenService(encoder, 30, "lunar-api");
 
         IssuedToken token = service.issue("user_1", Role.TEACHER);
 
@@ -42,6 +42,8 @@ class JwtTokenServiceTest {
         JWTClaimsSet claims = signed.getJWTClaimsSet();
         assertThat(claims.getSubject()).isEqualTo("user_1");
         assertThat(claims.getIssuer()).isEqualTo("auth-service");
+        // BE-09：资源服务会校验 aud，签发时必须带上
+        assertThat(claims.getAudience()).containsExactly("lunar-api");
         assertThat(claims.getClaim("roles")).isEqualTo(List.of("TEACHER"));
         assertThat(claims.getJWTID()).isNotBlank();
         assertThat(claims.getExpirationTime().toInstant())

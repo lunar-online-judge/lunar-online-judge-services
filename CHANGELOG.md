@@ -73,6 +73,12 @@
 
 ### 新增
 
+- **JWT 的 issuer/audience 校验（`BACKEND_IMPROVEMENT_PLAN` BE-09 第一部分）**
+  - 问题：各资源服务只配了 `jwk-set-uri`，于是**只验签名与时间**——任何用同一把密钥签出的令牌都能通过，`iss`/`aud` 形同装饰
+  - auth 签发时带上 **`aud`**（`auth.jwt.audience`，默认 `lunar-api`；用户令牌与服务身份令牌共用同一签发路径，两者都带）
+  - lunar-common 新增 `JwtValidationAutoConfiguration`（自动装配，默认开启）：按"签名 + exp/nbf + **iss** + **aud**"构造 `JwtDecoder`，`auth.jwt.issuer`（默认 `auth-service`）/`auth.jwt.audience` 可配，`auth.jwt.strict-validation=false` 可临时关闭；已有自定义 `JwtDecoder` 的服务不受影响
+  - **真机验收**：①令牌 payload 实测带 `iss=auth-service`、`aud=lunar-api`；②把 contest 的期望 issuer 故意配成 `evil-service` → **合法令牌直接 401**（证明校验真的在跑，而不是配了不生效）；③恢复正确配置 → 200；④服务身份令牌签发 200（内部调用不受影响）
+  - **仍未做（BE-09 第二部分）**：禁用/敏感重置/退出后的**会话失效承诺**——当前旧 JWT 在到期前（默认 30 分钟）仍然有效；需要定 tokenVersion/撤销缓存方案与传播时限（含"每请求延迟"的取舍），不能把离线 JWT 当成可立即注销
 - **judge 的判决投递补 Outbox（后续后端优化计划 ②）**
   - 此前 judge 评测完**直接 `syncSend`** `lunar-submission-judged`：broker 抖动/重启/网络分区时这一发就丢，结果是**考生成绩永久缺失、提交永远停在 QUEUED**（没有任何地方能补投）
   - judge 引入 `judge_schema`（只一张 `outbox_events` 表，V1 迁移）+ 数据源/Flyway 配置；消费者改为**判决先落本地 Outbox**，由新增的 `OutboxPublisher` 异步投递（含 attempts/指数退避/死信，与 submission/anti-cheat 同一模式）；`@EnableScheduling` 打开调度

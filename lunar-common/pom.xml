@@ -16,6 +16,8 @@
         <dependency><groupId>org.springframework.cloud</groupId><artifactId>spring-cloud-commons</artifactId><optional>true</optional></dependency>
         <!-- 仅 AccessScope 编译需要（从 Authentication 取授权范围）；各资源服务自带 spring-security，网关不依赖它 -->
         <dependency><groupId>org.springframework.security</groupId><artifactId>spring-security-core</artifactId><optional>true</optional></dependency>
+        <dependency><groupId>org.springframework.security</groupId><artifactId>spring-security-oauth2-jose</artifactId><optional>true</optional></dependency>
+        <dependency><groupId>org.springframework.security</groupId><artifactId>spring-security-oauth2-resource-server</artifactId><optional>true</optional></dependency>
         <!-- 仅事件信封（EventEnvelope/EventMessages）编译需要；运行时由各服务自带的 jackson 提供 -->
         <dependency><groupId>com.fasterxml.jackson.core</groupId><artifactId>jackson-databind</artifactId><optional>true</optional></dependency>
         <dependency><groupId>org.springframework.boot</groupId><artifactId>spring-boot-starter-test</artifactId><scope>test</scope></dependency>

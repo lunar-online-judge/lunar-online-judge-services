@@ -23,11 +23,15 @@ public class JwtTokenService {
 
     private final JwtEncoder jwtEncoder;
     private final Duration accessTtl;
+    /** 令牌受众（BE-09）：资源服务会校验 aud，缺了它一律 401。 */
+    private final String audience;
 
     public JwtTokenService(JwtEncoder jwtEncoder,
-                           @Value("${auth.jwt.access-ttl-minutes:30}") long accessTtlMinutes) {
+                           @Value("${auth.jwt.access-ttl-minutes:30}") long accessTtlMinutes,
+                           @Value("${auth.jwt.audience:lunar-api}") String audience) {
         this.jwtEncoder = jwtEncoder;
         this.accessTtl = Duration.ofMinutes(accessTtlMinutes);
+        this.audience = audience;
     }
 
     public IssuedToken issue(String userId, Role role) {
@@ -49,6 +53,7 @@ public class JwtTokenService {
         JwtClaimsSet claims = JwtClaimsSet.builder()
                 .issuer("auth-service")
                 .subject(subject)
+                .audience(List.of(audience))
                 .id(UUID.randomUUID().toString())
                 .issuedAt(now)
                 .expiresAt(expiresAt)

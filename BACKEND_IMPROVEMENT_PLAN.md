@@ -1,5 +1,7 @@
 # Lunar Online Judge：后续后端优化计划
 
+> **BE-09 第一部分已落地（2026-10）**：签发带 `aud`，资源服务统一校验 `iss` + `aud`（lunar-common 自动装配，可用 `auth.jwt.strict-validation=false` 关闭）。真机验收：期望 issuer 故意配错时合法令牌直接 401，恢复后 200。**仍未做（第二部分）**：禁用/重置/退出后的会话失效承诺——旧 JWT 在到期前（默认 30 分钟）仍有效，需要定 tokenVersion/撤销缓存与传播时限。
+
 > **judge 的判决 Outbox 已落地（2026-10）**：judge 引入 `judge_schema.outbox_events`（V1）+ 数据源/Flyway + `OutboxPublisher`（含 attempts/指数退避/死信），消费者改为"判决先落本地、异步投递"。真机验收：正常链路 judged 经 Outbox 投递且端到端无回归；5MB 毒消息退避到 attempts=10 后转死信。**仍未做**：judge 的死信重放接口、`judge_task` 异步评测状态机。
 
 > **随机题目分配已落地（2026-10）**：`contest_assignments`（V7）+ 发布时按学生生成（种子由 (contestId, studentId) 稳定推导、可复现、幂等）+ 三个查询/重算接口 + **提交侧改为按分配校验**（未分配给他的题按不存在处理）。真机验收：每人恰好抽到配置数量、两人拿到不同题、重复生成不新增、提交未分配题 404。**仍未做**：题目顺序/分值/评分规则的可配置化、指定题目公告。
