@@ -32,6 +32,9 @@ public class AuditLogEntity {
 
     private String traceId;
 
+    /** 来源事件的 eventId（BE-07 异步消费幂等键，唯一索引 uk_audit_logs_event_id）；同步写入为 null。 */
+    private String eventId;
+
     private Instant occurredAt;
 
     private Instant createdAt;
@@ -56,6 +59,8 @@ public class AuditLogEntity {
     public void setDetail(String detail) { this.detail = detail; }
     public String getTraceId() { return traceId; }
     public void setTraceId(String traceId) { this.traceId = traceId; }
+    public String getEventId() { return eventId; }
+    public void setEventId(String eventId) { this.eventId = eventId; }
     public Instant getOccurredAt() { return occurredAt; }
     public void setOccurredAt(Instant occurredAt) { this.occurredAt = occurredAt; }
     public Instant getCreatedAt() { return createdAt; }

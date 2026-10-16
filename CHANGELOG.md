@@ -73,6 +73,12 @@
 
 ### 新增
 
+- **审计异步留痕的消费端（`BACKEND_IMPROVEMENT_PLAN` BE-07 第一步）**：audit-service 引入 `rocketmq-spring-boot-starter`，新增 `AuditRecordedConsumer` 消费 `lunar-audit-recorded`
+  - **actor 取事件里的审计快照**（`actorId`/`actorRole`/`serviceId` 都在 payload 里），不再重放用户 Bearer——token 到期不会让补偿永远失败
+  - **幂等靠账本唯一索引** `uk_audit_logs_event_id`：重复投递命中唯一冲突即幂等跳过，"至少一次"投递收敛成"恰好一条"
+  - 兼容旧的裸 payload 消息（`EventMessages` 解包），缺 `action` 的消息丢弃并告警
+  - `AuditService.record` 增加带 `eventId` 的重载（旧签名委托为 null，同步写入不受影响）；单测 4 个通过、服务健康启动
+  - **下一步（未做）**：各服务敏感动作改为与本地 outbox 同事务写 `lunar-audit-recorded`（生产者侧），届时才能端到端验证；本轮**未能验证消费端与 broker 的连接**（该消费组/主题此刻在 broker 上尚不存在），留待生产者落地后一并验证
 - **公告范围与首次确认幂等（`BACKEND_IMPROVEMENT_PLAN` BE-10，P1）**
   - `confirm` 的 select-then-insert 改为**并发容忍**：撞唯一约束（并发确认）视为幂等成功并保留首次时间；已有记录时改用**条件更新**（仅 `confirmed_at` 为空才写），不再覆盖首次确认时间
   - 公告正文加服务端长度上限（`@Size(max = 4000)`，超长 400）
