@@ -20,7 +20,7 @@
 >
 > **BE-03 已落地一部分（2026-10）**：**复核写入的 CAS 经真机并发实测确认已生效**（两个并发终审恰好一个 200、一个 409；本文档"selectById→检查→updateById"的证据已过时，代码早已改为前态条件更新）；终态结论**必填原因**（空白 400 `MONITOR_REVIEW_REASON_INVALID`，上限 500 字符）、审核日志按纯文本处理——已实现并验收。**仍未做**：上报的 `contestId`/`problemId` 报名/会话/分配校验、迟到事件时间窗口、`clientEventId` 去重、上报速率与请求体大小限制。
 >
-> **BE-07 进行中（2026-10）**：已落地 ①审计账本**追加式保护**（DB 触发器拒绝 `UPDATE`/`DELETE`）②**`event_id` 幂等前置**（可空列 + 唯一索引）③**异步消费端**（audit-service 接入 RocketMQ，`AuditRecordedConsumer` 消费 `lunar-audit-recorded`，actor 取事件快照、按 `event_id` 唯一幂等）④**第一个生产者**（anti-cheat 审核改走本地 outbox）。**端到端已验收**：停掉 audit 执行审核 → 审核仍成功且本地 outbox 有事件；恢复后账本出现该记录；重投同一事件仍恰好 1 条。**下一步**：其余生产者（auth 学生账号、contest 名单/考试流转、submission 提交与判决）改走同一路径，并去掉各自的同步 `AuditRecorder` 调用；随后补退避/dead-letter 与 `originalOccurredAt`。
+> **BE-07 进行中（2026-10）**：已落地 ①审计账本**追加式保护**（DB 触发器拒绝 `UPDATE`/`DELETE`）②**`event_id` 幂等前置**（可空列 + 唯一索引）③**异步消费端**（audit-service 接入 RocketMQ，`AuditRecordedConsumer` 消费 `lunar-audit-recorded`，actor 取事件快照、按 `event_id` 唯一幂等）④**第一个生产者**（anti-cheat 审核改走本地 outbox）。**端到端已验收**：停掉 audit 执行审核 → 审核仍成功且本地 outbox 有事件；恢复后账本出现该记录；重投同一事件仍恰好 1 条。**下一步**：其余生产者（auth 学生账号、contest 名单/考试流转）改走同一路径，并去掉各自的同步 `AuditRecorder` 调用；随后补退避/dead-letter 与 `originalOccurredAt`。（submission 的 `SUBMISSION_CREATED`/`SUBMISSION_JUDGED` 已改完并真机验收：两条记录均经异步路径到达账本且带 `event_id`。）
 >
 > **BE-10 已落地（2026-10）**：公告 `confirm` 的**并发确认幂等**（撞唯一约束视为成功、条件更新不覆盖首次确认时间）+ 正文 4000 上限——已实现并真机验收（并发 10 次全部 200、无 5xx、首次时间不变、确认行数 1）。考生读/确认的报名范围由 BE-01 的控制器层 `requireEnrolled` 拦截；"送达 ≠ 确认"语义本来已分离。**仍未做**：公告统计接口（分母语义未定，按计划先定再实现，管理端继续隐藏）。
 >

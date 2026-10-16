@@ -31,6 +31,7 @@ import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.ArgumentMatchers.isNull;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
@@ -42,7 +43,7 @@ class SubmissionServiceTest {
     private final UpstreamClient upstream = mock(UpstreamClient.class);
     private final AuditRecorder auditRecorder = mock(AuditRecorder.class);
     private final SubmissionService service = new SubmissionService(
-            submissionMapper, outboxMapper, consumedEventMapper, upstream, limitProperties(), auditRecorder);
+            submissionMapper, outboxMapper, consumedEventMapper, upstream, limitProperties(), "submission-service");
 
     private static SubmissionLimitProperties limitProperties() {
         SubmissionLimitProperties properties = new SubmissionLimitProperties();
@@ -111,15 +112,14 @@ class SubmissionServiceTest {
         assertThat(view.submissionId()).isNotBlank();
         verify(submissionMapper).insert(any(SubmissionEntity.class));
         ArgumentCaptor<OutboxEventEntity> captor = ArgumentCaptor.forClass(OutboxEventEntity.class);
-        verify(outboxMapper).insert(captor.capture());
-        assertThat(captor.getValue().getEventType()).isEqualTo("lunar-submission-created");
-        assertThat(captor.getValue().getTraceId()).isEqualTo("trace-1");
-        assertThat(captor.getValue().getPayload()).contains("\"problemVersionId\":\"v1\"");
+        verify(outboxMapper, times(2)).insert(captor.capture());
+        assertThat(captor.getAllValues().get(0).getEventType()).isEqualTo("lunar-submission-created");
+        assertThat(captor.getAllValues().get(0).getTraceId()).isEqualTo("trace-1");
+        assertThat(captor.getAllValues().get(0).getPayload()).contains("\"problemVersionId\":\"v1\"");
         // 测试点随 created 事件送到评测引擎（键名与 GoJudgeAdapter.parseTestCases 约定一致）
-        assertThat(captor.getValue().getPayload()).contains("\"case1.in\":\"1 2\"").contains("\"case1.out\":\"3\"");
+        assertThat(captor.getAllValues().get(0).getPayload()).contains("\"case1.in\":\"1 2\"").contains("\"case1.out\":\"3\"");
         // 提交动作写审计账本（尽力而为；traceId 透传给账本，链路不断）
-        verify(auditRecorder).record("SUBMISSION_CREATED", "SUBMISSION", view.submissionId(), "c1",
-                "题目 p1 语言 cpp", "trace-1", "Bearer t");
+        assertThat(captor.getAllValues()).extracting(OutboxEventEntity::getEventType).contains("lunar-audit-recorded");
     }
 
     /** BE-04：提交用的版本是**考试锁定版本**，不是题目当前发布版本（否则考试中途发布会改掉测试数据）。 */
@@ -133,8 +133,8 @@ class SubmissionServiceTest {
         service.submit("c1", "p1", "cpp", "int main(){}", "key-9", "trace-9", "stu_1", "Bearer t");
 
         ArgumentCaptor<OutboxEventEntity> captor = ArgumentCaptor.forClass(OutboxEventEntity.class);
-        verify(outboxMapper).insert(captor.capture());
-        assertThat(captor.getValue().getPayload()).contains("\"problemVersionId\":\"v-locked\"");
+        verify(outboxMapper, times(2)).insert(captor.capture());
+        assertThat(captor.getAllValues().get(0).getPayload()).contains("\"problemVersionId\":\"v-locked\"");
     }
 
     @Test
@@ -211,11 +211,10 @@ class SubmissionServiceTest {
         assertThat(view.status()).isEqualTo("ACCEPTED");
         assertThat(view.score()).isEqualTo(100);
         ArgumentCaptor<OutboxEventEntity> captor = ArgumentCaptor.forClass(OutboxEventEntity.class);
-        verify(outboxMapper).insert(captor.capture());
-        assertThat(captor.getValue().getEventType()).isEqualTo("lunar-submission-judged");
+        verify(outboxMapper, times(2)).insert(captor.capture());
+        assertThat(captor.getAllValues().get(0).getEventType()).isEqualTo("lunar-submission-judged");
         // 判决回写由 MQ 消费者触发（无用户令牌）→ 账本走服务身份，operatorToken 传 null
-        verify(auditRecorder).record(eq("SUBMISSION_JUDGED"), eq("SUBMISSION"), eq("sub_existing"),
-                any(), eq("verdict=ACCEPTED score=100"), eq("trace-2"), isNull());
+        assertThat(captor.getAllValues()).extracting(OutboxEventEntity::getEventType).contains("lunar-audit-recorded");
     }
 
     @Test

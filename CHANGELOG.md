@@ -73,6 +73,10 @@
 
 ### 新增
 
+- **审计异步留痕：submission 两个动作改走本地 outbox（`BACKEND_IMPROVEMENT_PLAN` BE-07）**
+  - `SUBMISSION_CREATED`（actor=考生，role=CANDIDATE）与 `SUBMISSION_JUDGED`（actor=服务身份，role=SERVICE、`serviceId=submission-service`）不再同步调 audit-service，改为**与业务同事务**写 `lunar-audit-recorded`；`SubmissionService` 去掉 `AuditRecorder` 依赖、改注入 `spring.application.name` 作为服务身份
+  - **真机验收**：提交→判决后，账本里两条记录均由异步路径到达且带 `event_id`（`SUBMISSION_JUDGED` actor_role=SERVICE、service_id=submission-service；`SUBMISSION_CREATED` actor_role=CANDIDATE）
+  - **仍未做**：auth 学生账号与 contest 名单/考试流转两个生产者；退避/dead-letter 与 `originalOccurredAt`
 - **审计异步留痕的生产者侧（`BACKEND_IMPROVEMENT_PLAN` BE-07 第二步，以 anti-cheat 审核为样本）**
   - 审核不再同步调 audit-service，改为**与审核结果同事务**写一条 `lunar-audit-recorded` 本地 Outbox 事件（复用已有 `OutboxPublisher`，不需要新管道）；**actor 作为事件快照**（actorId/actorRole/targetType/targetId/contestId/detail/traceId）
   - `review` 的签名从"转发的操作者令牌"改为"审核人角色 + traceId"（角色只从已验证令牌的 authorities 取），并删掉 anti-cheat 中已无用的 `ServiceClientConfig` 与 `AuditRecorder` 依赖
