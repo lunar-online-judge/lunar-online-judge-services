@@ -7,7 +7,6 @@ import io.lunar.anticheat.infra.OutboxEventEntity;
 import io.lunar.anticheat.infra.OutboxEventMapper;
 import io.lunar.anticheat.infra.RiskEventEntity;
 import io.lunar.anticheat.infra.RiskEventMapper;
-import io.lunar.common.audit.AuditRecorder;
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.baomidou.mybatisplus.core.conditions.update.LambdaUpdateWrapper;
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
@@ -56,14 +55,11 @@ public class RiskEventService {
 
     private final RiskEventMapper riskEventMapper;
     private final OutboxEventMapper outboxMapper;
-    private final AuditRecorder auditRecorder;
     private final ObjectMapper objectMapper = new ObjectMapper();
 
-    public RiskEventService(RiskEventMapper riskEventMapper, OutboxEventMapper outboxMapper,
-                            AuditRecorder auditRecorder) {
+    public RiskEventService(RiskEventMapper riskEventMapper, OutboxEventMapper outboxMapper) {
         this.riskEventMapper = riskEventMapper;
         this.outboxMapper = outboxMapper;
-        this.auditRecorder = auditRecorder;
     }
 
     /** 上报风险事件（考生客户端自动上报，studentId = JWT sub）。 */
@@ -115,7 +111,7 @@ public class RiskEventService {
     /** 审核动作：ACKNOWLEDGE / CONFIRM / DISMISS（状态机 OPEN → ACKNOWLEDGED → CONFIRMED|DISMISSED）。 */
     @Transactional
     public RiskEventView review(String eventId, String action, String note, String reviewerId,
-                                String operatorToken) {
+                                String reviewerRole, String traceId) {
         RiskEventEntity riskEvent = riskEventMapper.selectById(eventId);
         if (riskEvent == null) {
             throw new ReviewException.NotFound();
@@ -164,10 +160,8 @@ public class RiskEventService {
         riskEvent.setReviewNote(note);
         log.info("AUDIT event=RISK_EVENT_REVIEWED riskEventId={} {}->{} by={} note={}",
                 eventId, from, to, reviewerId, sanitizeForLog(note));
-        // 审计账本（尽力而为：AuditRecorder 内部吞掉失败，audit-service 暂不可用也不阻断审核）
-        auditRecorder.record("RISK_EVENT_REVIEWED", "RISK_EVENT", eventId, riskEvent.getContestId(),
-                from + "->" + to + (note == null || note.isBlank() ? "" : " note=" + note),
-                null, operatorToken);
+        // 审计留痕改走本地 Outbox + 异步投递（BE-07）：与审核结果同事务，actor 作为事件快照保存
+        writeAuditOutbox(riskEvent, from, to, reviewerId, reviewerRole, note, traceId);
         writeReviewOutbox(riskEvent, from, to, reviewerId, reviewedAt);
         return toView(riskEvent);
     }
@@ -197,6 +191,42 @@ public class RiskEventService {
             outboxMapper.insert(event);
         } catch (Exception exception) {
             throw new IllegalStateException("风险事件 Outbox 序列化失败", exception);
+        }
+    }
+
+    /**
+     * 审计留痕事件（lunar-audit-recorded，BACKEND_IMPROVEMENT_PLAN BE-07）。
+     *
+     * 与审核结果同事务写入本地 Outbox，由 OutboxPublisher 异步投递；audit-service 消费端按 eventId 幂等。
+     * **actor 作为事件里的审计快照保存**（actorId/actorRole/serviceId），不再转发用户 Bearer——
+     * 否则 token 到期会让补偿永远失败（BE-07 明确要求）。
+     */
+    private void writeAuditOutbox(RiskEventEntity riskEvent, String fromStatus, String toStatus,
+                                  String reviewerId, String reviewerRole, String note, String traceId) {
+        try {
+            OutboxEventEntity event = new OutboxEventEntity();
+            event.setId(UUID.randomUUID().toString());
+            event.setEventId(UUID.randomUUID().toString());
+            event.setEventType("lunar-audit-recorded");
+            event.setAggregateId(riskEvent.getId());
+            event.setSchemaVersion(1);
+            event.setTraceId(traceId);
+            Map<String, Object> payload = new LinkedHashMap<>();
+            payload.put("action", "RISK_EVENT_REVIEWED");
+            payload.put("actorId", reviewerId);
+            payload.put("actorRole", reviewerRole);
+            payload.put("targetType", "RISK_EVENT");
+            payload.put("targetId", riskEvent.getId());
+            payload.put("contestId", riskEvent.getContestId());
+            payload.put("detail", fromStatus + "->" + toStatus
+                    + (note == null || note.isBlank() ? "" : " note=" + note));
+            payload.put("traceId", traceId);
+            event.setPayload(objectMapper.writeValueAsString(payload));
+            event.setOccurredAt(Instant.now());
+            event.setCreatedAt(Instant.now());
+            outboxMapper.insert(event);
+        } catch (Exception exception) {
+            throw new IllegalStateException("审计留痕 Outbox 序列化失败", exception);
         }
     }
 

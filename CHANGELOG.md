@@ -73,6 +73,11 @@
 
 ### 新增
 
+- **审计异步留痕的生产者侧（`BACKEND_IMPROVEMENT_PLAN` BE-07 第二步，以 anti-cheat 审核为样本）**
+  - 审核不再同步调 audit-service，改为**与审核结果同事务**写一条 `lunar-audit-recorded` 本地 Outbox 事件（复用已有 `OutboxPublisher`，不需要新管道）；**actor 作为事件快照**（actorId/actorRole/targetType/targetId/contestId/detail/traceId）
+  - `review` 的签名从"转发的操作者令牌"改为"审核人角色 + traceId"（角色只从已验证令牌的 authorities 取），并删掉 anti-cheat 中已无用的 `ServiceClientConfig` 与 `AuditRecorder` 依赖
+  - **真机验收（BE-07 的关键验收项）**：停掉 audit-service 执行审核 → 审核仍 **200 成功** ✓、本地 outbox 有审计事件且已投递 ✓；恢复 audit → 该事件被消费，账本出现 `RISK_EVENT_REVIEWED`（actor=管理员、role=ADMIN、带 eventId 与 traceId）✓；**重投同一事件 → 账本仍恰好 1 条** ✓（`uk_audit_logs_event_id` 唯一索引幂等生效）
+  - **仍未做**：其余生产者（auth 学生账号、contest 名单/考试流转、submission 提交与判决）改走同一路径；退避/dead-letter 与 `originalOccurredAt`
 - **审计异步留痕的消费端（`BACKEND_IMPROVEMENT_PLAN` BE-07 第一步）**：audit-service 引入 `rocketmq-spring-boot-starter`，新增 `AuditRecordedConsumer` 消费 `lunar-audit-recorded`
   - **actor 取事件里的审计快照**（`actorId`/`actorRole`/`serviceId` 都在 payload 里），不再重放用户 Bearer——token 到期不会让补偿永远失败
   - **幂等靠账本唯一索引** `uk_audit_logs_event_id`：重复投递命中唯一冲突即幂等跳过，"至少一次"投递收敛成"恰好一条"

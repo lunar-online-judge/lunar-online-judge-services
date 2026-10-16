@@ -4,7 +4,7 @@ import io.lunar.anticheat.infra.OutboxEventEntity;
 import io.lunar.anticheat.infra.OutboxEventMapper;
 import io.lunar.anticheat.infra.RiskEventEntity;
 import io.lunar.anticheat.infra.RiskEventMapper;
-import io.lunar.common.audit.AuditRecorder;
+
 import com.baomidou.mybatisplus.core.MybatisConfiguration;
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.baomidou.mybatisplus.core.metadata.TableInfoHelper;
@@ -31,8 +31,8 @@ class RiskEventServiceTest {
 
     private final RiskEventMapper riskEventMapper = mock(RiskEventMapper.class);
     private final OutboxEventMapper outboxMapper = mock(OutboxEventMapper.class);
-    private final AuditRecorder auditRecorder = mock(AuditRecorder.class);
-    private final RiskEventService service = new RiskEventService(riskEventMapper, outboxMapper, auditRecorder);
+
+    private final RiskEventService service = new RiskEventService(riskEventMapper, outboxMapper);
 
     @BeforeAll
     static void initMpMetadata() {
@@ -92,7 +92,7 @@ class RiskEventServiceTest {
     void reviewOpenCanAcknowledge() {
         when(riskEventMapper.selectById("e1")).thenReturn(event("e1", "OPEN"));
 
-        var view = service.review("e1", "ACKNOWLEDGE", "已阅", "teacher_1", "tok");
+        var view = service.review("e1", "ACKNOWLEDGE", "已阅", "teacher_1", "TEACHER", "trace-1");
 
         assertThat(view.reviewStatus()).isEqualTo("ACKNOWLEDGED");
         assertThat(view.reviewedBy()).isEqualTo("teacher_1");
@@ -103,7 +103,7 @@ class RiskEventServiceTest {
     void reviewOpenCanDismissDirectly() {
         when(riskEventMapper.selectById("e1")).thenReturn(event("e1", "OPEN"));
 
-        var view = service.review("e1", "DISMISS", "误报", "teacher_1", "tok");
+        var view = service.review("e1", "DISMISS", "误报", "teacher_1", "TEACHER", "trace-1");
 
         assertThat(view.reviewStatus()).isEqualTo("DISMISSED");
     }
@@ -112,7 +112,7 @@ class RiskEventServiceTest {
     void acknowledgedCanConfirm() {
         when(riskEventMapper.selectById("e1")).thenReturn(event("e1", "ACKNOWLEDGED"));
 
-        var view = service.review("e1", "CONFIRM", "证据确凿", "teacher_1", "tok");
+        var view = service.review("e1", "CONFIRM", "证据确凿", "teacher_1", "TEACHER", "trace-1");
 
         assertThat(view.reviewStatus()).isEqualTo("CONFIRMED");
     }
@@ -125,13 +125,18 @@ class RiskEventServiceTest {
     void reviewWritesReviewedOutboxEventInSameTransaction() {
         when(riskEventMapper.selectById("e1")).thenReturn(event("e1", "OPEN"));
 
-        service.review("e1", "CONFIRM", "证据确凿", "teacher_1", "tok");
+        service.review("e1", "CONFIRM", "证据确凿", "teacher_1", "TEACHER", "trace-1");
 
         ArgumentCaptor<OutboxEventEntity> captor = ArgumentCaptor.forClass(OutboxEventEntity.class);
-        verify(outboxMapper).insert(captor.capture());
-        assertThat(captor.getValue().getEventType()).isEqualTo("lunar-risk-event-reviewed");
-        assertThat(captor.getValue().getAggregateId()).isEqualTo("e1");
-        assertThat(captor.getValue().getPayload())
+        verify(outboxMapper, times(2)).insert(captor.capture());
+        // BE-07：审核同时写一条审计留痕事件，异步投递到 audit-service（actor 作为事件快照）
+        assertThat(captor.getAllValues()).extracting(OutboxEventEntity::getEventType)
+                .containsExactlyInAnyOrder("lunar-risk-event-reviewed", "lunar-audit-recorded");
+        OutboxEventEntity reviewed = captor.getAllValues().stream()
+                .filter(event -> "lunar-risk-event-reviewed".equals(event.getEventType()))
+                .findFirst().orElseThrow();
+        assertThat(reviewed.getAggregateId()).isEqualTo("e1");
+        assertThat(reviewed.getPayload())
                 .contains("\"previousStatus\":\"OPEN\"")
                 .contains("\"newStatus\":\"CONFIRMED\"")
                 .contains("\"reviewedBy\":\"teacher_1\"");
@@ -141,9 +146,9 @@ class RiskEventServiceTest {
     void terminalStatusCannotBeReviewedAgain() {
         when(riskEventMapper.selectById("e1")).thenReturn(event("e1", "CONFIRMED"));
 
-        assertThatThrownBy(() -> service.review("e1", "DISMISS", null, "teacher_1", "tok"))
+        assertThatThrownBy(() -> service.review("e1", "DISMISS", null, "teacher_1", "TEACHER", "trace-1"))
                 .isInstanceOf(ReviewException.InvalidTransition.class);
-        assertThatThrownBy(() -> service.review("e1", "ACKNOWLEDGE", null, "teacher_1", "tok"))
+        assertThatThrownBy(() -> service.review("e1", "ACKNOWLEDGE", null, "teacher_1", "TEACHER", "trace-1"))
                 .isInstanceOf(ReviewException.InvalidTransition.class);
     }
 
@@ -155,7 +160,7 @@ class RiskEventServiceTest {
                 .thenReturn(event("e1", "CONFIRMED"));
         when(riskEventMapper.update(isNull(), any())).thenReturn(0);
 
-        assertThatThrownBy(() -> service.review("e1", "CONFIRM", "并发", "teacher_1", "tok"))
+        assertThatThrownBy(() -> service.review("e1", "CONFIRM", "并发", "teacher_1", "TEACHER", "trace-1"))
                 .isInstanceOf(ReviewException.InvalidTransition.class);
     }
 
@@ -163,7 +168,7 @@ class RiskEventServiceTest {
     void unknownActionRejected() {
         when(riskEventMapper.selectById("e1")).thenReturn(event("e1", "OPEN"));
 
-        assertThatThrownBy(() -> service.review("e1", "DELETE", null, "teacher_1", "tok"))
+        assertThatThrownBy(() -> service.review("e1", "DELETE", null, "teacher_1", "TEACHER", "trace-1"))
                 .isInstanceOf(ReviewException.InvalidTransition.class);
     }
 
@@ -171,7 +176,7 @@ class RiskEventServiceTest {
     void unknownEventThrowsNotFound() {
         when(riskEventMapper.selectById("nope")).thenReturn(null);
 
-        assertThatThrownBy(() -> service.review("nope", "ACKNOWLEDGE", null, "teacher_1", "tok"))
+        assertThatThrownBy(() -> service.review("nope", "ACKNOWLEDGE", null, "teacher_1", "TEACHER", "trace-1"))
                 .isInstanceOf(ReviewException.NotFound.class);
     }
 

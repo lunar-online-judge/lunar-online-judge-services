@@ -8,7 +8,9 @@ import io.lunar.anticheat.domain.dto.ReviewPage;
 import io.lunar.anticheat.domain.dto.RiskEventView;
 import io.lunar.common.api.ApiResponse;
 import io.lunar.common.api.Pagination;
+import io.lunar.common.security.Role;
 import io.lunar.common.web.RequestIdFilter;
+import org.springframework.security.core.GrantedAuthority;
 import jakarta.validation.Valid;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.access.prepost.PreAuthorize;
@@ -74,10 +76,17 @@ public class MonitorController {
             @PathVariable String eventId,
             @Valid @RequestBody ReviewRequest request,
             Authentication authentication,
-            @RequestHeader(value = RequestIdFilter.HEADER, required = false) String requestId,
-            @RequestHeader(value = "Authorization", required = false) String authorization) {
+            @RequestHeader(value = RequestIdFilter.HEADER, required = false) String requestId) {
         RiskEventView view = riskEventService.review(eventId, request.action(), request.note(),
-                authentication.getName(), authorization);
+                authentication.getName(), reviewerRole(authentication), requestId);
         return ResponseEntity.ok(ApiResponse.success(requestId, view));
+    }
+
+    /** 审核人角色：账本要记 role，只从已验证令牌的 authorities 取（不取请求参数，BE-01/07）。 */
+    private static String reviewerRole(Authentication authentication) {
+        return authentication.getAuthorities().stream()
+                .map(GrantedAuthority::getAuthority)
+                .map(authority -> authority.replace(Role.AUTHORITY_PREFIX, ""))
+                .findFirst().orElse(null);
     }
 }
