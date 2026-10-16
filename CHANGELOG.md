@@ -73,6 +73,8 @@
 
 ### 新增
 
+- **审计账本的追加式保护（`BACKEND_IMPROVEMENT_PLAN` BE-07 的一部分）**：`audit_schema.audit_logs` 加 DB 触发器，任何 `UPDATE`/`DELETE` 一律被拒绝（应用侧本来就只有 insert/select，这是"就算有人拿到连接也改不了"的兜底）。用触发器而不是 `REVOKE`：所有服务共用同一个数据库角色且是表 owner，对 owner 做 REVOKE 不生效。真机验证：`UPDATE`/`DELETE` 报"审计账本只追加"，`INSERT` 正常
+  - **BE-07 的核心仍未做**：敏感动作与本地 audit outbox 同事务提交、异步投递、audit 消费端按 `eventId` 幂等、重试退避与 dead-letter、`originalOccurredAt`；当前审计写入仍是同步 HTTP 尽力而为（audit-service 不可用时丢条目，仅结构化日志兜底），且仍转发用户 Bearer（异步 worker 应改用服务身份，避免 token 到期导致补偿永远失败）
 - **风险复核的原因校验与并发实测（`BACKEND_IMPROVEMENT_PLAN` BE-03，P0）**
   - 终态结论（`CONFIRM`/`DISMISS`）**必须填写原因**（空白/纯空格 400 新错误码 `MONITOR_REVIEW_REASON_INVALID`），原因长度上限 500 字符；单一事件不能自动判作弊，处置必须可追溯
   - 审核日志按纯文本处理（换行/制表符折成空格并截断），避免污染结构化日志字段
