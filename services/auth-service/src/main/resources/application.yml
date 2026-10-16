@@ -48,6 +48,13 @@ auth:
   # auth.login.* 不在此处定义：阈值与锁定时长由 Nacos 配置中心托管（dataId=auth-service.yml）。
   # 注意 spring.config.import 导入的配置优先级**低于**本地 yml，本地若也写一份会永远盖住 Nacos 的值；
   # 离线兜底由 LoginProperties 的字段默认值提供（5 次 / 5 分钟），环境变量仍可覆盖
+  service-clients:
+    # 服务间身份（客户端凭证，docs/architecture.md §13）：没有用户上下文的调用方用它换 SERVICE 令牌
+    token-ttl-minutes: ${SERVICE_TOKEN_TTL_MINUTES:10}
+    secrets:
+      # clientId（服务名）→ 客户端密钥。部署期配置：默认值仅供本地联调，生产必须用环境变量注入
+      contest-service: ${SERVICE_CLIENT_SECRET_CONTEST:change-me-contest}
+      submission-service: ${SERVICE_CLIENT_SECRET_SUBMISSION:change-me-submission}
 
 management:
   endpoints:

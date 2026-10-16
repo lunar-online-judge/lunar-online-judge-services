@@ -44,7 +44,11 @@ public class AuditController {
                 .map(GrantedAuthority::getAuthority)
                 .map(authority -> authority.replace(Role.AUTHORITY_PREFIX, ""))
                 .findFirst().orElse(null);
-        AuditRecordView view = auditService.record(request.action(), authentication.getName(), actorRole,
+        // SERVICE 令牌的 sub 是服务名（不是用户 uuid）：落到 service_id，actor_id 留空（BE-07）
+        boolean serviceCaller = Role.SERVICE.name().equals(actorRole);
+        AuditRecordView view = auditService.record(request.action(),
+                serviceCaller ? null : authentication.getName(), actorRole,
+                serviceCaller ? authentication.getName() : null,
                 request.targetType(), request.targetId(), request.contestId(), request.detail(), requestId);
         return ResponseEntity.ok(ApiResponse.success(requestId, view));
     }

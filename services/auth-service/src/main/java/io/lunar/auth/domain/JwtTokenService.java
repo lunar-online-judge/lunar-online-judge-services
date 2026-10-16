@@ -31,12 +31,24 @@ public class JwtTokenService {
     }
 
     public IssuedToken issue(String userId, Role role) {
+        return issue(userId, role, accessTtl);
+    }
+
+    /**
+     * 服务身份令牌（客户端凭证）：sub=服务名（如 contest-service）、roles=["SERVICE"]，
+     * TTL 由调用方给定（比用户令牌短，泄露窗口更小）。
+     */
+    public IssuedToken issueServiceToken(String clientId, Duration ttl) {
+        return issue(clientId, Role.SERVICE, ttl);
+    }
+
+    private IssuedToken issue(String subject, Role role, Duration ttl) {
         // JWT 时间声明为秒级精度，这里统一截断，保证返回的 expiresAt 与令牌 exp 一致
         Instant now = Instant.now().truncatedTo(ChronoUnit.SECONDS);
-        Instant expiresAt = now.plus(accessTtl);
+        Instant expiresAt = now.plus(ttl);
         JwtClaimsSet claims = JwtClaimsSet.builder()
                 .issuer("auth-service")
-                .subject(userId)
+                .subject(subject)
                 .id(UUID.randomUUID().toString())
                 .issuedAt(now)
                 .expiresAt(expiresAt)

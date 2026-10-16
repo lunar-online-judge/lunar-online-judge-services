@@ -19,6 +19,9 @@ public class AuditLogEntity {
 
     private String actorRole;
 
+    /** 服务身份（SERVICE 令牌的 sub，如 contest-service）；用户动作为 null。 */
+    private String serviceId;
+
     private String targetType;
 
     private String targetId;
@@ -41,6 +44,8 @@ public class AuditLogEntity {
     public void setActorId(String actorId) { this.actorId = actorId; }
     public String getActorRole() { return actorRole; }
     public void setActorRole(String actorRole) { this.actorRole = actorRole; }
+    public String getServiceId() { return serviceId; }
+    public void setServiceId(String serviceId) { this.serviceId = serviceId; }
     public String getTargetType() { return targetType; }
     public void setTargetType(String targetType) { this.targetType = targetType; }
     public String getTargetId() { return targetId; }

@@ -41,6 +41,8 @@ public class SecurityConfig {
                 .authorizeHttpRequests(auth -> auth
                         .requestMatchers(HttpMethod.POST, "/api/v1/auth/login").permitAll()
                         .requestMatchers(HttpMethod.GET, "/api/v1/auth/jwks").permitAll()
+                        // 服务令牌签发：调用方此刻还没有令牌，凭证就是 clientId/clientSecret（内网直连，不经网关）
+                        .requestMatchers(HttpMethod.POST, "/api/v1/internal/service-tokens").permitAll()
                         // 服务间接口：学生账号管理（操作者老师/管理员令牌，由 contest 转发）
                         .requestMatchers("/api/v1/internal/students/**").hasAnyRole("TEACHER", "ADMIN")
                         // Swagger/OpenAPI 文档（本地调试用；生产环境需收紧或关闭）

@@ -183,9 +183,11 @@ public class SubmissionService {
                 "score", score == null ? 0 : score,
                 "passedCases", passedCases == null ? 0 : passedCases,
                 "totalCases", totalCases == null ? 0 : totalCases)));
-        // 判决回写由 MQ 消费者触发（没有用户令牌），账本留痕需要服务间身份，暂只落结构化日志
+        // 判决回写由 MQ 消费者触发（没有用户令牌）→ 走服务身份（账本 actor=submission-service、role=SERVICE）
         log.info("AUDIT event=SUBMISSION_JUDGED submissionId={} verdict={} score={}",
                 submissionId, judged.name(), score);
+        auditRecorder.record("SUBMISSION_JUDGED", "SUBMISSION", submissionId, submission.getContestId(),
+                "verdict=" + judged.name() + " score=" + score, traceId, null);
         return toView(submission);
     }
 

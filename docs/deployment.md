@@ -147,6 +147,9 @@ curl -s -i -H "X-Request-Id: test-123" http://localhost:8081/api/v1/auth/jwks | 
 | `GO_JUDGE_CONNECT_TIMEOUT_MS` | go-judge 连接超时 | `2000` |
 | `GO_JUDGE_READ_TIMEOUT_MS` | go-judge 读取超时 | `10000` |
 | `PROBLEM_TESTDATA_MAX_BYTES` | 服务间传输的测试点总字节上限（测试点随 `lunar-submission-created` 事件进 MQ，超限直接 413 而不是卡在 Outbox） | `1048576` |
+| `SERVICE_CLIENT_SECRET` | 本服务作为客户端调用内部接口的密钥（contest 默认 `change-me-contest`、submission 默认 `change-me-submission`）；**生产必须与 auth 侧一致并外部注入** | 见各服务 `application.yml` |
+| `SERVICE_CLIENT_SECRET_CONTEST` / `SERVICE_CLIENT_SECRET_SUBMISSION` | auth-service 侧的服务客户端注册表（clientId → 密钥），供无用户上下文的调用方换取 SERVICE 令牌 | `change-me-*` |
+| `SERVICE_TOKEN_TTL_MINUTES` | 服务身份令牌有效期（分钟），刻意比用户令牌短 | `10` |
 | `POSTGRES_HOST` | PostgreSQL 地址 | `localhost` |
 | `POSTGRES_PORT` | PostgreSQL 端口（本地 Compose 映射在 5433） | `5432`，**anti-cheat / audit 的默认值却是 `5433`**（两处不一致，见"已知限制"） |
 | `POSTGRES_DB` | 数据库名 | `lunar` |

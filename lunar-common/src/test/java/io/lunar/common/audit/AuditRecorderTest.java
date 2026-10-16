@@ -1,7 +1,13 @@
 package io.lunar.common.audit;
 
+import io.lunar.common.api.ApiResponse;
+import io.lunar.common.identity.ServiceTokenProvider;
+import io.lunar.common.identity.ServiceTokenResponse;
+import io.lunar.common.web.RequestIdFilter;
 import org.junit.jupiter.api.Test;
+import org.slf4j.MDC;
 
+import java.time.Instant;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.concurrent.atomic.AtomicReference;
@@ -65,13 +71,58 @@ class AuditRecorderTest {
     }
 
     @Test
-    void recordWithoutTokenSkipsUpstreamCall() {
+    void recordFallsBackToCurrentRequestTraceId() {
+        AtomicReference<String> requestId = new AtomicReference<>();
+        AuditRecorder recorder = new AuditRecorder((auth, trace, command) -> requestId.set(trace));
+        MDC.put(RequestIdFilter.MDC_KEY, "trace-from-request");
+        try {
+            recorder.record("STUDENT_ENROLLED", "ENROLLMENT", "stu_1", "c1", "加入名单", null, "tok");
+        } finally {
+            MDC.remove(RequestIdFilter.MDC_KEY);
+        }
+
+        // 调用方没传 traceId 时接上当前请求的 X-Request-Id，账本链路不断
+        assertEquals("trace-from-request", requestId.get());
+    }
+
+    @Test
+    void recordWithoutTokenAndWithoutServiceIdentitySkipsUpstreamCall() {
         List<AuditRecordCommand> commands = new ArrayList<>();
         AuditRecorder recorder = new AuditRecorder((auth, trace, command) -> commands.add(command));
 
         recorder.record("STUDENT_ENROLLED", "ENROLLMENT", "stu_1", "c1", "加入名单", null, null);
 
         // 账本接口要求已认证：没有令牌就不发注定 401 的请求
+        assertEquals(List.of(), commands);
+    }
+
+    @Test
+    void recordFallsBackToServiceTokenWhenNoOperatorToken() {
+        AtomicReference<String> authorization = new AtomicReference<>();
+        AuditRecorder recorder = new AuditRecorder(
+                (auth, trace, command) -> authorization.set(auth),
+                new ServiceTokenProvider(
+                        request -> ApiResponse.success("req", new ServiceTokenResponse(
+                                "service-token", "Bearer", Instant.now().plusSeconds(600), "SERVICE")),
+                        "contest-service", "secret"));
+
+        recorder.record("EXAM_STARTED", "CONTEST", null, null, "按时间窗口自动开始 1 场考试", null, null);
+
+        assertEquals("Bearer service-token", authorization.get());
+    }
+
+    @Test
+    void recordSkipsWhenServiceTokenUnavailable() {
+        List<AuditRecordCommand> commands = new ArrayList<>();
+        AuditRecorder recorder = new AuditRecorder(
+                (auth, trace, command) -> commands.add(command),
+                new ServiceTokenProvider(request -> {
+                    throw new IllegalStateException("auth-service 不可用");
+                }, "contest-service", "secret"));
+
+        // 服务令牌取不到也不抛异常：审计尽力而为，业务主流程不受影响
+        recorder.record("EXAM_FINISHED", "CONTEST", null, null, "按时间窗口自动结束 1 场考试", null, null);
+
         assertEquals(List.of(), commands);
     }
 }

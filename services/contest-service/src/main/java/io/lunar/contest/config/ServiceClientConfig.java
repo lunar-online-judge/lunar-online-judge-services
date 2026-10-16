@@ -3,6 +3,8 @@ package io.lunar.contest.config;
 import io.lunar.common.audit.AuditRecorder;
 import io.lunar.common.audit.AuditServiceApi;
 import io.lunar.common.client.HttpServiceClientFactory;
+import io.lunar.common.identity.ServiceTokenApi;
+import io.lunar.common.identity.ServiceTokenProvider;
 import io.lunar.contest.infra.AuthServiceApi;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.annotation.Bean;
@@ -34,7 +36,21 @@ public class ServiceClientConfig {
     }
 
     @Bean
-    AuditRecorder auditRecorder(AuditServiceApi auditServiceApi) {
-        return new AuditRecorder(auditServiceApi);
+    AuditRecorder auditRecorder(AuditServiceApi auditServiceApi, ServiceTokenProvider serviceTokenProvider) {
+        return new AuditRecorder(auditServiceApi, serviceTokenProvider);
+    }
+
+    /** 服务身份令牌（客户端凭证）：定时任务没有用户令牌，用它换取 SERVICE 身份写账本。 */
+    @Bean
+    ServiceTokenApi serviceTokenApi(RestClient.Builder loadBalancedRestClientBuilder,
+                                    @Value("${AUTH_BASE_URL:http://auth-service}") String authBaseUrl) {
+        return HttpServiceClientFactory.create(ServiceTokenApi.class, loadBalancedRestClientBuilder, authBaseUrl);
+    }
+
+    @Bean
+    ServiceTokenProvider serviceTokenProvider(ServiceTokenApi serviceTokenApi,
+                                              @Value("${spring.application.name}") String serviceName,
+                                              @Value("${SERVICE_CLIENT_SECRET:change-me-contest}") String clientSecret) {
+        return new ServiceTokenProvider(serviceTokenApi, serviceName, clientSecret);
     }
 }

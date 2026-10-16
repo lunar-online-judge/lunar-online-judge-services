@@ -30,6 +30,7 @@ HTTP 前缀统一为 `/api/v1`。各服务经 gateway 对外暴露；客户端�
 |---|---|---|
 | `VALIDATION_FAILED` | 参数校验失败 | 400 |
 | `AUTH_INVALID_CREDENTIALS` | 用户名或密码错误（不区分二者，防枚举） | 401 |
+| `AUTH_INVALID_SERVICE_CLIENT` | 服务客户端凭证无效（客户端未注册或密钥错误，不区分二者，防客户端枚举） | 401 |
 | `AUTH_ACCOUNT_DISABLED` | 账号已禁用 | 403 |
 | `AUTH_RATE_LIMITED` | 登录失败次数过多，暂时锁定 | 429 |
 | `AUTH_WEAK_PASSWORD` | 密码强度不满足要求 | 400 |
@@ -86,6 +87,7 @@ HTTP 前缀统一为 `/api/v1`。各服务经 gateway 对外暴露；客户端�
 | `jti` | 令牌唯一 ID，预留吊销 |
 
 - **TTL**：access token 默认 30 分钟；刷新令牌首期不做，考试中的重新登录按 `docs/exam-process.md` §6 处理；TTL 是否随考试时长延长属待确认项（见 exam-process §10）；
+- **服务身份令牌（客户端凭证）**：`POST /api/v1/internal/service-tokens` 用 `clientId`（服务名）+ `clientSecret` 换取，claims 同上，差别是 `sub` 为服务名、`roles` 为 `["SERVICE"]`、TTL 更短（默认 10 分钟，`SERVICE_TOKEN_TTL_MINUTES` 可配）。只给"没有用户上下文"的调用方（定时任务、MQ 消费者）用；**有用户上下文的调用仍转发用户令牌**，账本才能记到真实 actor（`BACKEND_IMPROVEMENT_PLAN` BE-07）。生产必须用环境变量注入客户端密钥（`SERVICE_CLIENT_SECRET_*`），默认值仅供本地联调；
 - **资源服务接入**：`spring.security.oauth2.resourceserver.jwt.jwk-set-uri=http://auth-service:8081/api/v1/auth/jwks`；
 - 令牌内不放敏感信息（密码哈希、学号以外的个人信息）。
 
@@ -105,7 +107,7 @@ HTTP 前缀统一为 `/api/v1`。各服务经 gateway 对外暴露；客户端�
 
 ## 端点总表
 
-下表与代码一致（共 40 个端点，分布在 12 个控制器）。"鉴权"列是 `@PreAuthorize` / `SecurityConfig` 的实际规则；"任意已认证"表示当前只要求有效令牌、**尚未做资源范围校验**（属待办，见 `BACKEND_IMPROVEMENT_PLAN.md` BE-01）。
+下表与代码一致（共 41 个端点，分布在 13 个控制器）。"鉴权"列是 `@PreAuthorize` / `SecurityConfig` 的实际规则；"任意已认证"表示当前只要求有效令牌、**尚未做资源范围校验**（属待办，见 `BACKEND_IMPROVEMENT_PLAN.md` BE-01）。
 
 | 服务 | 方法 | 路径 | 鉴权 | 状态 |
 |---|---|---|---|---|
@@ -114,6 +116,7 @@ HTTP 前缀统一为 `/api/v1`。各服务经 gateway 对外暴露；客户端�
 | auth | GET | `/api/v1/internal/students` | TEACHER/ADMIN | 已实现（按学号或账户名查询，供 contest 判断账号复用） |
 | auth | POST | `/api/v1/internal/students` | TEACHER/ADMIN | 已实现（创建学生账号，固定 CANDIDATE 角色） |
 | auth | POST | `/api/v1/internal/students/{studentId}/password-reset` | TEACHER/ADMIN | 已实现（不返回密码材料） |
+| auth | POST | `/api/v1/internal/service-tokens` | **免认证**（凭证在请求体） | 已实现（服务间身份/客户端凭证：校验 clientId+clientSecret 后签发 `roles=["SERVICE"]` 的短 TTL 令牌，供定时任务与 MQ 消费者等无用户上下文的调用方使用；不经网关，只能内网直连） |
 | problem | POST | `/api/v1/problems` | TEACHER/ADMIN | 已实现（题目 + 首版本 + 测试点） |
 | problem | GET | `/api/v1/problems` | TEACHER/ADMIN | 已实现（分页 + keyword，管理端列表） |
 | problem | GET | `/api/v1/problems/{id}` | 任意已认证 | 已实现（考生视角：当前发布版本，不含测试点） |
@@ -147,7 +150,7 @@ HTTP 前缀统一为 `/api/v1`。各服务经 gateway 对外暴露；客户端�
 | anti-cheat | POST | `/api/v1/monitor/events` | CANDIDATE | 已实现（severity 由服务端规则表计算） |
 | anti-cheat | GET | `/api/v1/monitor/events` | TEACHER/ADMIN | 已实现（分页：竞赛/学生/等级/审核状态过滤） |
 | anti-cheat | POST | `/api/v1/monitor/events/{eventId}/review` | TEACHER/ADMIN | 已实现（OPEN→ACKNOWLEDGED→CONFIRMED/DISMISSED；写入走前态条件更新，并发终审最多一个成功） |
-| audit | POST | `/api/v1/internal/audit/records` | 任意已认证 | 已实现（服务间写入；注意规则是 `isAuthenticated()`，未限制为 TEACHER/ADMIN。调用方：contest / auth / submission / anti-cheat，经 lunar-common 的 `AuditRecorder` 尽力而为写入。请求体可选字段缺省传 `null`——`contestId` 是 uuid 列，传空串会被 PostgreSQL 拒绝） |
+| audit | POST | `/api/v1/internal/audit/records` | 任意已认证 | 已实现（服务间写入；注意规则是 `isAuthenticated()`，未限制为 TEACHER/ADMIN。调用方：contest / auth / submission / anti-cheat，经 lunar-common 的 `AuditRecorder` 尽力而为写入。请求体可选字段缺省传 `null`——`contestId` 是 uuid 列，传空串会被 PostgreSQL 拒绝。SERVICE 令牌写入时 `sub` 落 `service_id`、`actor_id` 留空） |
 | audit | GET | `/api/v1/audit/records` | TEACHER/ADMIN | 已实现（追加式账本查询） |
 
 **规划中（代码不存在）**：

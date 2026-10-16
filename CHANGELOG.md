@@ -73,6 +73,13 @@
 
 ### 新增
 
+- **服务间独立身份（客户端凭证）落地**（`BACKEND_IMPROVEMENT_PLAN` BE-01 推荐的路径，也是 BE-07 异步审计 worker 的前置）
+  - auth-service 新增 `POST /api/v1/internal/service-tokens`（免认证端点，凭证在请求体；不经网关）：校验 clientId（服务名）+ clientSecret 后签发 `sub=服务名`、`roles=["SERVICE"]` 的短 TTL 令牌（默认 10 分钟），密钥用常量时间比较，客户端未注册与密钥错误返回同一新错误码 **`AUTH_INVALID_SERVICE_CLIENT`**（401）
+  - `lunar-common` 新增共享的 `ServiceTokenApi` / `ServiceTokenRequest` / `ServiceTokenResponse` / `ServiceTokenProvider`（缓存 + 到期前 60 秒自动续签 + 并发只发一次请求）；`Role` 增加 `SERVICE`
+  - `AuditRecorder` 支持**服务身份回落**：操作者令牌为空时自动改用服务令牌（账本 actor=服务名、role=SERVICE）。于是补齐了此前只能落结构化日志的 3 个动作——contest 的 `EXAM_STARTED` / `EXAM_FINISHED`（定时任务）与 submission 的 `SUBMISSION_JUDGED`（MQ 消费者），审计动作合计 **7 → 10 个**
+  - **顺手修掉 BE-07 点名的"trace 链路断开"**：`RequestIdFilter` 把请求 ID 写入 MDC（请求结束清理，避免线程池串号），`AuditRecorder` 在调用方未传 traceId 时自动取当前请求 ID——此前多个调用点传 null，账本 traceId 断链
+  - **再修一个只有真机才暴露的 schema 冲突**：账本 `actor_id` 是 uuid 列，而服务令牌的 `sub` 是服务名（`contest-service`）→ 写入被 PostgreSQL 拒绝（500）。按 BE-07"保存 actor/role/服务身份"新增 `service_id` 列（audit-service V2 迁移），角色为 SERVICE 时 `sub` 落 `service_id`、`actor_id` 留空
+  - **仍未做（BE-07 的核心）**：敏感动作与本地 audit outbox 同事务提交、异步投递、consumer 按 `eventId` 幂等、重试退避与 dead-letter、`originalOccurredAt`；当前仍是同步 HTTP 尽力而为，audit-service 不可用时会丢条目（仅结构化日志兜底）
 - **审计留痕接入四个服务**（`docs/services.md` audit 节"下一步"：把各服务"先落结构化日志"的点迁入账本）
   - `lunar-common` 新增共享的 `AuditServiceApi`（写入契约）、`AuditRecordCommand`（请求体）与 `AuditRecorder`（尽力而为封装：失败只告警、缺令牌跳过，绝不阻断主流程）——四个调用方需要**完全相同**的审计写入契约，因此不再每个服务复制一份；各服务仍在自己的 `ServiceClientConfig` 里装配 Bean
   - 新接入 7 个动作：contest 的 `STUDENT_ENROLLED` / `STUDENT_REENROLLED` / `STUDENT_PASSWORD_RESET` / `STUDENT_REMOVED`（`remove` 补传操作者令牌）、auth 的 `STUDENT_CREATED` / `STUDENT_PASSWORD_RESET`（服务间接口补传令牌）、submission 的 `SUBMISSION_CREATED`（traceId 一并透传）

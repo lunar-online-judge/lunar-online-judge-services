@@ -26,6 +26,7 @@ import java.util.Map;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.ArgumentMatchers.isNull;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
@@ -188,6 +189,9 @@ class SubmissionServiceTest {
         ArgumentCaptor<OutboxEventEntity> captor = ArgumentCaptor.forClass(OutboxEventEntity.class);
         verify(outboxMapper).insert(captor.capture());
         assertThat(captor.getValue().getEventType()).isEqualTo("lunar-submission-judged");
+        // 判决回写由 MQ 消费者触发（无用户令牌）→ 账本走服务身份，operatorToken 传 null
+        verify(auditRecorder).record(eq("SUBMISSION_JUDGED"), eq("SUBMISSION"), eq("sub_existing"),
+                any(), eq("verdict=ACCEPTED score=100"), eq("trace-2"), isNull());
     }
 
     @Test

@@ -25,8 +25,12 @@ public class AuditService {
         this.auditLogMapper = auditLogMapper;
     }
 
-    /** 写入审计记录（服务间接口调用；actor 为空时视为系统动作）。 */
-    public AuditRecordView record(String action, String actorId, String actorRole,
+    /**
+     * 写入审计记录（服务间接口调用）。
+     * actor 为空时视为系统动作；serviceId 非空表示这是服务身份（SERVICE 令牌）发起的动作，
+     * 与用户操作者分开保存（BE-07）。
+     */
+    public AuditRecordView record(String action, String actorId, String actorRole, String serviceId,
                                   String targetType, String targetId, String contestId,
                                   String detail, String traceId) {
         AuditLogEntity auditLog = new AuditLogEntity();
@@ -34,6 +38,7 @@ public class AuditService {
         auditLog.setAction(action);
         auditLog.setActorId(actorId);
         auditLog.setActorRole(actorRole == null ? (actorId == null ? "SYSTEM" : null) : actorRole);
+        auditLog.setServiceId(serviceId);
         auditLog.setTargetType(targetType);
         auditLog.setTargetId(targetId);
         auditLog.setContestId(contestId);
@@ -65,7 +70,7 @@ public class AuditService {
 
     private AuditRecordView toView(AuditLogEntity auditLog) {
         return new AuditRecordView(auditLog.getId(), auditLog.getAction(), auditLog.getActorId(),
-                auditLog.getActorRole(), auditLog.getTargetType(), auditLog.getTargetId(),
+                auditLog.getActorRole(), auditLog.getServiceId(), auditLog.getTargetType(), auditLog.getTargetId(),
                 auditLog.getContestId(), auditLog.getDetail(), auditLog.getTraceId(),
                 auditLog.getOccurredAt());
     }

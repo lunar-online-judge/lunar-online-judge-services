@@ -32,4 +32,11 @@ public class AuthException extends ApiException {
             super("AUTH_RATE_LIMITED", 429, "登录失败次数过多，请稍后再试");
         }
     }
+
+    /** 401：服务客户端凭证无效（客户端未注册或密钥错误）。不区分两者，防客户端枚举。 */
+    public static final class InvalidServiceClient extends AuthException {
+        public InvalidServiceClient() {
+            super("AUTH_INVALID_SERVICE_CLIENT", 401, "服务客户端凭证无效");
+        }
+    }
 }

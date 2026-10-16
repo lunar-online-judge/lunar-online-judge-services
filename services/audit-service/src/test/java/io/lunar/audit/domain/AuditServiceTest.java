@@ -33,7 +33,7 @@ class AuditServiceTest {
 
     @Test
     void recordPersistsAllFields() {
-        var view = service.record("RISK_EVENT_REVIEWED", "teacher_1", "TEACHER",
+        var view = service.record("RISK_EVENT_REVIEWED", "teacher_1", "TEACHER", null,
                 "RISK_EVENT", "evt_1", "c1", "OPEN->CONFIRMED", "trace-1");
 
         ArgumentCaptor<AuditLogEntity> captor = ArgumentCaptor.forClass(AuditLogEntity.class);
@@ -42,6 +42,7 @@ class AuditServiceTest {
         assertThat(auditLog.getAction()).isEqualTo("RISK_EVENT_REVIEWED");
         assertThat(auditLog.getActorId()).isEqualTo("teacher_1");
         assertThat(auditLog.getActorRole()).isEqualTo("TEACHER");
+        assertThat(auditLog.getServiceId()).isNull();
         assertThat(auditLog.getTargetId()).isEqualTo("evt_1");
         assertThat(auditLog.getContestId()).isEqualTo("c1");
         assertThat(auditLog.getDetail()).isEqualTo("OPEN->CONFIRMED");
@@ -50,13 +51,27 @@ class AuditServiceTest {
     }
 
     @Test
+    void serviceIdentityIsStoredSeparatelyFromActor() {
+        // SERVICE 令牌的 sub 是服务名（不是用户 uuid）：必须落 service_id，actor_id 留空（BE-07）
+        service.record("EXAM_STARTED", null, "SERVICE", "contest-service",
+                "CONTEST", null, null, "按时间窗口自动开始 1 场考试", null);
+
+        ArgumentCaptor<AuditLogEntity> captor = ArgumentCaptor.forClass(AuditLogEntity.class);
+        verify(mapper).insert(captor.capture());
+        assertThat(captor.getValue().getServiceId()).isEqualTo("contest-service");
+        assertThat(captor.getValue().getActorId()).isNull();
+        assertThat(captor.getValue().getActorRole()).isEqualTo("SERVICE");
+    }
+
+    @Test
     void recordWithoutActorIsSystemAction() {
-        service.record("EXAM_STARTED", null, null, "CONTEST", "c1", "c1", null, null);
+        service.record("EXAM_STARTED", null, null, null, "CONTEST", "c1", "c1", null, null);
 
         ArgumentCaptor<AuditLogEntity> captor = ArgumentCaptor.forClass(AuditLogEntity.class);
         verify(mapper).insert(captor.capture());
         assertThat(captor.getValue().getActorRole()).isEqualTo("SYSTEM");
         assertThat(captor.getValue().getActorId()).isNull();
+        assertThat(captor.getValue().getServiceId()).isNull();
     }
 
     @Test

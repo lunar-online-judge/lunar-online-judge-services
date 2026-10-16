@@ -3,6 +3,8 @@ package io.lunar.submission.config;
 import io.lunar.common.audit.AuditRecorder;
 import io.lunar.common.audit.AuditServiceApi;
 import io.lunar.common.client.HttpServiceClientFactory;
+import io.lunar.common.identity.ServiceTokenApi;
+import io.lunar.common.identity.ServiceTokenProvider;
 import io.lunar.submission.infra.ContestServiceApi;
 import io.lunar.submission.infra.ProblemInternalApi;
 import io.lunar.submission.infra.ProblemServiceApi;
@@ -49,7 +51,21 @@ public class ServiceClientConfig {
     }
 
     @Bean
-    AuditRecorder auditRecorder(AuditServiceApi auditServiceApi) {
-        return new AuditRecorder(auditServiceApi);
+    AuditRecorder auditRecorder(AuditServiceApi auditServiceApi, ServiceTokenProvider serviceTokenProvider) {
+        return new AuditRecorder(auditServiceApi, serviceTokenProvider);
+    }
+
+    /** 服务身份令牌（客户端凭证）：判决回写由 MQ 消费者触发，没有用户令牌，用它换 SERVICE 身份写账本。 */
+    @Bean
+    ServiceTokenApi serviceTokenApi(RestClient.Builder loadBalancedRestClientBuilder,
+                                    @Value("${AUTH_BASE_URL:http://auth-service}") String authBaseUrl) {
+        return HttpServiceClientFactory.create(ServiceTokenApi.class, loadBalancedRestClientBuilder, authBaseUrl);
+    }
+
+    @Bean
+    ServiceTokenProvider serviceTokenProvider(ServiceTokenApi serviceTokenApi,
+                                              @Value("${spring.application.name}") String serviceName,
+                                              @Value("${SERVICE_CLIENT_SECRET:change-me-submission}") String clientSecret) {
+        return new ServiceTokenProvider(serviceTokenApi, serviceName, clientSecret);
     }
 }
