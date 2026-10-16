@@ -82,6 +82,7 @@ dataId = `<spring.application.name>.yml`，分组 `DEFAULT_GROUP`，命名空间
 | auth-service | `auth.login.max-failures`、`auth.login.lock-minutes` | **是** |
 | contest-service | `exam.session.heartbeat-timeout-minutes`（考试期间网络抖动时可临时放宽） | **是** |
 | contest-service | `exam.status.sweep-interval-ms` | 否，重启生效 |
+| submission-service | `exam.submission.window-seconds`、`exam.submission.max-per-window`（提交频率限制，docs/exam-process.md §7） | **是** |
 | submission-service / anti-cheat-service | `outbox.publish-interval-ms` | 否，重启生效 |
 
 **不放**（有意为之）：

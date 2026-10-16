@@ -10,7 +10,7 @@
 | auth-service | 8081 | 用户、登录、JWT 签发、RBAC、竞赛授权、服务间身份 | `auth_schema`；Redis 存登录失败限流计数 | 登录/JWKS/学生账号服务间接口已实现（真实 BCrypt + RS256 + Redis 限流）；竞赛授权与令牌吊销未实现 |
 | contest-service | 8082 | 竞赛生命周期、报名名单、考生会话、监考策略、排名 | `contest_schema`（会话心跳未迁 Redis，DB 为权威） | 生命周期 6 状态（含时间自动推进）/名单/会话/公告已实现；随机分配、排名、监考策略、成绩查询未实现 |
 | problem-service | 8083 | 题目、题面、测试点、判题限制、语言白名单、题目版本 | `problem_schema` | 题目 + 版本 + 测试点已实现（发布后版本不可变）；执行模板与"供 judge 取测试点"的服务间接口未实现 |
-| submission-service | 8084 | 接收提交、幂等校验、提交状态、成绩读模型 | `submission_schema`；幂等键以 DB 唯一约束为权威 | 提交/幂等/Outbox/判决回写已实现；五项校验实现 3 项，成绩读模型（排名/最高分聚合）未实现 |
+| submission-service | 8084 | 接收提交、幂等校验、提交状态、成绩读模型 | `submission_schema`；幂等键以 DB 唯一约束为权威 | 提交/幂等/Outbox/判决回写已实现；五项校验实现 4 项，成绩读模型（排名/最高分聚合）未实现 |
 | judge-service | 8080* | 评测调度：消费提交事件、适配 go-judge、verdict 归一化 | **无**（无 DataSource、无迁移；结果只存内存） | 事件消费 + verdict 归一化 + go-judge 适配器已实现；`judge_task`/退避/超时补偿未实现 |
 | anti-cheat-service | 8086 | 风险事件、风险分数、查重任务、人工审核 | `anti_cheat_schema` | 风险事件上报/查询/审核已实现（2026-10-07）；查重与告警推送未实现 |
 | media-service | 8080* | 监考令牌、WebRTC 信令、截图策略与存取授权 | `media_schema`（未建） | 仅占位 POM，无代码 |
@@ -68,13 +68,13 @@ anti-cheat ──(plagiarism-requested)──> plagiarism-worker（独立部署�
 
 竞赛业务的核心，考试规则的载体。
 
-- 职责：竞赛生命周期（创建→审核→发布→进行→结束→归档，见 `docs/exam-process.md` §1）；参赛名单与报名关系（**代码中实际只有 `ENROLLED`/`REMOVED`，`DISABLED` 未使用**；含老师添加学生流程的编排，**补偿机制未实现**）；考生会话（进入前创建/恢复服务端会话，校验名单、状态与时间窗口；**重复登录踢设备与客户端版本校验未实现**）；开始/结束时间（统一结束时间关闭进入与提交，学生没有主动交卷接口）；监考策略与截图策略（**未实现**）；随机题目分配（**未实现**，见 `docs/exam-process.md` §3）；公告（全体公告已实现，指定题目公告未实现）；排名规则与排名更新（**未实现**）。
+- 职责：竞赛生命周期（创建→审核→发布→进行→结束→归档，见 `docs/exam-process.md` §1）；参赛名单与报名关系（**代码中实际只有 `ENROLLED`/`REMOVED`，`DISABLED` 未使用**；含老师添加学生流程的编排，**补偿机制未实现**）；考生会话（进入前创建/恢复服务端会话，校验名单、状态与时间窗口；管理端可终止会话（TERMINATED 终态），移出名单时会话同时失效；**重复登录踢设备与客户端版本校验未实现**）；开始/结束时间（统一结束时间关闭进入与提交，学生没有主动交卷接口）；监考策略与截图策略（**未实现**）；随机题目分配（**未实现**，见 `docs/exam-process.md` §3）；公告（全体公告已实现，指定题目公告未实现）；排名规则与排名更新（**未实现**）。
 - 不负责：学生账号本身（归 auth-service）；题目内容与测试数据（只引用 problem-service 的题目版本）；评测。
 - 数据与基础设施：`contest_schema` 的 contests / contest_candidates / exam_sessions / announcements / announcement_confirms（字段设计见 `docs/architecture.md` §2.1.2；**题目分配表不存在**）；会话心跳以 DB 为权威、**未迁 Redis**（理由见 `docs/middleware.md`）。
-- 对外接口：`POST /api/v1/contests`、`GET /api/v1/contests`、`GET /{id}`、`POST /{id}/review`、`POST /{id}/publish`、`POST /{id}/archive`，以及名单增删查、密码重置、公告发布/拉取/确认、会话进入与心跳（**均已实现**，JWT 验签 + 角色控制：创建/审核/名单/公告为老师或管理员，发布与归档仅管理员）；**规划**：题目分配查询、成绩查询；**"消费 `lunar-submission-judged` 更新排名"尚未实现**（contest 无 RocketMQ 依赖）。
+- 对外接口：`POST /api/v1/contests`、`GET /api/v1/contests`、`GET /{id}`、`POST /{id}/review`、`POST /{id}/publish`、`POST /{id}/archive`，以及名单增删查、密码重置、公告发布/拉取/确认、会话进入与心跳、管理端终止考生会话（**均已实现**，JWT 验签 + 角色控制：创建/审核/名单/公告为老师或管理员，发布与归档仅管理员）；**规划**：题目分配查询、成绩查询；**"消费 `lunar-submission-judged` 更新排名"尚未实现**（contest 无 RocketMQ 依赖）。
 - 当前实现（2026-10-06）：**首个 OAuth2 资源服务器**——JWT 经 auth-service JWKS 本地验签（roles claim → ROLE_ authorities，`AUTH_JWK_SET_URI` 可覆盖）；`contest_schema.contests` 落库（MyBatis-Plus，独立 Flyway 历史表 `contest_history`）；生命周期状态机（`ContestStatus` 单向流转 + 条件更新防并发双审，RUNNING/FINISHED/ARCHIVED 的触发随时间管理特性落地）；15 个单测 + 真机全流程实测通过。
 - 学生名单（2026-10-06）：`contest_schema.contest_candidates` 报名关系（唯一约束 contest_id+student_id，学号/账户名/显示名快照）；添加学生（auth 账号不存在则创建、存在则复用；REMOVED 行重新加入时激活）、分页名单（keyword 查学号）、重置密码（学生须在名单中）、移出（软删除 REMOVED）；重复报名 409、重复/未报名移出 403。
-- 考生会话（2026-10-06）：`contest_schema.exam_sessions`（唯一约束 contest_id+student_id）；进入（名单+状态+时间窗口校验）、心跳、断线重连恢复、TERMINATED 终态拒绝重进；心跳超时（默认 2 分钟，`exam.session.heartbeat-timeout-minutes`）由 @Scheduled 扫描置 EXPIRED（条件更新多实例幂等）；重复登录踢设备的设备模型随客户端版本字段落地。
+- 考生会话（2026-10-06）：`contest_schema.exam_sessions`（唯一约束 contest_id+student_id）；进入（名单+状态+时间窗口校验）、心跳、断线重连恢复、TERMINATED 终态拒绝重进；心跳超时（默认 2 分钟，`exam.session.heartbeat-timeout-minutes`）由 @Scheduled 扫描置 EXPIRED（条件更新多实例幂等）；管理端终止会话（`POST /{contestId}/students/{studentId}/session/terminate`，条件更新）与"移出名单即失效"（§9）已实现；重复登录踢设备的设备模型随客户端版本字段落地。
 - 状态推进与归档（2026-10-06）：PUBLISHED→RUNNING→FINISHED 由 `ContestScheduler` 按时间窗口自动推进（30s 周期，条件更新多实例幂等，无窗口的考试不参与）；心跳复核考试状态/窗口/名单；`POST /{id}/archive` 管理员归档（FINISHED→ARCHIVED）。
 - 公告（2026-10-06）：发布/考生拉取即送达/考生确认（幂等），表 announcements + announcement_confirms；指定题目公告与监考端确认情况查询随 problem/监考功能扩展。
 - 下一步：成绩查询与读模型（依赖评测链路）；状态变更事件推送 gateway（事件总线阶段）。
@@ -94,13 +94,13 @@ anti-cheat ──(plagiarism-requested)──> plagiarism-worker（独立部署�
 
 提交入口与成绩读模型，评测链路的起点。
 
-- 职责：接收代码提交（`Idempotency-Key` 幂等）；提交前五项校验（会话有效、竞赛进行中、题目属于竞赛、语言允许、次数未超限，**当前实现 3 项**，见下）；本地事务写入 `submission(status=QUEUED)` 与 Outbox，发布 `lunar-submission-created`；提交状态展示（`GET /{id}`）；消费 `lunar-submission-judged` 更新提交状态（**成绩读模型/排名未实现**；判决回写用前态条件更新，重复或乱序的判题结果不会覆盖终态）；保存源码快照引用供查重（**查重未实现**）。
+- 职责：接收代码提交（`Idempotency-Key` 幂等）；提交前五项校验（会话有效、竞赛进行中、题目属于竞赛、语言允许、次数未超限即频率限制，**当前实现 4 项**，见下）；本地事务写入 `submission(status=QUEUED)` 与 Outbox，发布 `lunar-submission-created`；提交状态展示（`GET /{id}`）；消费 `lunar-submission-judged` 更新提交状态（**成绩读模型/排名未实现**；判决回写用前态条件更新，重复或乱序的判题结果不会覆盖终态）；保存源码快照引用供查重（**查重未实现**）。
 - 不负责：不直接调用 go-judge，也不了解评测细节。
 - 数据与基础设施：`submission_schema`（submissions + outbox_events）；**幂等键不存 Redis，以 DB 唯一约束为权威**（理由见 `docs/middleware.md`）。
 - 对外接口：`POST /api/v1/submissions`（考生；`Idempotency-Key` 幂等）、`GET /{id}`（学生看自己，老师/管理员可查任意）、`POST /api/v1/internal/submissions/{id}/judged`（判题回写过渡端点）；生产 `lunar-submission-created`、消费 `lunar-submission-judged`。
-- 当前实现（2026-10-06）：`submission_schema` 落库（submissions + outbox_events，独立 Flyway 历史表 `submission_history`）；五项校验实现三项——会话有效 + 竞赛进行中（contest 服务间判定 `/api/v1/internal/contests/{id}/session`）、语言白名单 + 判题限制（problem 服务间查询）；「题目属于竞赛」依赖随机分配表、「次数未超限」阈值待确认，均标 TODO 不假装校验；幂等=同键同指纹返首次、异指纹 409；提交与 Outbox（信封含 traceId）同一事务；判决回写更新状态并写 `lunar-submission-judged` Outbox；9 个单测 + 真机闭环通过。
+- 当前实现（2026-10-06）：`submission_schema` 落库（submissions + outbox_events，独立 Flyway 历史表 `submission_history`）；五项校验实现四项——会话有效 + 竞赛进行中（contest 服务间判定 `/api/v1/internal/contests/{id}/session`）、语言白名单 + 判题限制（problem 服务间查询）、提交频率未超限（按学生做窗口计数，阈值经 Nacos `exam.submission.*` 热更新，默认每 60 秒 30 次，超限 429）；「题目属于竞赛」依赖随机分配表，仍未实现并在代码中标注；幂等=同键同指纹返首次、异指纹 409；提交与 Outbox（信封含 traceId）同一事务；判决回写更新状态并写 `lunar-submission-judged` Outbox；9 个单测 + 真机闭环通过。
 - 事件总线（2026-10-07）：`OutboxPublisher`（2s 周期扫未发布事件行 → RocketMQTemplate 投递 → 标记 published_at，失败留待重试）；`JudgedConsumer` 消费 `lunar-submission-judged` 更新成绩读模型（终态保护幂等吞重复）。
-- 下一步：题目归属校验（随机分配表落地后）；提交频率阈值确认后启用 SUBMISSION_LIMIT_EXCEEDED；judged 事件携带 per-case 明细（部分分）。
+- 下一步：题目归属校验（依赖随机分配表落地）；judged 事件携带 per-case 明细（部分分）；提交频率阈值目前是保守默认，正式考试前按考场规模调整 `exam.submission.*`。
 
 ## judge-service
 

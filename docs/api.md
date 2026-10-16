@@ -49,7 +49,7 @@ HTTP 前缀统一为 `/api/v1`。各服务经 gateway 对外暴露；客户端�
 | `PROBLEM_VERSION_IMMUTABLE` | 版本已发布不可修改（改动须创建新版本） | 409 |
 | `MONITOR_EVENT_NOT_FOUND` | 风险事件不存在 | 404 |
 | `MONITOR_INVALID_TRANSITION` | 审核流转非法（重复终审/未知动作） | 409 |
-| `SUBMISSION_LIMIT_EXCEEDED` | 提交次数超限（**尚未实现**：次数阈值待确认，见 `docs/exam-process.md` §10） | 429 |
+| `SUBMISSION_LIMIT_EXCEEDED` | 学生提交过于频繁（窗口内超限；阈值经 Nacos `exam.submission.*` 配置，默认每 60 秒 30 次） | 429 |
 | `SUBMISSION_LANGUAGE_NOT_ALLOWED` | 语言不在白名单 | 400 |
 | `SUBMISSION_DUPLICATE` | 幂等键重复且请求内容不一致 | 409 |
 | `SUBMISSION_NOT_FOUND` | 提交不存在 | 404 |
@@ -104,7 +104,7 @@ HTTP 前缀统一为 `/api/v1`。各服务经 gateway 对外暴露；客户端�
 
 ## 端点总表
 
-下表与代码一致（共 37 个端点，分布在 11 个控制器）。"鉴权"列是 `@PreAuthorize` / `SecurityConfig` 的实际规则；"任意已认证"表示当前只要求有效令牌、**尚未做资源范围校验**（属待办，见 `BACKEND_IMPROVEMENT_PLAN.md` BE-01）。
+下表与代码一致（共 38 个端点，分布在 11 个控制器）。"鉴权"列是 `@PreAuthorize` / `SecurityConfig` 的实际规则；"任意已认证"表示当前只要求有效令牌、**尚未做资源范围校验**（属待办，见 `BACKEND_IMPROVEMENT_PLAN.md` BE-01）。
 
 | 服务 | 方法 | 路径 | 鉴权 | 状态 |
 |---|---|---|---|---|
@@ -120,7 +120,7 @@ HTTP 前缀统一为 `/api/v1`。各服务经 gateway 对外暴露；客户端�
 | problem | GET | `/api/v1/problems/{id}/versions` | TEACHER/ADMIN | 已实现（版本列表） |
 | problem | POST | `/api/v1/problems/{id}/versions/{versionId}/publish` | TEACHER/ADMIN | 已实现（发布并切换 `current_version_id`，发布后版本不可变） |
 | problem | GET | `/api/v1/problems/{id}/versions/{versionId}/testcases` | TEACHER/ADMIN | 已实现（仅老师/管理员；"供 judge 取测试点"的服务间接口未实现） |
-| submission | POST | `/api/v1/submissions` | CANDIDATE | 已实现（幂等 + 会话/竞赛/语言校验 + Outbox；**题目归属与次数校验未实现**） |
+| submission | POST | `/api/v1/submissions` | CANDIDATE | 已实现（幂等 + 会话/竞赛/语言/频率四项校验 + Outbox；**题目归属校验未实现**，依赖随机分配表） |
 | submission | GET | `/api/v1/submissions/{id}` | 任意已认证（本人；TEACHER/ADMIN 可查任意） | 已实现（权限在 Service 内判定，方法上无 `@PreAuthorize`） |
 | submission | POST | `/api/v1/internal/submissions/{id}/judged` | ADMIN | 已实现（判题回写过渡端点） |
 | judge | POST | `/api/v1/judge/submissions` | **未接验签** | 代码存在，但**当前对所有调用者恒 401**（未配 `jwk-set-uri` / `oauth2ResourceServer`）；`requestId` 硬编码为 `"pending"`，测试点恒为空 |
@@ -133,7 +133,8 @@ HTTP 前缀统一为 `/api/v1`。各服务经 gateway 对外暴露；客户端�
 | contest | POST | `/api/v1/contests/{contestId}/students` | TEACHER/ADMIN | 已实现（账号经 auth 创建/复用；**不校验操作者是否拥有该竞赛**） |
 | contest | GET | `/api/v1/contests/{contestId}/students` | TEACHER/ADMIN | 已实现（分页 + 学号 keyword） |
 | contest | POST | `/api/v1/contests/{contestId}/students/{studentId}/password-reset` | TEACHER/ADMIN | 已实现（经 auth 重置） |
-| contest | DELETE | `/api/v1/contests/{contestId}/students/{studentId}` | TEACHER/ADMIN | 已实现（软删除，置 `REMOVED`） |
+| contest | DELETE | `/api/v1/contests/{contestId}/students/{studentId}` | TEACHER/ADMIN | 已实现（软删除，置 `REMOVED`；当前考试会话同时失效） |
+| contest | POST | `/api/v1/contests/{contestId}/students/{studentId}/session/terminate` | TEACHER/ADMIN | 已实现（终止考生会话：ACTIVE/EXPIRED → TERMINATED，终态重进被拒；重复调用幂等） |
 | contest | POST | `/api/v1/contests/{contestId}/announcements` | TEACHER/ADMIN | 已实现（全体公告；**指定题目公告未实现**） |
 | contest | GET | `/api/v1/contests/{contestId}/announcements` | 任意已认证（CANDIDATE 走考生视角） | 已实现（考生拉取即送达；管理员看全量） |
 | contest | POST | `/api/v1/contests/{contestId}/announcements/{announcementId}/confirm` | CANDIDATE | 已实现（幂等，保留首次确认时间） |
@@ -213,7 +214,7 @@ HTTP 前缀统一为 `/api/v1`。各服务经 gateway 对外暴露；客户端�
 
 状态推进（2026-10-06 已实现）：PUBLISHED→RUNNING→FINISHED 由调度按时间窗口自动推进（30s 周期，条件更新多实例幂等）；心跳会复核考试状态、时间窗口与名单——考试结束/被移出名单的会话立即失效；ARCHIVED 由管理员手动归档。
 
-考生会话（2026-10-06 已实现）：`POST /api/v1/contests/{contestId}/session` 进入/恢复，`POST .../session/heartbeat` 心跳；进入条件 = 名单 ENROLLED + 状态 PUBLISHED/RUNNING + 服务端时间在窗口内；同一学生同一竞赛一个会话，断线重连恢复且剩余时间不补偿；心跳超时（默认 2 分钟）由定时扫描置 EXPIRED；管理端终止（TERMINATED）后不可重进（v1 决策）。
+考生会话（2026-10-06 已实现）：`POST /api/v1/contests/{contestId}/session` 进入/恢复，`POST .../session/heartbeat` 心跳；进入条件 = 名单 ENROLLED + 状态 PUBLISHED/RUNNING + 服务端时间在窗口内；同一学生同一竞赛一个会话，断线重连恢复且剩余时间不补偿；心跳超时（默认 2 分钟）由定时扫描置 EXPIRED；管理端可用 `POST /api/v1/contests/{contestId}/students/{studentId}/session/terminate` 终止会话（TERMINATED 为终态，重进被拒，重复调用幂等）；学生被移出名单时会话同步失效。
 
 - `POST /api/v1/contests`：老师创建草稿考试；
 - `POST /api/v1/contests/{contestId}/review`：提交管理员审核；

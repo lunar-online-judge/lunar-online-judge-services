@@ -55,6 +55,14 @@
 
 ### 新增
 
+- **考试会话的失效路径补齐**（`docs/exam-process.md` §6/§9 早已确认，此前只有"读时拒绝"、没有写入方）
+  - 新增 `POST /api/v1/contests/{contestId}/students/{studentId}/session/terminate`（老师/管理员）：`ACTIVE`/`EXPIRED` → `TERMINATED`（终态，考生重进被拒）；写入走前态条件更新，并发下不谎报成功，已是终态时幂等返回
+  - 移出名单（软删除）时同步使当前会话失效——原先只在下次心跳/进入时才被拒绝，会话行一直是 `ACTIVE`
+  - `ExamSessionService` 的四处会话查询收敛为 `findSession(...)`；新增 5 个单测（终止、过期会话终止、幂等、无会话报错、静默失效）
+- **提交频率限制（校验五）**（`docs/exam-process.md` §7"学生可以无限次提交，但服务端仍会做频率限制和反滥用控制"）
+  - `POST /api/v1/submissions` 按学生做窗口计数（`submissions` 表为权威，本服务不依赖 Redis），达上限返回 429 `SUBMISSION_LIMIT_EXCEEDED`（该错误码此前已注册但没有任何产生路径），且不落库、不发事件
+  - 窗口与阈值可配且**热更新**：`exam.submission.window-seconds` / `exam.submission.max-per-window`（Nacos `submission-service.yml`，代码默认 60 秒 30 次）——§10 的六项待确认里没有提交频率，因此按可配参数实现，不写死常量
+  - 并发提交可能同时通过计数，属软限制，不为此引入分布式锁
 - **服务间通信改走 Nacos 服务发现**（`docs/middleware.md`"Nacos"节）
   - 8 个服务启动注册到 Nacos `DEFAULT_GROUP`；依赖收敛为根 POM 的 `spring-cloud-alibaba.version=2025.0.0.0`（与 spring-cloud 2025.0.3 同代）+ 各服务 `spring-cloud-starter-alibaba-nacos-discovery`
   - 网关 6 条路由由 `http://localhost:端口` 改为 `lb://<服务名>`（`*_SERVICE_URI` 可覆盖回固定地址排障），因此 gateway 额外引入 `spring-cloud-starter-loadbalancer`
@@ -110,7 +118,7 @@
 - 媒体链路（监考令牌、WebRTC 信令、截图与 MinIO）与 WebSocket 推送
 - 代码查重（JPlag worker）、指定题目公告、CSV 批量导入
 - Redis 其余用途（令牌吊销、接口频控、会话在线状态镜像、评测短期锁、截图频控）；登录限流已迁，幂等键与会话状态经评估不迁（见上）
-- 题目归属竞赛校验（依赖随机分配表）与提交频率阈值（待 exam-process §10 确认）
+- 题目归属竞赛校验（依赖随机分配表落地）
 
 ## [0.5.0] - 2026-10-08
 

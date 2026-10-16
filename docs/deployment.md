@@ -173,7 +173,7 @@ curl -s -i -H "X-Request-Id: test-123" http://localhost:8081/api/v1/auth/jwks | 
 
 **服务发现（Nacos）**：8 个服务启动时注册到 Nacos 的 `DEFAULT_GROUP`，网关路由用 `lb://<服务名>`、服务间客户端默认按服务名寻址（均可用 `*_SERVICE_URI` / `*_BASE_URL` 覆盖为固定地址排障）。因此**启动顺序上 auth 需先完成注册**，其他服务的 `lb://auth-service` 才能解析到实例；Nacos 本身未启动时服务仍可启动（`NACOS_FAIL_FAST=false`），只是发现链路不可用。JWKS 验签链路**不**走服务发现（`AUTH_JWK_SET_URI` 仍是固定地址，见 `docs/middleware.md`"Nacos"节）。
 
-**配置中心（Nacos）**：托管"运行时可变"的服务私有配置（dataId = `<服务名>.yml`，`public` + `DEFAULT_GROUP`），导入方式为 `spring.config.import=optional:nacos:…`——Nacos 不可达时用代码默认值启动。改值后 **auth 的登录限流阈值与 contest 的心跳超时无需重启即生效**，其余托管项（调度间隔）需重启；配置内容的 git 真源是 `docker/nacos/config/*.yml`，用 `bash docker/nacos/publish-configs.sh` 推送。具体清单、热更新边界与踩过的坑见 `docs/middleware.md`"配置中心"节。
+**配置中心（Nacos）**：托管"运行时可变"的服务私有配置（dataId = `<服务名>.yml`，`public` + `DEFAULT_GROUP`），导入方式为 `spring.config.import=optional:nacos:…`——Nacos 不可达时用代码默认值启动。改值后 **auth 的登录限流阈值、contest 的心跳超时与 submission 的提交频率阈值无需重启即生效**，其余托管项（调度间隔）需重启；配置内容的 git 真源是 `docker/nacos/config/*.yml`，用 `bash docker/nacos/publish-configs.sh` 推送。具体清单、热更新边界与踩过的坑见 `docs/middleware.md`"配置中心"节。
 
 ## 生产要求
 
