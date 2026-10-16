@@ -11,7 +11,7 @@
 | contest-service | 8082 | 竞赛生命周期、报名名单、考生会话、监考策略、排名 | `contest_schema`（会话心跳未迁 Redis，DB 为权威） | 生命周期 6 状态（含时间自动推进）/名单/会话/公告已实现；随机分配、排名、监考策略、成绩查询未实现 |
 | problem-service | 8083 | 题目、题面、测试点、判题限制、语言白名单、题目版本 | `problem_schema` | 题目 + 版本 + 测试点已实现（发布后版本不可变）；执行模板与"供 judge 取测试点"的服务间接口未实现 |
 | submission-service | 8084 | 接收提交、幂等校验、提交状态、成绩读模型 | `submission_schema`；幂等键以 DB 唯一约束为权威 | 提交/幂等/Outbox/判决回写已实现；五项校验实现 4 项，成绩读模型（排名/最高分聚合）未实现 |
-| judge-service | 8080* | 评测调度：消费提交事件、适配 go-judge、verdict 归一化 | **无**（无 DataSource、无迁移；结果只存内存） | 事件消费 + verdict 归一化 + go-judge 适配器已实现；`judge_task`/退避/超时补偿未实现 |
+| judge-service | 8080* | 评测调度：消费提交事件、适配 go-judge、verdict 归一化 | `judge_schema`（只一张 `outbox_events`：判决先落本地再异步投递） | 事件消费 + verdict 归一化 + go-judge 适配器 + **判决 Outbox（含退避/死信）**已实现；`judge_task` 异步状态机/超时补偿未实现 |
 | anti-cheat-service | 8086 | 风险事件、风险分数、查重任务、人工审核 | `anti_cheat_schema` | 风险事件上报/查询/审核已实现（2026-10-07）；查重与告警推送未实现 |
 | media-service | 8080* | 监考令牌、WebRTC 信令、截图策略与存取授权 | `media_schema`（未建） | 仅占位 POM，无代码 |
 | audit-service | 8087 | 管理操作与敏感访问审计 | `audit_schema` | 账本写入/查询已实现；**contest / auth / submission / anti-cheat 四个调用方已接入**（共用 lunar-common 的 `AuditRecorder`） |
@@ -111,9 +111,9 @@ anti-cheat ──(plagiarism-requested)──> plagiarism-worker（独立部署�
 
 平台评测状态机的唯一拥有者。
 
-- 职责：消费 `lunar-submission-created`；通过 `JudgeEngine` 抽象（定义在 lunar-common）经 `GoJudgeAdapter` 调用独立 Linux 节点上的 go-judge 沙箱；verdict 归一化为 8 种判题终态（唯一权威是 `lunar-common` 的 `JudgeVerdict`：ACCEPTED、WRONG_ANSWER、COMPILE_ERROR、TIME_LIMIT_EXCEEDED、MEMORY_LIMIT_EXCEEDED、RUNTIME_ERROR、OUTPUT_LIMIT_EXCEEDED、SYSTEM_ERROR，与 `submissions.status` 同名同集合）；发布 `lunar-submission-judged`。**尚未实现**：`judge_task` 表与 `DISPATCHING/RUNNING/FINISHED` 异步状态机、重试/超时补偿、go-judge 不可用时指数退避、死信与重放——judge-service 当前没有 DataSource，评测结果只存内存，消费失败仅交给 RocketMQ 默认重投。
+- 职责：消费 `lunar-submission-created`；通过 `JudgeEngine` 抽象（定义在 lunar-common）经 `GoJudgeAdapter` 调用独立 Linux 节点上的 go-judge 沙箱；verdict 归一化为 8 种判题终态（唯一权威是 `lunar-common` 的 `JudgeVerdict`：ACCEPTED、WRONG_ANSWER、COMPILE_ERROR、TIME_LIMIT_EXCEEDED、MEMORY_LIMIT_EXCEEDED、RUNTIME_ERROR、OUTPUT_LIMIT_EXCEEDED、SYSTEM_ERROR，与 `submissions.status` 同名同集合）；发布 `lunar-submission-judged`。**判决投递已改为本地 Outbox**（`judge_schema.outbox_events`，含 attempts/指数退避/死信）：broker 不可用只影响投递时机，不再丢判决。**尚未实现**：`judge_task` 表与 `DISPATCHING/RUNNING/FINISHED` 异步状态机、超时补偿、go-judge 不可用时指数退避、死信重放接口。
 - 不负责：绝不在 Spring 容器内执行用户代码；不向 go-judge 传递数据库凭据、MQ 地址或宿主机路径；源码与测试数据只在评测任务临时目录存在，任务结束即清理。
-- 数据与基础设施：**当前无数据库**（无 DataSource、无 `judge_schema`、无迁移；规划中为 `judge_schema` + Redis 评测短期锁）；go-judge 节点（独立 Linux，通过 `GO_JUDGE_BASE_URL` 配置）。
+- 数据与基础设施：`judge_schema`（V1 迁移，**只有 `outbox_events` 一张表**——判决先落本地再异步投递；`judge_task` 状态机仍未实现）+ Redis（消费去重与短期状态，见 `infra/ConsumedEventGuard`）；go-judge 节点（独立 Linux，通过 `GO_JUDGE_BASE_URL` 配置）。
 - 对外接口：`POST /api/v1/judge/submissions`（代码存在但**当前不可用**：未接入验签，所有请求 401；也不落库、不发事件、测试点恒为空）；生产 `lunar-submission-judged`、消费 `lunar-submission-created`。
 - 当前实现：`JudgeServiceApplication`、`JudgeController`、`MockJudgeEngine`（mock profile）；`GoJudgeAdapter`（`infra/`，设置 `GO_JUDGE_BASE_URL` 即启用且优先于 mock）翻译 go-judge `POST /run` 协议并归一化 verdict，内置 C/C++/Java/Python/JavaScript/TypeScript 六种语言模板，14 个适配器单测通过；go-judge 容器由 `docker/compose.judge.yml` 提供（用 `docker/go-judge/Dockerfile` 构建带工具链的镜像）。**真机实测（2026-10）**：五种语言（C++/Python/Java/JS/TS）在同一个 go-judge 实例内编译/运行/比对均正常，C++ 的五类 verdict（ACCEPTED/WRONG_ANSWER/COMPILE_ERROR/RUNTIME_ERROR/TIME_LIMIT_EXCEEDED）均按预期归一化；但**经事件链路的真实评测目前必然 `SYSTEM_ERROR`**——消费者把 `testFiles` 硬编码为空，适配器在缺测试点时短路返回（见"下一步"）。唯一启用 spring-boot-maven-plugin 的模块。
 - 事件总线（2026-10-07，2026-10 更新）：`SubmissionCreatedConsumer` 消费 `lunar-submission-created` → JudgeEngine 执行 → 发布 `lunar-submission-judged`（verdict 归一化 + `passedCases`/`totalCases`，`score` 按测试点通过比例计算，通过全部为满分）；Mock 引擎模拟"提交即判对"供全链路演示，真实引擎 `GO_JUDGE_BASE_URL` 启用；**测试点随事件传输**（submission 经 problem 的服务间接口取到后放进 `testFiles`），真实引擎因此能出真实 verdict；新增 application.yml（rocketmq 配置，SERVER_PORT 仍需显式设置）。积压消息在消费组上线后自动补消费（观测验证）。

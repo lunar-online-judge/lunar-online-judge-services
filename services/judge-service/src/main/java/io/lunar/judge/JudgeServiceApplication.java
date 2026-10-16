@@ -2,6 +2,7 @@ package io.lunar.judge;
 
 import org.springframework.boot.SpringApplication;
 import org.springframework.boot.autoconfigure.SpringBootApplication;
+import org.springframework.scheduling.annotation.EnableScheduling;
 import org.springframework.boot.context.properties.ConfigurationPropertiesScan;
 
 /**
@@ -9,6 +10,7 @@ import org.springframework.boot.context.properties.ConfigurationPropertiesScan;
  * 把"运行时可变"的消费参数（如去重登记 TTL）交给 Nacos 托管（docs/middleware.md"配置中心"节）。
  */
 @SpringBootApplication
+@EnableScheduling
 @ConfigurationPropertiesScan
 public class JudgeServiceApplication {
     public static void main(String[] args) {

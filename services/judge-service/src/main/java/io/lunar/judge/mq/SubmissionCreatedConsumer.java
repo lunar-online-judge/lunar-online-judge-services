@@ -8,6 +8,8 @@ import io.lunar.common.judge.JudgeSubmissionCommand;
 import io.lunar.common.judge.JudgeSubmissionResult;
 import io.lunar.common.judge.JudgeVerdict;
 import io.lunar.judge.infra.ConsumedEventGuard;
+import io.lunar.judge.infra.OutboxEventEntity;
+import io.lunar.judge.infra.OutboxEventMapper;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -19,6 +21,7 @@ import org.slf4j.LoggerFactory;
 import org.springframework.messaging.support.MessageBuilder;
 import org.springframework.stereotype.Component;
 
+import java.time.Instant;
 import java.util.LinkedHashMap;
 import java.util.Map;
 import java.util.UUID;
@@ -48,14 +51,14 @@ public class SubmissionCreatedConsumer implements RocketMQListener<String> {
     private static final int FULL_SCORE = 100;
 
     private final JudgeEngine judgeEngine;
-    private final RocketMQTemplate rocketMQTemplate;
+    private final OutboxEventMapper outboxMapper;
     private final ConsumedEventGuard consumedEventGuard;
     private final ObjectMapper objectMapper = new ObjectMapper();
 
-    public SubmissionCreatedConsumer(JudgeEngine judgeEngine, RocketMQTemplate rocketMQTemplate,
+    public SubmissionCreatedConsumer(JudgeEngine judgeEngine, OutboxEventMapper outboxMapper,
                                      ConsumedEventGuard consumedEventGuard) {
         this.judgeEngine = judgeEngine;
-        this.rocketMQTemplate = rocketMQTemplate;
+        this.outboxMapper = outboxMapper;
         this.consumedEventGuard = consumedEventGuard;
     }
 
@@ -117,17 +120,20 @@ public class SubmissionCreatedConsumer implements RocketMQListener<String> {
         judgedPayload.put("traceId", traceId == null ? "" : traceId);
 
         String eventId = UUID.randomUUID().toString();
-        String envelopeJson = EventEnvelope.ofNow(eventId, JUDGED_EVENT_TYPE, submissionId, traceId,
-                        objectMapper.valueToTree(judgedPayload))
-                .toJson(objectMapper);
-        MessageBuilder<String> judgedMessage = MessageBuilder.withPayload(envelopeJson)
-                .setHeader("KEYS", eventId);
-        // traceId 为空时不能设该头：RocketMQ 拒绝空属性值，设了整条消息都发不出去
-        if (traceId != null && !traceId.isBlank()) {
-            judgedMessage.setHeader("traceId", traceId);
-        }
-        rocketMQTemplate.syncSend(JUDGED_EVENT_TYPE, judgedMessage.build());
-        log.info("Judged published eventId={} submissionId={} verdict={} score={} passed={}/{} engineId={}",
+        // 判决先落本地 Outbox（后续后端优化计划 ②）：broker 抖动/重启只影响投递时机，不再丢判决。
+        // 消息体由 OutboxPublisher 组装成完整事件信封（消费端按 eventId 幂等）。
+        OutboxEventEntity event = new OutboxEventEntity();
+        event.setId(UUID.randomUUID().toString());
+        event.setEventId(eventId);
+        event.setEventType(JUDGED_EVENT_TYPE);
+        event.setAggregateId(submissionId);
+        event.setSchemaVersion(EventEnvelope.CURRENT_SCHEMA_VERSION);
+        event.setTraceId(traceId);
+        event.setPayload(objectMapper.writeValueAsString(judgedPayload));
+        event.setOccurredAt(Instant.now());
+        event.setCreatedAt(Instant.now());
+        outboxMapper.insert(event);
+        log.info("Judged queued eventId={} submissionId={} verdict={} score={} passed={}/{} engineId={}",
                 eventId, submissionId, verdict, score, passedCases, totalCases, submittedEngineId(result));
     }
 

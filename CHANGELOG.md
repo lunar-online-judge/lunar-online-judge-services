@@ -73,6 +73,11 @@
 
 ### 新增
 
+- **judge 的判决投递补 Outbox（后续后端优化计划 ②）**
+  - 此前 judge 评测完**直接 `syncSend`** `lunar-submission-judged`：broker 抖动/重启/网络分区时这一发就丢，结果是**考生成绩永久缺失、提交永远停在 QUEUED**（没有任何地方能补投）
+  - judge 引入 `judge_schema`（只一张 `outbox_events` 表，V1 迁移）+ 数据源/Flyway 配置；消费者改为**判决先落本地 Outbox**，由新增的 `OutboxPublisher` 异步投递（含 attempts/指数退避/死信，与 submission/anti-cheat 同一模式）；`@EnableScheduling` 打开调度
+  - **真机验收**：①正常链路——judged 事件经 judge 的 Outbox 投递（`published=t`、`attempts=0`），提交最终 `WRONG_ANSWER`，端到端无回归；②5MB 毒消息 → `attempts=3` 且有 `next_attempt_at`（退避生效）→ 顶到 9 再跑一轮 → `attempts=10`、`dead_lettered_at` 置位（不再自动重试）
+  - **仍未做**：judge 的死信重放接口（submission 已有 `POST /api/v1/submissions/admin/dead-letters/{eventId}/replay`，judge 未提供）
 - **随机题目分配（`docs/exam-process.md` §3）**
   - 新增 `contest_schema.contest_assignments`（V7）：保存 `contestId`/`studentId`/`problemVersionId`/`randomSeed`/`assignmentVersion`/`assignedAt`，保证考试后可复现"这位学生当时看到哪些题、哪个版本"；`contests` 加 `problems_per_student`（每位学生抽取数量，NULL/0 表示不随机）
   - **发布考试时自动生成**：按在册考生逐个抽取；**种子由 (contestId, studentId) 稳定推导**，同一学生重算得到同一组题（不会把正在做的题换掉），生成幂等（已有分配的学生跳过）

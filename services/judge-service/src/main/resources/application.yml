@@ -17,6 +17,15 @@ spring:
         fail-fast: ${NACOS_FAIL_FAST:false}
   application:
     name: judge-service
+  datasource:
+    # 判决 Outbox（只此一张表）：judge 原本无库，broker 不可用会丢判决，因此把判决先落本地再异步投递
+    url: jdbc:postgresql://${POSTGRES_HOST:localhost}:${POSTGRES_PORT:5433}/${POSTGRES_DB:lunar}?stringtype=unspecified
+    username: ${POSTGRES_USER:lunar}
+    password: ${POSTGRES_PASSWORD:change-me}
+  flyway:
+    enabled: ${FLYWAY_ENABLED:false}
+    schemas: judge_schema
+    table: judge_history
   data:
     redis:
       # 消费去重（judge 无数据库，见 infra/ConsumedEventGuard 的"先查后登记"取舍）：

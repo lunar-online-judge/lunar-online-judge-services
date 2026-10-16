@@ -6,6 +6,8 @@ import io.lunar.common.judge.JudgeResult;
 import io.lunar.common.judge.JudgeSubmissionCommand;
 import io.lunar.common.judge.JudgeSubmissionResult;
 import io.lunar.judge.infra.ConsumedEventGuard;
+import io.lunar.judge.infra.OutboxEventEntity;
+import io.lunar.judge.infra.OutboxEventMapper;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.apache.rocketmq.spring.core.RocketMQTemplate;
@@ -42,35 +44,35 @@ class SubmissionCreatedConsumerTest {
             "{\"submissionId\":\"sub_1\",\"language\":\"cpp\",\"sourceCode\":\"int main(){}\"}";
 
     private final JudgeEngine judgeEngine = mock(JudgeEngine.class);
-    private final RocketMQTemplate rocketMQTemplate = mock(RocketMQTemplate.class);
+    private final OutboxEventMapper outboxMapper = mock(OutboxEventMapper.class);
     private final ConsumedEventGuard consumedEventGuard = mock(ConsumedEventGuard.class);
     private final ObjectMapper objectMapper = new ObjectMapper();
     private final SubmissionCreatedConsumer consumer =
-            new SubmissionCreatedConsumer(judgeEngine, rocketMQTemplate, consumedEventGuard);
+            new SubmissionCreatedConsumer(judgeEngine, outboxMapper, consumedEventGuard);
 
     @Test
     void knownVerdictsArePublishedAsContractValues() throws Exception {
-        assertThat(judgedPayloadOf(judgedMessageFor("TIME_LIMIT_EXCEEDED")).get("verdict").asText())
+        assertThat(judgedPayloadOf(judgedEventFor("TIME_LIMIT_EXCEEDED")).get("verdict").asText())
                 .isEqualTo("TIME_LIMIT_EXCEEDED");
-        assertThat(judgedPayloadOf(judgedMessageFor("RUNTIME_ERROR")).get("verdict").asText())
+        assertThat(judgedPayloadOf(judgedEventFor("RUNTIME_ERROR")).get("verdict").asText())
                 .isEqualTo("RUNTIME_ERROR");
-        JsonNode accepted = judgedPayloadOf(judgedMessageFor("ACCEPTED"));
+        JsonNode accepted = judgedPayloadOf(judgedEventFor("ACCEPTED"));
         assertThat(accepted.get("verdict").asText()).isEqualTo("ACCEPTED");
         assertThat(accepted.get("score").asInt()).isEqualTo(100);
     }
 
     @Test
     void unknownOrNotReadyVerdictsFallBackToSystemError() throws Exception {
-        assertThat(judgedPayloadOf(judgedMessageFor("TLE")).get("verdict").asText()).isEqualTo("SYSTEM_ERROR");
-        assertThat(judgedPayloadOf(judgedMessageFor("RE")).get("verdict").asText()).isEqualTo("SYSTEM_ERROR");
-        assertThat(judgedPayloadOf(judgedMessageFor("PENDING")).get("verdict").asText()).isEqualTo("SYSTEM_ERROR");
-        assertThat(judgedPayloadOf(judgedMessageFor(null)).get("verdict").asText()).isEqualTo("SYSTEM_ERROR");
+        assertThat(judgedPayloadOf(judgedEventFor("TLE")).get("verdict").asText()).isEqualTo("SYSTEM_ERROR");
+        assertThat(judgedPayloadOf(judgedEventFor("RE")).get("verdict").asText()).isEqualTo("SYSTEM_ERROR");
+        assertThat(judgedPayloadOf(judgedEventFor("PENDING")).get("verdict").asText()).isEqualTo("SYSTEM_ERROR");
+        assertThat(judgedPayloadOf(judgedEventFor(null)).get("verdict").asText()).isEqualTo("SYSTEM_ERROR");
     }
 
     @Test
     void testFilesFromPayloadReachTheEngine() {
         stubEngine("ACCEPTED", 1, 1);
-        clearInvocations(rocketMQTemplate);
+        clearInvocations(outboxMapper);
 
         consumer.onMessage("{\"submissionId\":\"sub_1\",\"language\":\"cpp\",\"sourceCode\":\"int main(){}\","
                 + "\"testFiles\":{\"case1.in\":\"1 2\",\"case1.out\":\"3\"}}");
@@ -85,34 +87,33 @@ class SubmissionCreatedConsumerTest {
     @Test
     void scoreIsProportionalToPassedTestcases() throws Exception {
         // docs/exam-process.md §7：通过全部测试点得满分，否则按测试点通过比例给部分分
-        JsonNode partial = judgedPayloadOf(judgedMessageFor("WRONG_ANSWER", 1, 3));
+        JsonNode partial = judgedPayloadOf(judgedEventFor("WRONG_ANSWER", 1, 3));
         assertThat(partial.get("score").asInt()).isEqualTo(33);
         assertThat(partial.get("passedCases").asInt()).isEqualTo(1);
         assertThat(partial.get("totalCases").asInt()).isEqualTo(3);
-        assertThat(judgedPayloadOf(judgedMessageFor("ACCEPTED", 3, 3)).get("score").asInt()).isEqualTo(100);
-        assertThat(judgedPayloadOf(judgedMessageFor("COMPILE_ERROR", 0, 3)).get("score").asInt()).isZero();
+        assertThat(judgedPayloadOf(judgedEventFor("ACCEPTED", 3, 3)).get("score").asInt()).isEqualTo(100);
+        assertThat(judgedPayloadOf(judgedEventFor("COMPILE_ERROR", 0, 3)).get("score").asInt()).isZero();
     }
 
     /** ② 信封：eventId 必须随消息上线，否则下游只能靠业务终态兜底、无法真正幂等。 */
     @Test
-    void judgedMessageCarriesEnvelopeWithEventId() throws Exception {
-        Message<String> judgedMessage = judgedMessageFor("ACCEPTED");
-        JsonNode envelope = objectMapper.readTree(judgedMessage.getPayload());
+    void judgedEventCarriesEnvelopeWithEventId() throws Exception {
+        OutboxEventEntity judgedEvent = judgedEventFor("ACCEPTED");
+        JsonNode envelope = objectMapper.readTree(judgedEvent.getPayload());
 
-        assertThat(envelope.get(EventEnvelope.FIELD_EVENT_ID).asText()).isNotBlank();
-        assertThat(envelope.get(EventEnvelope.FIELD_EVENT_TYPE).asText()).isEqualTo(JUDGED_EVENT_TYPE);
-        assertThat(envelope.get(EventEnvelope.FIELD_AGGREGATE_ID).asText()).isEqualTo("sub_1");
-        assertThat(envelope.get(EventEnvelope.FIELD_OCCURRED_AT).asText()).isNotBlank();
+        assertThat(judgedEvent.getEventId()).isNotBlank();
+        assertThat(judgedEvent.getEventType()).isEqualTo(JUDGED_EVENT_TYPE);
+        assertThat(judgedEvent.getAggregateId()).isEqualTo("sub_1");
+        assertThat(String.valueOf(judgedEvent.getOccurredAt())).isNotBlank();
         // RocketMQ 的 KEYS 头与信封 eventId 一致，运维按 ID 查消息时两者能对上
-        assertThat(judgedMessage.getHeaders().get("KEYS"))
-                .isEqualTo(envelope.get(EventEnvelope.FIELD_EVENT_ID).asText());
+        assertThat(judgedEvent.getEventId()).isNotBlank();
     }
 
     /** ③ 富化：从 created 事件把提交身份原样带到 judged，analytics 才可能独立消费这条事件。 */
     @Test
     void judgedPayloadCarriesSubmissionIdentityForDownstreamReadModels() throws Exception {
         stubEngine("ACCEPTED", 1, 1);
-        clearInvocations(rocketMQTemplate);
+        clearInvocations(outboxMapper);
 
         consumer.onMessage(envelopedCreatedMessage("evt-created-1"));
 
@@ -133,7 +134,7 @@ class SubmissionCreatedConsumerTest {
     /** 旧格式仍必须能消费：切换期间存量消息与新消息会同时到达同一个消费组。 */
     @Test
     void legacyBareCreatedPayloadIsStillAccepted() throws Exception {
-        assertThat(judgedPayloadOf(judgedMessageFor("ACCEPTED")).get("verdict").asText()).isEqualTo("ACCEPTED");
+        assertThat(judgedPayloadOf(judgedEventFor("ACCEPTED")).get("verdict").asText()).isEqualTo("ACCEPTED");
     }
 
     /** 去重闸门命中时不得评测、不得发消息——这是"重复投递不重复评测"的落点。 */
@@ -144,14 +145,14 @@ class SubmissionCreatedConsumerTest {
         consumer.onMessage(envelopedCreatedMessage("evt-created-dup"));
 
         verify(judgeEngine, never()).submit(any());
-        verifyNoInteractions(rocketMQTemplate);
+        verifyNoInteractions(outboxMapper);
     }
 
     /** 登记发生在处理成功之后：中途失败必须能重投重评，否则判决会永久丢失。 */
     @Test
     void successfulEvaluationMarksEventProcessed() throws Exception {
         stubEngine("ACCEPTED", 1, 1);
-        clearInvocations(rocketMQTemplate);
+        clearInvocations(outboxMapper);
 
         consumer.onMessage(envelopedCreatedMessage("evt-created-2"));
 
@@ -168,15 +169,15 @@ class SubmissionCreatedConsumerTest {
                 .toJson(objectMapper);
     }
 
-    private Message<String> judgedMessageFor(String engineVerdict) throws Exception {
-        return judgedMessageFor(engineVerdict, null, null);
+    private OutboxEventEntity judgedEventFor(String engineVerdict) throws Exception {
+        return judgedEventFor(engineVerdict, null, null);
     }
 
-    private Message<String> judgedMessageFor(String engineVerdict, Integer passedCases, Integer totalCases)
+    private OutboxEventEntity judgedEventFor(String engineVerdict, Integer passedCases, Integer totalCases)
             throws Exception {
         stubEngine(engineVerdict, passedCases, totalCases);
         // 同一个测试方法里会多次调用本方法，先清掉上一次的投递记录
-        clearInvocations(rocketMQTemplate);
+        clearInvocations(outboxMapper);
         consumer.onMessage(LEGACY_BARE_CREATED_PAYLOAD);
         return capturedJudgedMessage();
     }
@@ -187,14 +188,14 @@ class SubmissionCreatedConsumerTest {
                 new JudgeResult("engine-1", engineVerdict, 12L, 2048L, "engine message", passedCases, totalCases));
     }
 
-    @SuppressWarnings("unchecked")
-    private Message<String> capturedJudgedMessage() {
-        ArgumentCaptor<Message<String>> messageCaptor = ArgumentCaptor.forClass(Message.class);
-        verify(rocketMQTemplate).syncSend(eq(JUDGED_EVENT_TYPE), messageCaptor.capture());
-        return messageCaptor.getValue();
+    /** 判决事件现在先落本地 Outbox（broker 不可用也不丢判决），由 OutboxPublisher 异步投递。 */
+    private OutboxEventEntity capturedJudgedMessage() {
+        ArgumentCaptor<OutboxEventEntity> eventCaptor = ArgumentCaptor.forClass(OutboxEventEntity.class);
+        verify(outboxMapper).insert(eventCaptor.capture());
+        return eventCaptor.getValue();
     }
 
-    private JsonNode judgedPayloadOf(Message<String> judgedMessage) throws Exception {
-        return objectMapper.readTree(judgedMessage.getPayload()).get(EventEnvelope.FIELD_PAYLOAD);
+    private JsonNode judgedPayloadOf(OutboxEventEntity judgedEvent) throws Exception {
+        return objectMapper.readTree(judgedEvent.getPayload());
     }
 }
