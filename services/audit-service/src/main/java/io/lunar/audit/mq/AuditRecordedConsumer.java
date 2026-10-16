@@ -12,6 +12,9 @@ import org.slf4j.LoggerFactory;
 import org.springframework.dao.DuplicateKeyException;
 import org.springframework.stereotype.Component;
 
+import java.time.Instant;
+import java.time.format.DateTimeParseException;
+
 /**
  * 异步审计留痕（BACKEND_IMPROVEMENT_PLAN BE-07）：消费各服务敏感动作写出的 `lunar-audit-recorded`。
  *
@@ -57,12 +60,27 @@ public class AuditRecordedConsumer implements RocketMQListener<String> {
                     EventMessages.textOf(payload, "contestId"),
                     EventMessages.textOf(payload, "detail"),
                     EventMessages.textOf(payload, "traceId"),
-                    eventId);
+                    eventId,
+                    parseOccurredAt(messageNode));
             log.info("审计事件已入账：eventId={} action={}", eventId, action);
         } catch (DuplicateKeyException exception) {
             log.info("审计事件重复投递，按幂等跳过");
         } catch (Exception exception) {
             throw new RuntimeException("审计事件处理失败，触发重试", exception);
+        }
+    }
+
+    /** 信封里的 occurredAt（ISO-8601）；旧格式或缺失时返回 null（此时账本只有入账时间）。 */
+    private static Instant parseOccurredAt(JsonNode messageNode) {
+        String occurredAt = EventMessages.textOf(messageNode, EventEnvelope.FIELD_OCCURRED_AT);
+        if (occurredAt == null) {
+            return null;
+        }
+        try {
+            return Instant.parse(occurredAt);
+        } catch (DateTimeParseException exception) {
+            log.warn("事件 occurredAt 不是合法时间，忽略该字段：{}", occurredAt);
+            return null;
         }
     }
 }

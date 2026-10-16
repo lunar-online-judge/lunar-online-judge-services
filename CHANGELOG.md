@@ -73,6 +73,9 @@
 
 ### 新增
 
+- **审计记录带"动作实际发生时间"（`BACKEND_IMPROVEMENT_PLAN` BE-07 的 originalOccurredAt）**
+  - 账本新增 `original_occurred_at`（V5 迁移），消费端把**事件信封的 `occurredAt`** 落库：审计改异步后 `created_at` 是入账时间，投递可能因 audit 重启/积压延迟，排查"什么时候发生的"必须看动作时间
+  - 真机验收：V5 已应用；新入账的 `SUBMISSION_CREATED`/`SUBMISSION_JUDGED` 均带 `original_occurred_at`，实测投递延迟 0.6s / 1.9s（入账时间 − 动作时间），改造前的旧记录为 NULL（符合预期）
 - **审计异步留痕：submission 两个动作改走本地 outbox（`BACKEND_IMPROVEMENT_PLAN` BE-07）**
   - `SUBMISSION_CREATED`（actor=考生，role=CANDIDATE）与 `SUBMISSION_JUDGED`（actor=服务身份，role=SERVICE、`serviceId=submission-service`）不再同步调 audit-service，改为**与业务同事务**写 `lunar-audit-recorded`；`SubmissionService` 去掉 `AuditRecorder` 依赖、改注入 `spring.application.name` 作为服务身份
   - **真机验收**：提交→判决后，账本里两条记录均由异步路径到达且带 `event_id`（`SUBMISSION_JUDGED` actor_role=SERVICE、service_id=submission-service；`SUBMISSION_CREATED` actor_role=CANDIDATE）

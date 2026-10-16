@@ -33,16 +33,17 @@ public class AuditService {
     public AuditRecordView record(String action, String actorId, String actorRole, String serviceId,
                                   String targetType, String targetId, String contestId,
                                   String detail, String traceId) {
-        return record(action, actorId, actorRole, serviceId, targetType, targetId, contestId, detail, traceId, null);
+        return record(action, actorId, actorRole, serviceId, targetType, targetId, contestId, detail, traceId,
+                null, null);
     }
 
     /**
-     * 写入审计记录（带来源 {@code eventId}，异步消费端用）：账本上有唯一索引
+     * 写入审计记录（带来源 {@code eventId} 与动作发生时间，异步消费端用）：账本上有唯一索引
      * {@code uk_audit_logs_event_id}，重复投递会命中唯一冲突——"至少一次"投递因此收敛成"恰好一条"（BE-07）。
      */
     public AuditRecordView record(String action, String actorId, String actorRole, String serviceId,
                                   String targetType, String targetId, String contestId,
-                                  String detail, String traceId, String eventId) {
+                                  String detail, String traceId, String eventId, Instant originalOccurredAt) {
         AuditLogEntity auditLog = new AuditLogEntity();
         auditLog.setId(UUID.randomUUID().toString());
         auditLog.setAction(action);
@@ -55,6 +56,7 @@ public class AuditService {
         auditLog.setDetail(detail);
         auditLog.setTraceId(traceId);
         auditLog.setEventId(eventId);
+        auditLog.setOriginalOccurredAt(originalOccurredAt);
         auditLog.setOccurredAt(Instant.now());
         auditLog.setCreatedAt(Instant.now());
         auditLogMapper.insert(auditLog);
