@@ -9,6 +9,7 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import org.apache.rocketmq.spring.core.RocketMQTemplate;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.messaging.support.MessageBuilder;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Component;
@@ -32,6 +33,10 @@ public class OutboxPublisher {
     private final RocketMQTemplate rocketMQTemplate;
     private final ObjectMapper objectMapper = new ObjectMapper();
 
+    /** 单条事件最大自动投递次数，超过即转死信等待人工重放（BE-07）。 */
+    @Value("${outbox.max-attempts:10}")
+    private int maxAttempts;
+
     public OutboxPublisher(OutboxEventMapper outboxMapper, RocketMQTemplate rocketMQTemplate) {
         this.outboxMapper = outboxMapper;
         this.rocketMQTemplate = rocketMQTemplate;
@@ -41,6 +46,9 @@ public class OutboxPublisher {
     public void publishPending() {
         List<OutboxEventEntity> pending = outboxMapper.selectList(new LambdaQueryWrapper<OutboxEventEntity>()
                 .isNull(OutboxEventEntity::getPublishedAt)
+                .isNull(OutboxEventEntity::getDeadLetteredAt)
+                .and(wrapper -> wrapper.isNull(OutboxEventEntity::getNextAttemptAt)
+                        .or().le(OutboxEventEntity::getNextAttemptAt, Instant.now()))
                 .orderByAsc(OutboxEventEntity::getCreatedAt)
                 .last("limit " + PUBLISH_BATCH_SIZE));
         for (OutboxEventEntity event : pending) {
@@ -57,10 +65,31 @@ public class OutboxPublisher {
                 outboxMapper.updateById(event);
                 log.info("Outbox published eventId={} type={}", event.getEventId(), event.getEventType());
             } catch (Exception exception) {
-                log.warn("Outbox publish failed eventId={} type={}：留待下一轮重试",
-                        event.getEventId(), event.getEventType(), exception);
+                recordFailure(event, exception);
             }
         }
+    }
+
+    /**
+     * 投递失败：累计次数 + 指数退避，超过上限转死信（BE-07）。
+     *
+     * 为什么必须有上限：原实现失败后只是"留待下一轮"，坏 broker 或坏消息会永远每 2 秒重试——
+     * 日志与 CPU 白烧，且运维看不出哪条事件投不出去。转死信后不再自动重试，等待人工重放。
+     */
+    private void recordFailure(OutboxEventEntity event, Exception exception) {
+        int attempts = (event.getAttempts() == null ? 0 : event.getAttempts()) + 1;
+        event.setAttempts(attempts);
+        if (attempts >= maxAttempts) {
+            event.setDeadLetteredAt(Instant.now());
+            log.error("Outbox 投递连续失败 {} 次，转入死信待人工重放 eventId={} type={}",
+                    attempts, event.getEventId(), event.getEventType(), exception);
+        } else {
+            long backoffSeconds = Math.min(300L, 1L << Math.min(attempts, 8));
+            event.setNextAttemptAt(Instant.now().plusSeconds(backoffSeconds));
+            log.warn("Outbox publish failed eventId={} type={} attempts={} 下次重试 {}s 后",
+                    event.getEventId(), event.getEventType(), attempts, backoffSeconds, exception);
+        }
+        outboxMapper.updateById(event);
     }
 
     /**
