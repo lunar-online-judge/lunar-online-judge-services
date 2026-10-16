@@ -7,6 +7,7 @@ import io.lunar.contest.domain.ContestException;
 import io.lunar.contest.domain.ContestService;
 import io.lunar.contest.domain.ContestStatus;
 import io.lunar.contest.domain.EnrollmentService;
+import io.lunar.contest.domain.ContestAssignmentService;
 import io.lunar.contest.domain.ExamSessionService;
 import io.lunar.contest.infra.ContestEntity;
 import org.junit.jupiter.api.BeforeEach;
@@ -45,6 +46,7 @@ class ContestControllerTest {
     @MockitoBean EnrollmentService enrollmentService;
     @MockitoBean AnnouncementService announcementService;
     @MockitoBean ExamSessionService examSessionService;
+    @MockitoBean ContestAssignmentService contestAssignmentService;
     @MockitoBean JwtDecoder jwtDecoder;
 
     private static final ContestEntity CONTEST = contest("c1", "DRAFT");

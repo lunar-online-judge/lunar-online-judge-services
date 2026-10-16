@@ -14,6 +14,7 @@ import io.lunar.contest.api.dto.PublishAnnouncementRequest;
 import io.lunar.contest.api.dto.ResetPasswordRequest;
 import io.lunar.contest.domain.AnnouncementService;
 import io.lunar.contest.domain.ContestException;
+import io.lunar.contest.domain.ContestAssignmentService;
 import io.lunar.contest.domain.ContestService;
 import io.lunar.contest.domain.EnrollmentService;
 import io.lunar.contest.domain.ExamSessionService;
@@ -60,13 +61,16 @@ public class ContestController {
     private final EnrollmentService enrollmentService;
     private final AnnouncementService announcementService;
     private final ExamSessionService examSessionService;
+    private final ContestAssignmentService assignmentService;
 
     public ContestController(ContestService contestService, EnrollmentService enrollmentService,
-                             AnnouncementService announcementService, ExamSessionService examSessionService) {
+                             AnnouncementService announcementService, ExamSessionService examSessionService,
+                             ContestAssignmentService assignmentService) {
         this.contestService = contestService;
         this.enrollmentService = enrollmentService;
         this.announcementService = announcementService;
         this.examSessionService = examSessionService;
+        this.assignmentService = assignmentService;
     }
 
     @PostMapping
@@ -120,8 +124,12 @@ public class ContestController {
     @PreAuthorize("hasRole('ADMIN')")
     public ResponseEntity<ApiResponse<ContestResponse>> publish(
             @PathVariable String id,
+            Authentication authentication,
             @RequestHeader(value = RequestIdFilter.HEADER, required = false) String requestId) {
-        return ResponseEntity.ok(ApiResponse.success(requestId, ContestResponse.of(contestService.publish(id))));
+        ContestResponse response = ContestResponse.of(contestService.publish(id));
+        // 发布时生成随机题目分配（docs/exam-process.md §3）：题池为空时服务内部只记 warn，不影响发布
+        assignmentService.generate(id, AccessScope.of(authentication));
+        return ResponseEntity.ok(ApiResponse.success(requestId, response));
     }
 
     /** 管理员归档：FINISHED -> ARCHIVED。 */

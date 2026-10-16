@@ -73,6 +73,13 @@
 
 ### 新增
 
+- **随机题目分配（`docs/exam-process.md` §3）**
+  - 新增 `contest_schema.contest_assignments`（V7）：保存 `contestId`/`studentId`/`problemVersionId`/`randomSeed`/`assignmentVersion`/`assignedAt`，保证考试后可复现"这位学生当时看到哪些题、哪个版本"；`contests` 加 `problems_per_student`（每位学生抽取数量，NULL/0 表示不随机）
+  - **发布考试时自动生成**：按在册考生逐个抽取；**种子由 (contestId, studentId) 稳定推导**，同一学生重算得到同一组题（不会把正在做的题换掉），生成幂等（已有分配的学生跳过）
+  - 新增接口：`GET /api/v1/contests/{contestId}/assignments/me`（考生看自己）、`GET .../assignments/{studentId}`（老师/管理员复盘，限归属）、`POST .../assignments/generate`（显式重算）
+  - **提交侧的"题目属于竞赛"改为按分配校验**：已生成分配时内部接口返回"分配给学生的那道题 + 该版本"，没分给他的题按不存在处理（404 `SUBMISSION_PROBLEM_NOT_IN_CONTEST`）；未生成分配时退回考试题池，行为不变
+  - **真机验收**：2 道题 + 2 名学生 + 每人抽 1 题 → 发布后**每人恰好 1 条分配**、两人拿到不同题；重复 generate `created=0`；考生 `assignments/me` 返回自己的 1 条；**提交分配的题 200、提交未分配的题 404 `SUBMISSION_PROBLEM_NOT_IN_CONTEST`**
+  - **未做**：题目顺序/分值/评分规则的可配置化（§3 里老师可配的其余项）、指定题目公告
 - **退避/死信扩展到 anti-cheat 的 Outbox（`BACKEND_IMPROVEMENT_PLAN` BE-07）**
   - 与 submission 同一模式：`anti_cheat_schema.outbox_events` 加 `attempts`/`next_attempt_at`/`dead_lettered_at`（V2 迁移 + 待投递部分索引），发布器失败累计次数 + 指数退避、超上限转死信
   - **真机验收**：插入 5MB 毒消息 → `attempts=3` 且有 `next_attempt_at`（退避生效、未死信）→ 顶到 9 再跑一轮 → `attempts=10`、`dead_lettered_at` 置位 ✓；毒消息已清理

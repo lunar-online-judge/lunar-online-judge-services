@@ -167,7 +167,9 @@ HTTP 前缀统一为 `/api/v1`。各服务经 gateway 对外暴露；客户端�
 
 | 服务 | 方法 | 路径 | 状态 |
 |---|---|---|---|
-| contest | GET | `/api/v1/contests/{contestId}/assignments/{studentId}` | 规划（依赖随机题目分配，未实现） |
+| contest | GET | `/api/v1/contests/{contestId}/assignments/me` | CANDIDATE | 已实现（随机题目分配：考生看自己的题目集合与锁定版本） |
+| contest | GET | `/api/v1/contests/{contestId}/assignments/{studentId}` | TEACHER（限归属）/ADMIN | 已实现（老师复盘某学生的分配，含 randomSeed 与分配版本） |
+| contest | POST | `/api/v1/contests/{contestId}/assignments/generate` | TEACHER（限归属）/ADMIN | 已实现（显式重算分配，幂等：已有分配的学生跳过） |
 | contest | GET | `/api/v1/contests/{contestId}/score` | 规划（成绩读模型/排名未实现） |
 | media | POST | `/api/v1/contests/{contestId}/sessions/{sessionId}/monitor-token` | 规划（media-service 仅占位 POM） |
 | media | POST | `/api/v1/monitor/screenshot` | 规划（同上） |
@@ -236,7 +238,7 @@ HTTP 前缀统一为 `/api/v1`。各服务经 gateway 对外暴露；客户端�
 - `POST /api/v1/contests/{contestId}/review`：提交管理员审核；
 - `POST /api/v1/contests/{contestId}/publish`：管理员发布考试（**当前只校验时间窗口**；"发布时生成每位学生相同数量的随机题目，并保存随机种子和题目版本"**尚未实现**）；
 - `POST /api/v1/contests/{contestId}/announcements`：老师/管理员发布公告（已实现，但只有全体公告）；
-- `GET /api/v1/contests/{contestId}/assignments/{studentId}`：查询学生随机题目分配（**规划，未实现**）；
+- `GET /api/v1/contests/{contestId}/assignments/me`：考生查看自己的随机题目分配（**已实现**）；`GET /api/v1/contests/{contestId}/assignments/{studentId}`：老师/管理员复盘某学生的分配（**已实现**）；`POST /api/v1/contests/{contestId}/assignments/generate`：显式重算分配（**已实现**，幂等）；
 - `GET /api/v1/contests/{contestId}/score`：查询当前临时或最终成绩（**规划，未实现**）。
 
 学生没有主动交卷接口；服务端在统一结束时间关闭考试入口。

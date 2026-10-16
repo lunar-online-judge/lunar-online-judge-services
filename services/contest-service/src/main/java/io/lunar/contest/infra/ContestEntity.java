@@ -30,6 +30,9 @@ public class ContestEntity {
 
     private Instant createdAt;
 
+    /** 每位学生随机抽取的题目数量；NULL 或 0 表示不随机（用全部锁定题目），docs/exam-process.md §3。 */
+    private Integer problemsPerStudent;
+
     private Instant updatedAt;
 
     public String getId() { return id; }
@@ -52,4 +55,6 @@ public class ContestEntity {
     public void setCreatedAt(Instant createdAt) { this.createdAt = createdAt; }
     public Instant getUpdatedAt() { return updatedAt; }
     public void setUpdatedAt(Instant updatedAt) { this.updatedAt = updatedAt; }
+    public Integer getProblemsPerStudent() { return problemsPerStudent; }
+    public void setProblemsPerStudent(Integer problemsPerStudent) { this.problemsPerStudent = problemsPerStudent; }
 }
