@@ -44,6 +44,7 @@
   - 真机验证：修复后 C++ 的编译 → 按测试点运行 → 输出比对全链路可用，`ACCEPTED`/`WRONG_ANSWER`/`COMPILE_ERROR`/`RUNTIME_ERROR`/`TIME_LIMIT_EXCEEDED` 五类 verdict 全部按预期归一化
 - **评测镜像缺工具链导致真实评测无法编译**（真机 C++ 评测发现）：`criyle/go-judge` 官方镜像内没有任何编译器（Debian 13 基础镜像，gcc/g++/python3/javac 全无），编译直接报 `execve: handle: g++: executable file not found in $PATH`
   - 新增 `docker/go-judge/Dockerfile`（在官方镜像上装 gcc/g++/python3/default-jdk-headless，与 `LanguageTemplate` 的语言清单一致），`docker/compose.judge.yml` 由 `image:` 改为 `build:`；此前"官方镜像是否自带工具链未实测"的猜测到此有了确定答案
+  - 多语言实测（同一实例）：C++ / Python / Java 三种语言均 `Accepted` 且输出正确；并查明官方 `mount.yaml` 的绑定源**必须在 go-judge 启动时存在**（运行中补装 JDK 后 Java 仍加载不到 `java.security`，重启容器即恢复），因此工具链必须装进镜像；官方 mount.yaml 已为 `/etc/java-21-openjdk`、`/etc/fpc.cfg`、`/etc/mono`、`/var/lib/ghc` 等预留路径，加语言只需补 `LanguageTemplate` + 镜像工具链
 - **Outbox 事件因空的 traceId 头永远发不出去**（真机全量 API 测试发现）：`OutboxPublisher` 无条件 `setHeader("traceId", event.getTraceId())`，调用方未带 `X-Request-Id` 时该值为 null → RocketMQ 抛 `IllegalArgumentException: The name or value of property can not be null or blank string!`，事件**永久卡在 Outbox 里每 2 秒重试一次**（真机表现：提交后判题结果永远不回来）
   - 改为仅在 traceId 非空时设该头（submission 与 anti-cheat 两个发布器同修）；修复后两个服务未发布事件数归零，历史积压的 21 条全部投递成功
   - 冒烟用例专门覆盖该场景：不带 `X-Request-Id` 提交 → 事件链路（Outbox → RocketMQ → judge → judged → 回写）端到端跑通、状态变 `ACCEPTED`

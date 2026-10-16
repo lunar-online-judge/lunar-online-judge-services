@@ -199,4 +199,5 @@ curl -s -i -H "X-Request-Id: test-123" http://localhost:8081/api/v1/auth/jwks | 
 - **开发期重启 auth-service 会让令牌在约 5 分钟内全部失效**（含重启后新签发的）：未注入 `AUTH_JWT_PRIVATE_KEY` 时启动会临时生成签名密钥，而 kid 固定为 `lunar-dev-1`，资源服务的 JWKS 缓存按 kid 命中旧公钥、不会触发重新拉取，于是新旧令牌都验签失败。开发期建议注入固定私钥（`AUTH_JWT_PRIVATE_KEY`）或重启 auth 后一并重启调用方；
 - 登录失败限流已迁 Redis（auth-service）：计数多实例共享、重启不清零、TTL 自动清理；Redis 不可用时 fail-open 放行登录（仅打 warn），因此本地开发不启动 Redis 也能登录，只是限流失效；
 - go-judge 在 Docker Desktop（WSL2）上嵌套 cgroup 的**内存限制**不可靠（生产 Linux 节点无此问题）；但**编译与运行本身可用**：2026-10 实测（本仓库 Dockerfile 构建的镜像 + 适配器为编译命令显式设置 `procLimit`）C++ 的编译/运行/五类 verdict 全部正常；
+- **评测镜像里的工具链必须在 go-judge 启动前就装好**：官方 `mount.yaml` 的绑定源若在启动时不存在会被**静默跳过**（实测：在运行中的容器里补装 JDK 后 Java 仍报 `Error loading java.security file`——沙箱内 `/etc` 只有 `alternatives` 与 `ld.so.cache`；重启容器即恢复）。改完 `docker/go-judge/Dockerfile` 后按 `docker compose -f docker/compose.judge.yml up -d --build` 重建并重启；
 - **评测镜像必须自带工具链**：`criyle/go-judge` 官方镜像内没有 gcc/g++/python3/javac，直接用会让所有真实评测在编译阶段失败（`execve: g++: executable file not found in $PATH`）；`docker/compose.judge.yml` 已改为构建 `docker/go-judge/Dockerfile`，首次 `up` 会多花几分钟构建镜像；
