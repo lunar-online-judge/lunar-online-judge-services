@@ -3,8 +3,11 @@
 # go-judge 与业务服务分节点/分隔离运行时是生产要求（docs/architecture.md §14）。
 services:
   go-judge:
-    image: criyle/go-judge:latest
-    # 未固定版本（本地工具链验证期），生产部署前必须锁定 digest 或明确版本
+    # 用本仓库的 Dockerfile 构建：官方镜像里没有任何编译器（gcc/g++/python3/javac 全无），
+    # 直接用 image 会让所有真实评测在编译阶段失败（execve: g++: executable file not found in $PATH）
+    build:
+      context: ./go-judge
+    # 基础镜像未固定 digest（本地工具链验证期），生产部署前必须锁定 digest 或明确版本
     privileged: true
     # 必须共享宿主 cgroup 命名空间：Docker Desktop（WSL2）下 private ns 的 cgroup 路径为空，
     # go-judge 启动即 fatal（cgroup path is empty）；共享后进程可执行，但嵌套 cgroup 内存限制

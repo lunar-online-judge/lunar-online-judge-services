@@ -39,6 +39,11 @@
 
 ### 修复
 
+- **编译命令缺 `procLimit` 导致真实评测必然编译失败**（真机 C++ 评测发现）：`GoJudgeAdapter.compileCmd` 的 `procLimit` 传了 null，go-judge 默认（0）下编译器只能启动自身、无法派生 `cc1plus`/`as`/`ld`，g++ 报 `posix_spawn: Resource temporarily unavailable`——真机上**所有**提交都会被误判成 `COMPILE_ERROR`
+  - 编译命令改用与运行命令同级的进程上限（128）；新增单测断言编译与运行两条命令都带正的 `procLimit`
+  - 真机验证：修复后 C++ 的编译 → 按测试点运行 → 输出比对全链路可用，`ACCEPTED`/`WRONG_ANSWER`/`COMPILE_ERROR`/`RUNTIME_ERROR`/`TIME_LIMIT_EXCEEDED` 五类 verdict 全部按预期归一化
+- **评测镜像缺工具链导致真实评测无法编译**（真机 C++ 评测发现）：`criyle/go-judge` 官方镜像内没有任何编译器（Debian 13 基础镜像，gcc/g++/python3/javac 全无），编译直接报 `execve: handle: g++: executable file not found in $PATH`
+  - 新增 `docker/go-judge/Dockerfile`（在官方镜像上装 gcc/g++/python3/default-jdk-headless，与 `LanguageTemplate` 的语言清单一致），`docker/compose.judge.yml` 由 `image:` 改为 `build:`；此前"官方镜像是否自带工具链未实测"的猜测到此有了确定答案
 - **Outbox 事件因空的 traceId 头永远发不出去**（真机全量 API 测试发现）：`OutboxPublisher` 无条件 `setHeader("traceId", event.getTraceId())`，调用方未带 `X-Request-Id` 时该值为 null → RocketMQ 抛 `IllegalArgumentException: The name or value of property can not be null or blank string!`，事件**永久卡在 Outbox 里每 2 秒重试一次**（真机表现：提交后判题结果永远不回来）
   - 改为仅在 traceId 非空时设该头（submission 与 anti-cheat 两个发布器同修）；修复后两个服务未发布事件数归零，历史积压的 21 条全部投递成功
   - 冒烟用例专门覆盖该场景：不带 `X-Request-Id` 提交 → 事件链路（Outbox → RocketMQ → judge → judged → 回写）端到端跑通、状态变 `ACCEPTED`
@@ -127,6 +132,7 @@
 ### 计划中
 
 - 事件信封上线与消费端按 `eventId` 幂等（当前消息体只带 `payload`，judge 的消费者没有任何去重）
+- **测试点传输到评测引擎**：`SubmissionCreatedConsumer` 把 `testFiles` 硬编码为空、`GoJudgeAdapter` 在缺测试点时短路返回 `SYSTEM_ERROR`，因此真实引擎永远拿不到测试数据（需在"事件携带测试点"与"judge 回源 problem-service"之间选一个，后者还要先落服务间身份）
 - `judge_task` 异步评测状态机（重试/超时补偿/指数退避）、死信表与管理员重放
 - 竞赛级授权范围（owner/grant）与 `INVIGILATOR` 权限矩阵
 - 随机题目分配（发布时生成 + 随机种子 + 分配表）

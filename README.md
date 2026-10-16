@@ -50,7 +50,7 @@
 | Nacos | `nacos/nacos-server:v3.0.3` | platform Compose，standalone 模式；8848 API/9848 gRPC/8849 控制台；3.0.3 与 SCA 捆绑的 nacos-client 3.0.3 同补丁线 |
 | RocketMQ NameServer | `apache/rocketmq:5.3.1` | platform Compose |
 | RocketMQ Broker | `apache/rocketmq:5.3.1` | platform Compose；配置 `docker/rocketmq/broker.conf`，本地向宿主机广播 127.0.0.1 |
-| go-judge | `criyle/go-judge`（latest，未固定） | judge Compose，评测沙箱节点；`GoJudgeAdapter` 已实现，真实容器未实测 |
+| go-judge | `criyle/go-judge`（本仓库 `docker/go-judge/Dockerfile` 基于它构建带工具链的镜像） | judge Compose，评测沙箱节点；`GoJudgeAdapter` 已实现，C++ 编译/运行与五类 verdict 已真机实测 |
 | OpenResty | `openresty/openresty:1.29.2.4-0-alpine` | edge Compose，反向代理回源宿主机 gateway :8080 |
 
 Compose 镜像版本来自 `docker/compose.core.yml`、`docker/compose.platform.yml`、`docker/compose.edge.yml` 和 `docker/compose.judge.yml`。Docker 镜像版本与 Java 依赖版本独立维护，升级其中一类不代表另一类自动升级。

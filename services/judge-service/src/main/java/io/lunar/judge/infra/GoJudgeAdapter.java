@@ -37,6 +37,13 @@ public class GoJudgeAdapter implements JudgeEngine {
     private static final long OUTPUT_LIMIT_BYTES = 64L * 1024 * 1024;
     private static final long MAX_CPU_MS = 300_000;
     private static final int RUN_PROC_LIMIT = 128;
+
+    /**
+     * 编译命令的进程数上限。真机教训：procLimit 缺省（0）时编译器只能启动自身，
+     * 无法派生 cc1plus/as/ld，g++ 会以 {@code posix_spawn: Resource temporarily unavailable} 失败——
+     * 那会把所有提交误判成 COMPILE_ERROR，所以编译命令同样必须显式给上限。
+     */
+    private static final int COMPILE_PROC_LIMIT = 128;
     private static final int MAX_MESSAGE_LENGTH = 2000;
     private static final long NANOS_PER_MILLI = 1_000_000L;
     private static final long BYTES_PER_KB = 1024L;
@@ -150,7 +157,7 @@ public class GoJudgeAdapter implements JudgeEngine {
     private GoJudgeModels.Cmd compileCmd(LanguageTemplate template, String sourceCode) {
         return new GoJudgeModels.Cmd(template.compileArgs, SANDBOX_ENV,
                 List.of(stdinFd(""), stdoutFd(), stderrFd()),
-                COMPILE_CPU_LIMIT_NS, COMPILE_CPU_LIMIT_NS * 2, COMPILE_MEMORY_LIMIT_BYTES, null,
+                COMPILE_CPU_LIMIT_NS, COMPILE_CPU_LIMIT_NS * 2, COMPILE_MEMORY_LIMIT_BYTES, COMPILE_PROC_LIMIT,
                 Map.of(template.sourceFileName, new GoJudgeModels.CopyInFile(sourceCode, null)),
                 null, template.compileOutputs);
     }

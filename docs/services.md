@@ -112,9 +112,9 @@ anti-cheat ──(plagiarism-requested)──> plagiarism-worker（独立部署�
 - 不负责：绝不在 Spring 容器内执行用户代码；不向 go-judge 传递数据库凭据、MQ 地址或宿主机路径；源码与测试数据只在评测任务临时目录存在，任务结束即清理。
 - 数据与基础设施：**当前无数据库**（无 DataSource、无 `judge_schema`、无迁移；规划中为 `judge_schema` + Redis 评测短期锁）；go-judge 节点（独立 Linux，通过 `GO_JUDGE_BASE_URL` 配置）。
 - 对外接口：`POST /api/v1/judge/submissions`（代码存在但**当前不可用**：未接入验签，所有请求 401；也不落库、不发事件、测试点恒为空）；生产 `lunar-submission-judged`、消费 `lunar-submission-created`。
-- 当前实现：`JudgeServiceApplication`、`JudgeController`、`MockJudgeEngine`（mock profile）；`GoJudgeAdapter`（`infra/`，设置 `GO_JUDGE_BASE_URL` 即启用且优先于 mock）翻译 go-judge `POST /run` 协议并归一化 verdict，内置 C/C++/Java/Python 语言模板，10 个适配器单测通过；go-judge 容器由 `docker/compose.judge.yml` 提供。唯一启用 spring-boot-maven-plugin 的模块。
+- 当前实现：`JudgeServiceApplication`、`JudgeController`、`MockJudgeEngine`（mock profile）；`GoJudgeAdapter`（`infra/`，设置 `GO_JUDGE_BASE_URL` 即启用且优先于 mock）翻译 go-judge `POST /run` 协议并归一化 verdict，内置 C/C++/Java/Python 语言模板，11 个适配器单测通过；go-judge 容器由 `docker/compose.judge.yml` 提供（用 `docker/go-judge/Dockerfile` 构建带工具链的镜像）。**真机实测（2026-10）**：C++ 的编译 → 按测试点运行 → 输出比对全链路可用，五类 verdict（ACCEPTED/WRONG_ANSWER/COMPILE_ERROR/RUNTIME_ERROR/TIME_LIMIT_EXCEEDED）均按预期归一化；但**经事件链路的真实评测目前必然 `SYSTEM_ERROR`**——消费者把 `testFiles` 硬编码为空，适配器在缺测试点时短路返回（见"下一步"）。唯一启用 spring-boot-maven-plugin 的模块。
 - 事件总线（2026-10-07）：`SubmissionCreatedConsumer` 消费 `lunar-submission-created` → JudgeEngine 执行 → 发布 `lunar-submission-judged`（verdict 归一化，ACCEPTED=100 分）；Mock 引擎模拟"提交即判对"供全链路演示，真实引擎 `GO_JUDGE_BASE_URL` 启用；测试点经事件传输待服务间接口落地（真实引擎缺测试点返回 SYSTEM_ERROR）；新增 application.yml（rocketmq 配置，SERVER_PORT 仍需显式设置）。积压消息在消费组上线后自动补消费（观测验证）。
-- 下一步：judge_task 表与异步状态机（重试/超时补偿）；测试点服务间接口（真实引擎取测试点）；go-judge 工具链实测。
+- 下一步：**测试点传输**（当前 `SubmissionCreatedConsumer` 把 `testFiles` 硬编码为空，真实引擎必然 `SYSTEM_ERROR`；需要"事件携带测试点"或"judge 回源 problem-service"二选一，后者还要先落服务间身份）；judge_task 表与异步状态机（重试/超时补偿）；生产镜像锁定 digest 与工具链版本。
 
 ## anti-cheat-service
 

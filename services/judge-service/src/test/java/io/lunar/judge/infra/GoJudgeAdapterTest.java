@@ -174,6 +174,22 @@ class GoJudgeAdapterTest {
         assertThat(result.memoryKb()).isEqualTo(2560L);
     }
 
+    @Test
+    void compileAndRunCommandsBothCarryProcessLimit() {
+        // 真机教训：procLimit 缺省时编译器无法派生 cc1plus/as/ld，编译必然 EAGAIN 失败
+        StubTransport transport = transport(
+                accepted(null, Map.of("main", "F1")),
+                accepted(Map.of("stdout", "one"), null));
+        GoJudgeAdapter adapter = new GoJudgeAdapter(transport);
+
+        adapter.query(adapter.submit(command("cpp", ONE_CASE)).engineSubmissionId());
+
+        Integer compileProcLimit = transport.requests.get(0).cmd().get(0).procLimit();
+        Integer runProcLimit = transport.requests.get(1).cmd().get(0).procLimit();
+        assertThat(compileProcLimit).isNotNull().isPositive();
+        assertThat(runProcLimit).isNotNull().isPositive();
+    }
+
     private static JudgeSubmissionCommand command(String language, Map<String, String> testFiles) {
         return new JudgeSubmissionCommand("sub_1", language, "int main() { return 0; }",
                 testFiles, 2000, 256000);
@@ -195,6 +211,7 @@ class GoJudgeAdapterTest {
 
     private static final class StubTransport implements GoJudgeTransport {
         private final List<List<GoJudgeModels.RunResult>> responses;
+        private final List<GoJudgeModels.RunRequest> requests = new ArrayList<>();
         private int calls;
 
         StubTransport(List<List<GoJudgeModels.RunResult>> batches) {
@@ -206,6 +223,7 @@ class GoJudgeAdapterTest {
             if (calls >= responses.size()) {
                 throw new AssertionError("意外的第 " + (calls + 1) + " 次 /run 调用");
             }
+            requests.add(request);
             return responses.get(calls++);
         }
 

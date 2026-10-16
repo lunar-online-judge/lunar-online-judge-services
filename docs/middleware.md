@@ -12,7 +12,7 @@
 | Nacos | `nacos/nacos-server:v3.0.3` | 8848 / 9848 / 8849（控制台） | 服务发现 + 配置中心 | 已接入：8 个服务均注册到 Nacos 并按服务名寻址，4 个服务有托管配置 |
 | MinIO | `minio/minio:latest` | 9000 / 9001 | 截图对象存储 | Compose 已提供；SDK 未接入 |
 | OpenResty | `openresty/openresty:1.29.2.4-0-alpine` | 80 | 边缘反向代理：唯一对外入口，转发 gateway | Compose 已提供；回源宿主机 gateway，gateway 的 6 条路由已实现 |
-| go-judge | `criyle/go-judge`（latest，未固定） | 5050 | 用户代码沙箱执行（唯一执行环境） | Compose 已提供；`GoJudgeAdapter` 已实现（真实容器未实测） |
+| go-judge | `criyle/go-judge`（本仓库 Dockerfile 基于它构建，未固定 digest） | 5050 | 用户代码沙箱执行（唯一执行环境） | Compose 已提供；`GoJudgeAdapter` 已实现，C++ 编译/运行与五类 verdict 已真机实测（测试点传输仍缺，见"go-judge"节） |
 | JPlag | 独立 worker 进程 | — | 代码查重引擎 | 未接入 Maven Reactor，集成前审查许可证 |
 | SFU（WebRTC） | 未选型 | — | 屏幕/摄像头实时流转发 | 未选型、未部署 |
 
@@ -161,7 +161,8 @@ dataId = `<spring.application.name>.yml`，分组 `DEFAULT_GROUP`，命名空间
 - 代码：judge-service 的 `io.lunar.judge.infra.GoJudgeAdapter` 实现 `JudgeEngine`，翻译为 `POST /run` 协议（status 为字符串枚举，time 纳秒 / memory 字节，编译产物走 `copyOutCached` → `copyIn fileId`）；`GO_JUDGE_BASE_URL` 设置即启用并优先于 mock profile，未设置时回落 `MockJudgeEngine`；
 - 执行语义：go-judge `/run` 是同步接口，适配器在 `submit` 内一次性完成编译 + 全部测试点（首个失败即停），异步任务状态机（`judge_task` 表 + 重试/超时补偿）仍待评测链路落地；
 - 测试点约定：`JudgeSubmissionCommand.testFiles` 中 `<name>.in` 为输入，与同名 `<name>.out` / `<name>.ans` 为期望输出成对，按文件名排序；
-- 语言模板：v1 内置 C / C++ / Java / Python 四种（`LanguageTemplate`，硬编码过渡，后续迁 problem-service 配置）；Java 多编译产物（内部类）暂不支持；go-judge 容器内需有对应工具链，`criyle/go-judge` 默认镜像是否自带 jdk/python 未实测，缺失时需自定义镜像或挂载工具链。
+- 语言模板：v1 内置 C / C++ / Java / Python 四种（`LanguageTemplate`，硬编码过渡，后续迁 problem-service 配置）；Java 多编译产物（内部类）暂不支持；**`criyle/go-judge` 官方镜像不含任何编译器**（2026-10 实测：Debian 13 基础镜像内 gcc/g++/python3/javac 全无，编译直接报 `execve: handle: g++: executable file not found in $PATH`），因此 `docker/compose.judge.yml` 改为用 `docker/go-judge/Dockerfile` 构建带工具链的镜像；生产部署前锁定基础镜像 digest；
+- **真机实测（2026-10，本机 Docker Desktop）**：补上工具链后，C++ 的"编译 → 按测试点运行 → 输出比对"全链路可用——`ACCEPTED` / `WRONG_ANSWER` / `COMPILE_ERROR` / `RUNTIME_ERROR` / `TIME_LIMIT_EXCEEDED` 五类 verdict 均按预期归一化（用与 `GoJudgeAdapter` 完全相同的 `/run` 协议逐步验证）。两条真机教训：①**编译命令必须显式设置 `procLimit`**，缺省（0）时编译器无法派生 `cc1plus`/`as`/`ld`，会以 `posix_spawn: Resource temporarily unavailable` 失败、把所有提交误判成 COMPILE_ERROR；②镜像里没有工具链这一条此前只是"未实测"的猜测，实测确认为硬性前提。
 
 ## JPlag
 
