@@ -23,6 +23,7 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.isNull;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
@@ -191,6 +192,54 @@ class ExamSessionServiceTest {
 
         assertThatThrownBy(() -> service.heartbeat("c1", "stu_1"))
                 .isInstanceOf(ContestException.NotEnrolled.class);
+    }
+
+    @Test
+    void terminateActiveSessionMarksTerminated() {
+        when(sessionMapper.selectOne(any())).thenReturn(session("s1", "ACTIVE"));
+        when(sessionMapper.update(isNull(), any())).thenReturn(1);
+
+        SessionView view = service.terminate("c1", "stu_1");
+
+        assertThat(view.status()).isEqualTo("TERMINATED");
+        verify(sessionMapper).update(isNull(), any());
+    }
+
+    @Test
+    void terminateExpiredSessionAlsoBlocksReEntry() {
+        when(sessionMapper.selectOne(any())).thenReturn(session("s1", "EXPIRED"));
+        when(sessionMapper.update(isNull(), any())).thenReturn(1);
+
+        SessionView view = service.terminate("c1", "stu_1");
+
+        assertThat(view.status()).isEqualTo("TERMINATED");
+    }
+
+    @Test
+    void terminateIsIdempotentOnTerminatedSession() {
+        when(sessionMapper.selectOne(any())).thenReturn(session("s1", "TERMINATED"));
+
+        SessionView view = service.terminate("c1", "stu_1");
+
+        assertThat(view.status()).isEqualTo("TERMINATED");
+        verify(sessionMapper, never()).update(isNull(), any());
+    }
+
+    @Test
+    void terminateWithoutSessionRejected() {
+        when(sessionMapper.selectOne(any())).thenReturn(null);
+
+        assertThatThrownBy(() -> service.terminate("c1", "stu_1"))
+                .isInstanceOf(ContestException.SessionNotActive.class);
+    }
+
+    @Test
+    void terminateIfExistsIsQuietWithoutSession() {
+        when(sessionMapper.selectOne(any())).thenReturn(null);
+
+        service.terminateIfExists("c1", "stu_1");
+
+        verify(sessionMapper, never()).update(isNull(), any());
     }
 
     @Test

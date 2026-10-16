@@ -21,7 +21,7 @@ import java.util.UUID;
  * 考生会话（docs/exam-process.md §6）：
  * 进入条件 = 名单 ENROLLED + 竞赛状态 PUBLISHED/RUNNING + 服务端时间在时间窗口内；
  * 同一学生同一竞赛最多一个会话——重新登录恢复（断线重连保留剩余时间，不补偿）；
- * 管理端终止（TERMINATED）为终态，重进拒绝（v1 决策，api.md 已标注）；
+ * 管理端可终止会话（TERMINATED 为终态，重进拒绝）；学生被移出名单时同样使会话失效（§9）；
  * 心跳超时由定时扫描置 EXPIRED，条件更新保证多实例幂等。
  */
 @Component
@@ -44,11 +44,7 @@ public class ExamSessionService {
     public SessionView enter(String contestId, String studentId) {
         checkWindow(contestId, studentId);
 
-        SessionEntity session = sessionMapper.selectOne(new LambdaQueryWrapper<SessionEntity>()
-                .eq(SessionEntity::getContestId, contestId)
-                .eq(SessionEntity::getStudentId, studentId)
-                .last("limit 1"));
-
+        SessionEntity session = findSession(contestId, studentId);
         if (session == null) {
             session = new SessionEntity();
             session.setId(UUID.randomUUID().toString());
@@ -112,10 +108,7 @@ public class ExamSessionService {
     }
 
     private SessionEntity requireActive(String contestId, String studentId) {
-        SessionEntity session = sessionMapper.selectOne(new LambdaQueryWrapper<SessionEntity>()
-                .eq(SessionEntity::getContestId, contestId)
-                .eq(SessionEntity::getStudentId, studentId)
-                .last("limit 1"));
+        SessionEntity session = findSession(contestId, studentId);
         if (session == null || !"ACTIVE".equals(session.getStatus())) {
             throw new ContestException.SessionNotActive();
         }
@@ -132,10 +125,7 @@ public class ExamSessionService {
         if (contest.getEndAt() != null) {
             remaining = Math.max(0, contest.getEndAt().getEpochSecond() - Instant.now().getEpochSecond());
         }
-        SessionEntity session = sessionMapper.selectOne(new LambdaQueryWrapper<SessionEntity>()
-                .eq(SessionEntity::getContestId, contestId)
-                .eq(SessionEntity::getStudentId, studentId)
-                .last("limit 1"));
+        SessionEntity session = findSession(contestId, studentId);
         String sessionStatus = session == null ? "NONE" : session.getStatus();
         boolean inWindow = (contest.getStartAt() == null || !Instant.now().isBefore(contest.getStartAt()))
                 && (contest.getEndAt() == null || Instant.now().isBefore(contest.getEndAt()));
@@ -160,6 +150,60 @@ public class ExamSessionService {
                 .set(SessionEntity::getStatus, "EXPIRED")
                 .set(SessionEntity::getClosedAt, Instant.now());
         sessionMapper.update(null, update);
+    }
+
+    /**
+     * 管理端终止考生会话（docs/exam-process.md §6、docs/api.md 会话契约）：
+     * ACTIVE/EXPIRED → TERMINATED，终态不可恢复（考生重进被拒）；已是 TERMINATED 时按幂等返回。
+     */
+    public SessionView terminate(String contestId, String studentId) {
+        SessionEntity session = findSession(contestId, studentId);
+        if (session == null) {
+            throw new ContestException.SessionNotActive();
+        }
+        if ("TERMINATED".equals(session.getStatus())) {
+            return toView(session);
+        }
+        if (markTerminated(session)) {
+            session.setStatus("TERMINATED");
+            session.setClosedAt(Instant.now());
+            return toView(session);
+        }
+        // 条件更新落空（并发下状态已被改走）：以库中最新状态为准，不谎报已终止
+        SessionEntity current = findSession(contestId, studentId);
+        if (current == null) {
+            throw new ContestException.SessionNotActive();
+        }
+        return toView(current);
+    }
+
+    /** 学生被移出名单时使会话失效（docs/exam-process.md §9）：无会话或已是终态时静默跳过。 */
+    public void terminateIfExists(String contestId, String studentId) {
+        SessionEntity session = findSession(contestId, studentId);
+        if (session == null || "TERMINATED".equals(session.getStatus())) {
+            return;
+        }
+        markTerminated(session);
+    }
+
+    /**
+     * 置 TERMINATED 的条件更新：仅当前态仍是我们读到的状态时才写入，返回是否写入成功。
+     * 即使写入落空也不会有"可提交的会话"残留——心跳与进入都会重新校验名单。
+     */
+    private boolean markTerminated(SessionEntity session) {
+        LambdaUpdateWrapper<SessionEntity> update = new LambdaUpdateWrapper<SessionEntity>()
+                .eq(SessionEntity::getId, session.getId())
+                .eq(SessionEntity::getStatus, session.getStatus())
+                .set(SessionEntity::getStatus, "TERMINATED")
+                .set(SessionEntity::getClosedAt, Instant.now());
+        return sessionMapper.update(null, update) > 0;
+    }
+
+    private SessionEntity findSession(String contestId, String studentId) {
+        return sessionMapper.selectOne(new LambdaQueryWrapper<SessionEntity>()
+                .eq(SessionEntity::getContestId, contestId)
+                .eq(SessionEntity::getStudentId, studentId)
+                .last("limit 1"));
     }
 
     private SessionView toView(SessionEntity session) {

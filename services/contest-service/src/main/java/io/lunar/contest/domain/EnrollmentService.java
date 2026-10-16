@@ -20,8 +20,8 @@ import java.util.UUID;
 /**
  * 报名关系编排（docs/exam-process.md §9、architecture.md §2.1.1-2.1.2）：
  * 学生账号由 auth-service 创建（本服务转发操作者令牌），报名关系归本服务。
- * 同一 contestId+studentNo 只有一条有效报名关系；移出是软删除；重新加入复用原行置回 ENROLLED。
- * 审计：audit-service 未建成，先以结构化日志落 AUDIT 事件（建成后迁移）。
+ * 同一 contestId+studentNo 只有一条有效报名关系；移出是软删除并同时使当前会话失效（§9）；重新加入复用原行置回 ENROLLED。
+ * 审计：这些动作目前只落结构化日志，尚未写入 audit-service 账本（见 docs/services.md"下一步"）。
  */
 @Component
 public class EnrollmentService {
@@ -31,12 +31,14 @@ public class EnrollmentService {
     private final CandidateMapper candidateMapper;
     private final ContestService contestService;
     private final AuthInternalClient authClient;
+    private final ExamSessionService examSessionService;
 
     public EnrollmentService(CandidateMapper candidateMapper, ContestService contestService,
-                             AuthInternalClient authClient) {
+                             AuthInternalClient authClient, ExamSessionService examSessionService) {
         this.candidateMapper = candidateMapper;
         this.contestService = contestService;
         this.authClient = authClient;
+        this.examSessionService = examSessionService;
     }
 
     /** 添加学生：账号不存在则经 auth 创建（或账号已存在则复用），再建立/激活报名关系。 */
@@ -132,12 +134,13 @@ public class EnrollmentService {
                 contestId, studentId, operatorId);
     }
 
-    /** 移出名单：软删除（status=REMOVED），学生账号与历史数据保留。 */
+    /** 移出名单：软删除（status=REMOVED），学生账号与历史数据保留；当前考试会话同时失效（docs/exam-process.md §9）。 */
     public void remove(String contestId, String studentId, String operatorId) {
         CandidateEntity candidate = requireEnrolled(contestId, studentId);
         candidate.setStatus("REMOVED");
         candidate.setRemovedAt(Instant.now());
         candidateMapper.updateById(candidate);
+        examSessionService.terminateIfExists(contestId, studentId);
         log.info("AUDIT event=STUDENT_REMOVED contestId={} studentId={} by={}", contestId, studentId, operatorId);
     }
 

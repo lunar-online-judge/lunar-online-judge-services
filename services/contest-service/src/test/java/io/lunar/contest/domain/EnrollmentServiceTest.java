@@ -30,8 +30,9 @@ class EnrollmentServiceTest {
     private final CandidateMapper candidateMapper = mock(CandidateMapper.class);
     private final ContestMapper contestMapper = mock(ContestMapper.class);
     private final AuthInternalClient authClient = mock(AuthInternalClient.class);
+    private final ExamSessionService examSessionService = mock(ExamSessionService.class);
     private final EnrollmentService service = new EnrollmentService(candidateMapper,
-            new ContestService(contestMapper), authClient);
+            new ContestService(contestMapper), authClient, examSessionService);
 
     @BeforeAll
     static void initMpMetadata() {
@@ -141,6 +142,8 @@ class EnrollmentServiceTest {
         verify(candidateMapper).updateById(captor.capture());
         assertThat(captor.getValue().getStatus()).isEqualTo("REMOVED");
         assertThat(captor.getValue().getRemovedAt()).isNotNull();
+        // docs/exam-process.md §9：移出名单时当前考试会话同时失效
+        verify(examSessionService).terminateIfExists("c1", "stu_1");
     }
 
     @Test

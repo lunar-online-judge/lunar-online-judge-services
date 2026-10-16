@@ -14,10 +14,12 @@ import io.lunar.contest.api.dto.ResetPasswordRequest;
 import io.lunar.contest.domain.AnnouncementService;
 import io.lunar.contest.domain.ContestService;
 import io.lunar.contest.domain.EnrollmentService;
+import io.lunar.contest.domain.ExamSessionService;
 import io.lunar.contest.domain.dto.AnnouncementView;
 import io.lunar.contest.domain.dto.CandidatePage;
 import io.lunar.contest.domain.dto.ContestPage;
 import io.lunar.contest.domain.dto.EnrollmentResult;
+import io.lunar.contest.domain.dto.SessionView;
 import io.lunar.contest.infra.ContestEntity;
 import jakarta.validation.Valid;
 import org.springframework.http.ResponseEntity;
@@ -47,12 +49,14 @@ public class ContestController {
     private final ContestService contestService;
     private final EnrollmentService enrollmentService;
     private final AnnouncementService announcementService;
+    private final ExamSessionService examSessionService;
 
     public ContestController(ContestService contestService, EnrollmentService enrollmentService,
-                             AnnouncementService announcementService) {
+                             AnnouncementService announcementService, ExamSessionService examSessionService) {
         this.contestService = contestService;
         this.enrollmentService = enrollmentService;
         this.announcementService = announcementService;
+        this.examSessionService = examSessionService;
     }
 
     @PostMapping
@@ -157,7 +161,7 @@ public class ContestController {
         return ResponseEntity.ok(ApiResponse.success(requestId, new PasswordResetResponse(true)));
     }
 
-    /** 移出名单（软删除）：学生账号与历史数据保留。 */
+    /** 移出名单（软删除）：学生账号与历史数据保留；当前考试会话同时失效（exam-process §9）。 */
     @DeleteMapping("/{contestId}/students/{studentId}")
     @PreAuthorize("hasAnyRole('TEACHER', 'ADMIN')")
     public ResponseEntity<ApiResponse<Void>> removeStudent(
@@ -167,6 +171,17 @@ public class ContestController {
             @RequestHeader(value = RequestIdFilter.HEADER, required = false) String requestId) {
         enrollmentService.remove(contestId, studentId, authentication.getName());
         return ResponseEntity.ok(ApiResponse.success(requestId, null));
+    }
+
+    /** 终止考生会话（管理端；TERMINATED 为终态，考生重进被拒）。 */
+    @PostMapping("/{contestId}/students/{studentId}/session/terminate")
+    @PreAuthorize("hasAnyRole('TEACHER', 'ADMIN')")
+    public ResponseEntity<ApiResponse<SessionView>> terminateSession(
+            @PathVariable String contestId,
+            @PathVariable String studentId,
+            @RequestHeader(value = RequestIdFilter.HEADER, required = false) String requestId) {
+        return ResponseEntity.ok(ApiResponse.success(requestId,
+                examSessionService.terminate(contestId, studentId)));
     }
 
     /** 发布公告（老师/管理员；docs/exam-process.md §8）。 */
