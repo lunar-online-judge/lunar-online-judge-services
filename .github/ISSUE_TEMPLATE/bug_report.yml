@@ -1,0 +1,98 @@
+name: 🐛 缺陷报告
+description: 报告可复现的功能缺陷、错误响应或构建/部署问题
+title: "[Bug] "
+labels:
+  - bug
+body:
+  - type: markdown
+    attributes:
+      value: |
+        提交前请先确认这不是 `docs/deployment.md`「已知限制」或 `BACKEND_IMPROVEMENT_PLAN.md` 里已经记录的问题。
+
+        **不要粘贴真实密钥、私钥 PEM、JWT 或学生明文密码**；日志请脱敏后再贴。
+  - type: dropdown
+    id: component
+    attributes:
+      label: 影响的服务 / 模块
+      description: 按 `docs/services.md` 的服务边界选一个；跨服务问题选最上游的那个
+      options:
+        - gateway-service
+        - auth-service
+        - contest-service
+        - problem-service
+        - submission-service
+        - judge-service
+        - anti-cheat-service
+        - audit-service
+        - media-service
+        - ai-service
+        - analytics-service
+        - lunar-common
+        - docker / 部署编排
+        - 文档
+        - 不确定
+    validations:
+      required: true
+  - type: input
+    id: version
+    attributes:
+      label: 版本 / 提交
+      description: 标签或 commit SHA（`git rev-parse --short HEAD`）
+      placeholder: 例如 v0.5.0 或 dbc9b32
+    validations:
+      required: true
+  - type: textarea
+    id: what-happened
+    attributes:
+      label: 现象
+      description: 实际发生了什么？涉及接口时请写出 HTTP 状态码与错误码（如 `AUTH_INVALID_CREDENTIALS`）
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: 期望行为
+      description: 期望的行为写在哪儿？请给出依据（`docs/api.md`、`docs/exam-process.md` 等），没有依据也请说明
+    validations:
+      required: true
+  - type: textarea
+    id: reproduce
+    attributes:
+      label: 复现步骤
+      description: 请写到别人能照着重现的程度：依赖组件、环境变量、请求、观察结果
+      placeholder: |
+        1. 启动依赖：docker compose -f docker/compose.core.yml up -d
+        2. 环境变量：FLYWAY_ENABLED=true POSTGRES_PORT=5433
+        3. 请求：curl -X POST http://localhost:8081/api/v1/auth/login -H 'Content-Type: application/json' -d '{...}'
+        4. 观察到：500 且日志报 ...
+    validations:
+      required: true
+  - type: textarea
+    id: logs
+    attributes:
+      label: 日志 / 响应体
+      description: 相关日志、响应或堆栈（脱敏后）。有 `X-Request-Id` 时请一并写上，便于跨服务追踪
+      render: shell
+    validations:
+      required: false
+  - type: textarea
+    id: environment
+    attributes:
+      label: 运行环境
+      value: |
+        - OS：
+        - JDK：
+        - Maven：
+        - profile（`SPRING_PROFILES_ACTIVE`）：
+        - 依赖组件状态（PostgreSQL / Redis / RocketMQ / Nacos / go-judge 哪些在跑）：
+    validations:
+      required: true
+  - type: checkboxes
+    id: confirmations
+    attributes:
+      label: 提交前确认
+      options:
+        - label: 我已搜索过现有 issue，没有重复
+          required: true
+        - label: 内容中不含真实密钥、令牌、私钥或明文密码
+          required: true

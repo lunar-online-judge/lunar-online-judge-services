@@ -1,0 +1,12 @@
+# issue 选择页配置：不提供空白 issue（强制走表单），并把"先读文档"放在最显眼的位置。
+blank_issues_enabled: false
+contact_links:
+  - name: 开发指南（新会话先读这个）
+    url: https://github.com/lunar-online-judge/lunar-online-judge-services/blob/main/docs/development-guide.md
+    about: 阅读顺序、代码约定、包结构、测试与错误码约定
+  - name: 部署、环境变量与已知限制
+    url: https://github.com/lunar-online-judge/lunar-online-judge-services/blob/main/docs/deployment.md
+    about: 端口、环境变量、冒烟验证命令，以及已记录的限制（先确认不是已知行为）
+  - name: 后端优化计划（BE-01～BE-13）
+    url: https://github.com/lunar-online-judge/lunar-online-judge-services/blob/main/BACKEND_IMPROVEMENT_PLAN.md
+    about: 已记录的问题、优先级与验收标准，避免重复开 issue

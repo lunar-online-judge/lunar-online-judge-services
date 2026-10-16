@@ -1,0 +1,59 @@
+name: 🔧 技术改进 / 重构
+description: 记录技术债、可靠性或性能问题（可对应 BACKEND_IMPROVEMENT_PLAN 的 BE-xx 条目）
+title: "[Improvement] "
+labels:
+  - tech-debt
+body:
+  - type: markdown
+    attributes:
+      value: |
+        本仓库对"问题描述"要求**先有证据再下结论**：请给出源码路径与可观察的行为，而不是"看起来可能有问题"。
+        计划里的条目（BE-01～BE-13）可直接引用编号，不必重复粘贴全文。
+  - type: input
+    id: plan-id
+    attributes:
+      label: 对应计划条目
+      description: "`BACKEND_IMPROVEMENT_PLAN.md` 的编号，或填「新增」"
+      placeholder: 例如 BE-07 / 新增
+    validations:
+      required: true
+  - type: textarea
+    id: evidence
+    attributes:
+      label: 证据
+      description: 源码路径（到类/方法）+ 实际行为或复现结果；已实测的请贴命令与输出
+      placeholder: |
+        services/xxx-service/src/main/java/io/lunar/xxx/domain/XxxService.java#method
+        现象：...
+    validations:
+      required: true
+  - type: textarea
+    id: impact
+    attributes:
+      label: 影响面与风险
+      description: 影响哪些服务/链路？故障时用户可见的后果是什么（数据丢失、卡单、静默失效、性能劣化）？
+    validations:
+      required: true
+  - type: textarea
+    id: proposal
+    attributes:
+      label: 建议方案
+      description: 打算怎么改？涉及接口、事件或表结构时请写清兼容与回滚方式
+    validations:
+      required: true
+  - type: textarea
+    id: acceptance
+    attributes:
+      label: 验收方式
+      description: 改完怎么证明真的修好了（含负例：故意配错/注入故障时应当失败）
+    validations:
+      required: true
+  - type: checkboxes
+    id: confirmations
+    attributes:
+      label: 提交前确认
+      options:
+        - label: 我已在当前提交上复现/核对过，问题仍然存在
+          required: true
+        - label: 我理解本仓库纪律：改代码的同时要同步 `docs/` 与 `CHANGELOG.md`
+          required: true
