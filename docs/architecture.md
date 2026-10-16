@@ -393,7 +393,7 @@ CREATED -> AUTHORIZED -> CONNECTING -> LIVE
 
 **当前已实现**（逐项可验证）：
 
-- 公共层：多模块父工程、`ApiResponse` + 全局异常处理（仅覆盖域异常与校验失败，无兜底 `Exception` 处理器）、`RequestIdFilter`、`Role`、`JudgeEngine` 抽象与 `JudgeVerdict`、`LoadBalancedRestClient` 自动配置；
+- 公共层：多模块父工程、`ApiResponse` + 全局异常处理（仅覆盖域异常与校验失败，无兜底 `Exception` 处理器）、`RequestIdFilter`、`Role`、`JudgeEngine` 抽象与 `JudgeVerdict`；服务间调用用 Spring 原生声明式 HTTP 接口（`@HttpExchange` 接口 + `HttpServiceClientFactory` 装配成 Bean，baseUrl 默认服务名经 Nacos + LoadBalancer 寻址）；
 - auth-service：登录（BCrypt + RS256 JWT）、JWKS、Redis 登录失败限流、学生账号服务间接口（创建/查询/重置）；
 - contest-service：生命周期 6 状态（含按时间自动 PUBLISHED→RUNNING→FINISHED 与人工归档）、名单（唯一约束/软删除/重新加入）、考生会话（进入/心跳/超时/断线恢复）、公告（发布/送达/确认）；
 - problem-service：题目 + 版本 + 测试点，发布后版本不可变、考生视角不含测试点；

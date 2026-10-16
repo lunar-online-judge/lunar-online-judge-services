@@ -15,6 +15,12 @@ spring:
         # 与 RocketMQ brokerIP1=127.0.0.1 同理（docker/rocketmq/broker.conf）；服务容器化后须改为容器可达地址
         ip: ${NACOS_DISCOVERY_IP:127.0.0.1}
         fail-fast: ${NACOS_FAIL_FAST:false}
+    # 服务间调用（@HttpExchange + RestClient + LoadBalancer）：按服务名解析实例；
+    # 超时显式固化，避免默认长超时把提交判定链路拖住（启动期解析，改后需重启）
+    http:
+      client:
+        connect-timeout: 2s
+        read-timeout: 10s
   application:
     name: contest-service
   datasource:

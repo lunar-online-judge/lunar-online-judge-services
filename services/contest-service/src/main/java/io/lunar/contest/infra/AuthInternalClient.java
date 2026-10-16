@@ -1,80 +1,68 @@
 package io.lunar.contest.infra;
 
-import org.springframework.beans.factory.annotation.Value;
-import org.springframework.http.MediaType;
+import io.lunar.common.api.ApiResponse;
 import org.springframework.stereotype.Component;
 import org.springframework.web.client.HttpClientErrorException;
-import org.springframework.web.client.RestClient;
 
 import java.util.Map;
 
 /**
- * auth-service 学生账号内部接口客户端（/api/v1/internal/students）。
- * 转发操作者的 Bearer 令牌（老师/管理员），auth 端校验操作者身份与角色；
+ * auth-service 学生账号内部接口适配层（docs/middleware.md"服务发现"）：
+ * 走 Spring 原生声明式 HTTP 接口（{@link AuthServiceApi}，代理 Bean 见 io.lunar.contest.config.ServiceClientConfig），
+ * 按服务名（auth-service）经 Nacos + LoadBalancer 解析实例，
+ * AUTH_BASE_URL 可覆盖为固定地址排障；转发操作者的 Bearer 令牌（老师/管理员），auth 端校验身份与角色。
+ *
+ * 本层只做两件事：解 auth 的 {@link ApiResponse} 信封、把"查不到（404）"收敛成 null；
+ * 其余 4xx/5xx 原样抛 {@link HttpClientErrorException}，由调用方映射为域异常。
  * 服务间独立身份（客户端凭证）落地后替换转发机制。
- * 寻址：按服务名（auth-service）经 Nacos 解析实例，AUTH_BASE_URL 可覆盖为固定地址用于排障。
  */
 @Component
 public class AuthInternalClient {
 
-    private final RestClient rest;
+    private final AuthServiceApi authApi;
 
-    public AuthInternalClient(RestClient.Builder loadBalancedRestClientBuilder,
-                              @Value("${AUTH_BASE_URL:http://auth-service}") String authBaseUrl) {
-        this.rest = loadBalancedRestClientBuilder.baseUrl(authBaseUrl).build();
-    }
-
-    /** 操作者令牌：入参可能是完整 header（含 Bearer 前缀），统一剥离后由这里重新拼。 */
-    private static String bearer(String operatorToken) {
-        String raw = operatorToken == null ? "" : operatorToken.replaceFirst("(?i)^Bearer\\s+", "");
-        return "Bearer " + raw;
+    public AuthInternalClient(AuthServiceApi authApi) {
+        this.authApi = authApi;
     }
 
     /** 按学号或账户名查学生账号；不存在（404）返回 null，账号可复用时不重复创建。 */
-    @SuppressWarnings("unchecked")
     public Map<String, Object> findStudent(String studentNo, String username, String operatorToken) {
         try {
-            return unwrap(rest.get()
-                    .uri(uri -> uri.path("/api/v1/internal/students")
-                            .queryParam("studentNo", studentNo)
-                            .queryParam("username", username)
-                            .build())
-                    .header("Authorization", bearer(operatorToken))
-                    .retrieve()
-                    .body(Map.class));
-        } catch (HttpClientErrorException.NotFound e) {
+            return unwrap(authApi.findStudent(blankToEmpty(studentNo), blankToEmpty(username),
+                    bearer(operatorToken)));
+        } catch (HttpClientErrorException.NotFound exception) {
             return null;
         }
     }
 
-    /** auth 返回 ApiResponse 信封，这里统一取 data；auth 端 4xx/5xx 原样抛 RestClientResponseException。 */
-    @SuppressWarnings("unchecked")
-    private static Map<String, Object> unwrap(Map<String, Object> body) {
-        return body == null ? null : (Map<String, Object>) body.get("data");
-    }
-
-    /** @return studentId；auth 端错误（409 用户名/学号冲突等）原样抛 RestClientResponseException。 */
-    @SuppressWarnings("unchecked")
+    /** @return 新建学生账号的响应 data（studentId 等）；auth 端错误（409 用户名/学号冲突等）原样抛出，由调用方映射。 */
     public Map<String, Object> createStudent(String studentNo, String username, String displayName,
                                              String initialPassword, String operatorToken) {
-        return unwrap(rest.post()
-                .uri("/api/v1/internal/students")
-                .header("Authorization", bearer(operatorToken))
-                .contentType(MediaType.APPLICATION_JSON)
-                .body(Map.of("studentNo", studentNo, "username", username,
-                        "displayName", displayName, "initialPassword", initialPassword))
-                .retrieve()
-                .body(Map.class));
+        return unwrap(authApi.createStudent(bearer(operatorToken), Map.of(
+                "studentNo", studentNo,
+                "username", username,
+                "displayName", displayName,
+                "initialPassword", initialPassword)));
     }
 
-    @SuppressWarnings("unchecked")
-    public Map<String, Object> resetPassword(String studentId, String temporaryPassword, String operatorToken) {
-        return unwrap(rest.post()
-                .uri("/api/v1/internal/students/{id}/password-reset", studentId)
-                .header("Authorization", bearer(operatorToken))
-                .contentType(MediaType.APPLICATION_JSON)
-                .body(Map.of("temporaryPassword", temporaryPassword))
-                .retrieve()
-                .body(Map.class));
+    /** 重置学生密码：auth 端生成并下发临时密码，本服务不经手密码材料。 */
+    public void resetPassword(String studentId, String temporaryPassword, String operatorToken) {
+        authApi.resetPassword(studentId, bearer(operatorToken),
+                Map.of("temporaryPassword", temporaryPassword));
+    }
+
+    /** 操作者令牌：入参可能是完整 header（含 Bearer 前缀），统一剥离后由这里重新拼。 */
+    private static String bearer(String operatorToken) {
+        String rawToken = operatorToken == null ? "" : operatorToken.replaceFirst("(?i)^Bearer\\s+", "");
+        return "Bearer " + rawToken;
+    }
+
+    /** 查询参数缺省用空串：auth 端两个参数至少给一个，空串等价于"未提供"。 */
+    private static String blankToEmpty(String value) {
+        return value == null ? "" : value;
+    }
+
+    private static Map<String, Object> unwrap(ApiResponse<Map<String, Object>> response) {
+        return response == null ? null : response.data();
     }
 }

@@ -11,13 +11,15 @@ import org.springframework.web.client.RestClient;
 import static org.assertj.core.api.Assertions.assertThat;
 
 /**
- * 服务名寻址的关键装配事实（放在本模块是因为只有调用方才有 loadbalancer + 测试依赖）。
- *
- * 客户端写 {@code http://auth-service} 能通，前提是注入到的 RestClient.Builder 带着负载均衡拦截器；
- * 而 Boot 自动配置默认也会提供一个 RestClient.Builder，两者并存会让注入点歧义。
- * 这里钉住：本模块的 Builder 存在时 Boot 的会退避，注入到的就是带负载均衡的那个。
+ * 装配冒烟（RestClient 手写客户端时代即有同名测试；改用声明式接口后恢复，并覆盖三种装配分支）：
+ * 客户端写 {@code http://auth-service} 能通，前提是注入到的 RestClient.Builder 带负载均衡拦截器；
+ * 而 Boot 自动配置默认也会提供一个 RestClient.Builder，两者并存会让注入点歧义——
+ * 这里验证带负载均衡的那个是唯一的一个，且 Boot 的 Builder 已退避。
  */
 class LoadBalancedRestClientAssemblyTest {
+
+    private static final String LOAD_BALANCER_CLASS =
+            "org.springframework.cloud.loadbalancer.support.LoadBalancerClientFactory";
 
     private final ApplicationContextRunner runner = new ApplicationContextRunner()
             .withConfiguration(AutoConfigurations.of(LoadBalancedRestClientAutoConfiguration.class));
@@ -31,7 +33,7 @@ class LoadBalancedRestClientAssemblyTest {
     }
 
     @Test
-    void bootAutoConfiguredBuilderBacksOff() {
+    void bootBuilderBacksOffWhenLoadBalancedBuilderPresent() {
         runner.withConfiguration(AutoConfigurations.of(RestClientAutoConfiguration.class))
                 .run(context -> {
                     assertThat(context).hasSingleBean(RestClient.Builder.class);
@@ -40,8 +42,11 @@ class LoadBalancedRestClientAssemblyTest {
     }
 
     @Test
-    void backsOffWhenLoadBalancerAbsent() {
-        runner.withClassLoader(new FilteredClassLoader("org.springframework.cloud.loadbalancer"))
+    void autoConfigurationBacksOffWithoutLoadBalancerOnClasspath() {
+        // 条件为 LoadBalancerClientFactory 在类路径：模拟"不按服务名寻址"的服务
+        new ApplicationContextRunner()
+                .withConfiguration(AutoConfigurations.of(LoadBalancedRestClientAutoConfiguration.class))
+                .withClassLoader(new FilteredClassLoader(LOAD_BALANCER_CLASS))
                 .run(context -> assertThat(context).doesNotHaveBean(RestClient.Builder.class));
     }
 }

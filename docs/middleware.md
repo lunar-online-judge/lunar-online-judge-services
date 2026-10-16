@@ -70,7 +70,7 @@
 
 **功能**：
 
-- **服务注册与发现**：8 个服务启动时注册到 `DEFAULT_GROUP`，调用方按服务名寻址——gateway 的 6 条路由用 `lb://<服务名>`，服务间客户端（`AuthInternalClient` / `UpstreamClient` / `AuditClient`）的 baseUrl 默认值也是服务名，由 Nacos 注册表解析实例；
+- **服务注册与发现**：8 个服务启动时注册到 `DEFAULT_GROUP`，调用方按服务名寻址——gateway 的 6 条路由用 `lb://<服务名>`，服务间调用走 **Spring 原生声明式 HTTP 接口**（`@HttpExchange`：`AuthServiceApi` / `ContestServiceApi` / `ProblemServiceApi` / `AuditServiceApi`，由各服务的 `ServiceClientConfig` 经 `HttpServiceClientFactory` 装配成 Bean），baseUrl 默认服务名、`*_BASE_URL` 可覆盖为固定地址排障，实例由 Nacos 注册表 + Spring Cloud LoadBalancer（`@LoadBalanced RestClient.Builder`）解析；
 - **配置中心**：托管"运行时可变"的服务私有配置，改值后无需重启即生效。
 
 ### 配置中心：放什么、不放什么
@@ -109,7 +109,7 @@ dataId = `<spring.application.name>.yml`，分组 `DEFAULT_GROUP`，命名空间
 
 ### 服务发现的约束
 
-- 依赖：根 POM 的 `spring-cloud-alibaba.version=2025.0.0.0`（Spring Cloud Alibaba BOM，须与 spring-cloud 同代，2025.0.3 对应它）；各服务引 `spring-cloud-starter-alibaba-nacos-discovery`，**按服务名发起调用或路由的服务（gateway / contest / submission / anti-cheat）另需 `spring-cloud-starter-loadbalancer`**——SCA 的 starter 不以非 optional 方式传递它，缺了会在 `lb://` 处直接抛 `NoLoadBalancerClientException`。
+- 依赖：根 POM 的 `spring-cloud-alibaba.version=2025.0.0.0`（Spring Cloud Alibaba BOM，须与 spring-cloud 同代，2025.0.3 对应它）；各服务引 `spring-cloud-starter-alibaba-nacos-discovery`，**按服务名发起调用或路由的服务（gateway / contest / submission / anti-cheat）另需 `spring-cloud-starter-loadbalancer`**——SCA 的 starter 不以非 optional 方式传递它，缺了会在 `lb://` 处直接抛 `NoLoadBalancerClientException`；服务间声明式调用**不需要额外依赖**：接口用 Spring Framework 自带的 `@HttpExchange`，寻址只靠上面这个 loadbalancer 提供的 `@LoadBalanced RestClient.Builder`。
 - 注册 IP 固定 `127.0.0.1`（`spring.cloud.nacos.discovery.ip`）：本机多网卡（VMware VMnet / WSL 虚拟网卡）会被自动探测误选（实测选到 VMnet1 的 192.168.48.1），处理方式与 RocketMQ `brokerIP1=127.0.0.1` 一致；**服务容器化后须改为容器可达地址**。
 - `spring.cloud.nacos.discovery.fail-fast=false`：Nacos 不可达时服务照常启动（仅不注册），`NACOS_FAIL_FAST=true` 可切回严格模式。
 - 本地 Compose 以 standalone 模式运行（`nacos/nacos-server:v3.0.3`），映射 **8848 客户端/API + 9848 客户端 gRPC + 8849 控制台**（容器内控制台是 8080，宿主 8080 被网关占用故映射到 8849）。9848 必须映射：Nacos 客户端的注册/订阅/心跳走 gRPC，只开 8848 会报 `Server check fail, please check server xxx, port 9848 is available`。控制台地址 `http://localhost:8849/index.html`（首次访问初始化管理员密码）。
