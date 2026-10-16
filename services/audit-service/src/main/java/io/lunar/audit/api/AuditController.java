@@ -34,8 +34,16 @@ public class AuditController {
         this.auditService = auditService;
     }
 
+    /**
+     * 写入（服务间）：只允许 **SERVICE / TEACHER / ADMIN**。
+     *
+     * 为什么不能是 {@code isAuthenticated()}：账本是追加式的（V3 触发器让条目永久不可删改），
+     * 任何已认证用户（含考生）都能凭它伪造"某学生风险已确认""某账号密码已重置"这类不可否认条目。
+     * 现有调用方全部落在这三个角色内：submission 判决回写用服务身份，anti-cheat 审核与
+     * contest/auth 的名单与账号操作用操作者令牌（老师/管理员）。
+     */
     @PostMapping("/api/v1/internal/audit/records")
-    @PreAuthorize("isAuthenticated()")
+    @PreAuthorize("hasAnyRole('SERVICE', 'TEACHER', 'ADMIN')")
     public ResponseEntity<ApiResponse<AuditRecordView>> record(
             @Valid @RequestBody RecordRequest request,
             Authentication authentication,
