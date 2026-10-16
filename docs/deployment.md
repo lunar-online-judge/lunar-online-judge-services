@@ -23,7 +23,7 @@
 | anti-cheat-service | 8086 | 有 | 风险事件/审核（rocketmq + 分页已配） |
 | media-service | 8080（Spring 默认） | 无 | |
 | audit-service | 8087 | 有 | 审计账本 |
-| ai-service | 8089 | 有 | AI 能力（代码评审/风险研判/语义查重/出题草稿）；依赖 PostgreSQL（`ai_schema`）+ **云厂商 OpenAI 兼容 API 端点**（**外部服务**，地址由 `AI_PROVIDER_BASE_URL` 显式给，没有默认值；未配置则启动失败） |
+| ai-service | 8089 | 有 | AI 能力（代码评审/出题草稿）；依赖 PostgreSQL（`ai_schema`）+ **云厂商 OpenAI 兼容 API 端点**（**外部服务**，地址由 `AI_PROVIDER_BASE_URL` 或 `ai.provider.base-url` 给；未配置时首次调用报错） |
 | analytics-service | 8088 | 有 | 分析读模型（成绩排名/学情/监考风险）；依赖 PostgreSQL（`analytics_schema`）+ RocketMQ（4 个消费组）；**不使用 Redis**；取考试快照走 contest 的服务间接口。（`docker/nacos/config/` 下暂无 `analytics-service.yml`，全部配置走 `application.yml` 默认值 + 环境变量） |
 
 **健康检查**：10 个服务均引入 Spring Boot Actuator，**只通过 HTTP 暴露 `health`**（`GET /actuator/health`，匿名可访问、只返回 `UP`/`DOWN`，不展示组件细节）。其余 actuator 端点不可用：有 Security 配置的服务上返回 401（安全过滤链先于路由拦截），网关上返回 404。
@@ -176,7 +176,7 @@ curl -s -i -H "X-Request-Id: test-123" http://localhost:8081/api/v1/auth/jwks | 
 | `PROBLEM_TESTDATA_MAX_BYTES` | 服务间传输的测试点总字节上限（测试点随 `lunar-submission-created` 事件进 MQ，超限直接 413 而不是卡在 Outbox） | `1048576` |
 | `SERVICE_CLIENT_SECRET` | 本服务作为客户端调用内部接口的密钥（contest 默认 `change-me-contest`、submission 默认 `change-me-submission`、**ai 默认 `change-me-ai`、analytics 默认 `change-me-analytics`**）；**生产必须与 auth 侧一致并外部注入** | 见各服务 `application.yml` |
 | `SERVICE_CLIENT_SECRET_CONTEST` / `SERVICE_CLIENT_SECRET_SUBMISSION` / `SERVICE_CLIENT_SECRET_AI` / `SERVICE_CLIENT_SECRET_ANALYTICS` | auth-service 侧的服务客户端注册表（clientId → 密钥），供无用户上下文的调用方换取 SERVICE 令牌；**`SERVICE_CLIENT_SECRET_AI` 是 auth 侧给 `ai-service` 登记的密钥**（ai 取数走服务身份，见 `docs/services.md`"服务间调用关系"），**`SERVICE_CLIENT_SECRET_ANALYTICS` 是给 `analytics-service` 登记的密钥**（取考试快照做范围判断与参照数据刷新） | `change-me-*` |
-| `AI_PROVIDER_BASE_URL` | **AI Provider 地址（必填）**：云厂商 OpenAI 兼容端点（如 `https://api.deepseek.com/v1`）或自建内网兼容网关。**没有默认值**——本项目只接入云端 API 模型，未配置时 `AiPrivacyGuard` 在启动期抛 `IllegalStateException`（服务起不来），构建模型前还会复核一次。绑定到 `ai.provider.base-url`（Spring Boot 宽松绑定）；`docker/nacos/config/ai-service.yml` 刻意不提供该键 | **未设置（缺失即启动失败）** |
+| `AI_PROVIDER_BASE_URL` | **AI Provider 地址（必填）**：云厂商 OpenAI 兼容端点（如 `https://api.deepseek.com/v1`）或自建内网兼容网关。**没有默认值**——本项目只接入云端 API 模型，未配置时首次调用模型会抛 `IllegalStateException`（隐私守卫已随简化删除，不再有出境门禁）。绑定到 `ai.provider.base-url`（Spring Boot 宽松绑定）；`docker/nacos/config/ai-service.yml` 刻意不提供该键 | **未设置（缺失即启动失败）** |
 | `AI_PROVIDER_MODE` | AI Provider 部署形态：`CLOUD`（云厂商 OpenAI 兼容端点）或 `LOCAL`（**仅指自建的内网 OpenAI 兼容网关**，不再支持本地 Ollama 这类本机模型运行时）；**只从环境变量读、不走配置中心**，且**不参与协议选择**（两种形态共用 OpenAI 兼容协议），仅用于日志与运维语义。数据出境门禁的判据是 base-url 的地址而不是这个值 | `CLOUD` |
 | `AI_PROVIDER_API_KEY` | Provider 的密钥；指向非内网地址时**必填**（缺失即启动失败），**只从环境变量注入，既不入库也不入配置中心**，`GET /api/v1/ai/provider` 也不回显。自建内网网关通常不校验密钥，可留空（客户端会填占位值） | 空 |
 | `AI_EGRESS_APPROVED` | **数据出境授权**：base-url 指向非内网地址时，必须显式设为 `true` 才允许调用，否则服务**启动失败**（构建模型前还会复核一次，热改 base-url 同样拦得住）。**刻意只认环境变量**——配置中心改不动它 | `false` |
