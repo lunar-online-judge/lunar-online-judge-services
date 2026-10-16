@@ -73,6 +73,11 @@
 
 ### 新增
 
+- **退避/死信扩展到 anti-cheat 的 Outbox（`BACKEND_IMPROVEMENT_PLAN` BE-07）**
+  - 与 submission 同一模式：`anti_cheat_schema.outbox_events` 加 `attempts`/`next_attempt_at`/`dead_lettered_at`（V2 迁移 + 待投递部分索引），发布器失败累计次数 + 指数退避、超上限转死信
+  - **真机验收**：插入 5MB 毒消息 → `attempts=3` 且有 `next_attempt_at`（退避生效、未死信）→ 顶到 9 再跑一轮 → `attempts=10`、`dead_lettered_at` 置位 ✓；毒消息已清理
+  - **注意**：**judge 没有数据库、也没有 Outbox**（评测结果直接发送，broker 不可用即丢判决）——它要补的不是退避，而是整套 outbox 基础设施，成本更高，已记入计划
+  - **仍未做**：死信的**管理员重放接口**
 - **Outbox 投递的重试退避与死信（`BACKEND_IMPROVEMENT_PLAN` BE-07，submission 先行）**
   - 原实现投递失败只记一条 warn 就"留待下一轮"——坏 broker 或坏消息会**永远每 2 秒重试**，日志与 CPU 白烧且运维看不出哪条事件投不出去
   - 新增 `attempts` / `next_attempt_at` / `dead_lettered_at` 三列（V3 迁移 + 待投递部分索引）：失败累计次数并**指数退避**（2s 起、上限 300s），超过 `outbox.max-attempts`（默认 10）转**死信**、不再自动重试，等待人工重放
