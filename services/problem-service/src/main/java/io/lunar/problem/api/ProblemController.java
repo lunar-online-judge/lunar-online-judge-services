@@ -3,6 +3,8 @@ package io.lunar.problem.api;
 import io.lunar.common.api.ApiResponse;
 import io.lunar.common.api.Pagination;
 import io.lunar.common.security.AccessScope;
+import org.springframework.security.core.GrantedAuthority;
+import io.lunar.common.security.Role;
 import io.lunar.common.web.RequestIdFilter;
 import io.lunar.problem.api.dto.CreateProblemRequest;
 import io.lunar.problem.api.dto.CreateVersionRequest;
@@ -67,12 +69,36 @@ public class ProblemController {
                 problemService.list(keyword, page, pageSize, AccessScope.of(authentication))));
     }
 
-    /** 题目详情（考生视角）：当前发布版本的题面/样例/限制/语言；无测试点。 */
+    /**
+     * 题目详情：**当前发布版本**的题面/样例/限制/语言（不含测试点）。
+     *
+     * 授权分两层：
+     *   - TEACHER / ADMIN：必须是自己拥有的题目（越权与不存在同为 404，BE-01）；
+     *   - CANDIDATE：只能读到**已发布**版本（草稿题面属于未公开内容，由 getCurrentPublished 保证）。
+     *
+     * 为什么考生不能按归属校验：题目的归属是"谁建的"，而考生该看到哪些题由**考试分配**决定，
+     * 两者是不同的关系。更细的"只读本场分配给他的题"需要 contest 侧按 (考生, 题目) 反查，
+     * 已作为待办记录（BACKEND_IMPROVEMENT_PLAN 的 BE-01 剩余项）。
+     */
     @GetMapping("/{id}")
+    @PreAuthorize("hasAnyRole('TEACHER', 'ADMIN', 'CANDIDATE')")
     public ResponseEntity<ApiResponse<VersionView>> get(
             @PathVariable String id,
+            Authentication authentication,
             @RequestHeader(value = RequestIdFilter.HEADER, required = false) String requestId) {
-        return ResponseEntity.ok(ApiResponse.success(requestId, problemService.getCurrentPublished(id)));
+        VersionView view = problemService.getCurrentPublished(id);
+        if (isOperator(authentication)) {
+            problemService.requireOwned(id, AccessScope.of(authentication));
+        }
+        return ResponseEntity.ok(ApiResponse.success(requestId, view));
+    }
+
+    /** 是否老师/管理员（决定详情接口走不走归属校验；考生只看已发布版本）。 */
+    private static boolean isOperator(Authentication authentication) {
+        return authentication.getAuthorities().stream()
+                .map(GrantedAuthority::getAuthority)
+                .anyMatch(authority -> authority.equals(Role.AUTHORITY_PREFIX + Role.TEACHER.name())
+                        || authority.equals(Role.AUTHORITY_PREFIX + Role.ADMIN.name()));
     }
 
     @PostMapping("/{id}/versions")

@@ -98,7 +98,7 @@ submission/anti-cheat/ai ──(audit-recorded)──> audit（**已生产，aud
 - 不负责：测试数据绝不能通过公开题目 API 返回给考生。
 - 数据与基础设施：`problem_schema`。
 - 对外接口：`POST /api/v1/problems`（题目+首版本+测试点）、`GET /{id}`（考生视角：当前发布版本，**不含测试点**）、`POST /{id}/versions`（新版本，可复制已有版本）、`GET /{id}/versions`、`POST /{id}/versions/{versionId}/publish`、`GET /{id}/versions/{versionId}/testcases`（仅老师/管理员/判题链路）。
-- 当前实现（2026-10-06）：`problem_schema` 落库（problems + problem_versions + testcases，独立 Flyway 历史表 `problem_history`）；版本模型——创建即 v1 草稿，发布后不可变，改动建新版本（复制+覆盖，`baseVersionId` 缺省时基于当前版本），发布时切换 `current_version_id`；判题限制（CPU/内存/输出）与语言白名单（逗号分隔）；JWT 资源服务器 + 角色控制；11 个单测 + 真机闭环（含"考生视图无测试点"安全约束验证）。**服务间测试点接口已落地**（`GET /api/v1/internal/problems/{problemId}/versions/{versionId}/testcases`，不经网关、**只认服务身份 `roles=["SERVICE"]`**、带体积上限 413）。**资源范围（2026-10，BE-01）**：`owner_teacher_id`（迁移按 `created_by` 回填）+ 列表/新版本/版本列表/发布/测试点入口的范围校验，越权按 404 隐藏存在；题目详情（考生视角）仍对所有登录用户开放，题目分配范围待随机分配落地。测试点数据 v1 直接落库，大文件对象存储迁移留后。
+- 当前实现（2026-10-06）：`problem_schema` 落库（problems + problem_versions + testcases，独立 Flyway 历史表 `problem_history`）；版本模型——创建即 v1 草稿，发布后不可变，改动建新版本（复制+覆盖，`baseVersionId` 缺省时基于当前版本），发布时切换 `current_version_id`；判题限制（CPU/内存/输出）与语言白名单（逗号分隔）；JWT 资源服务器 + 角色控制；11 个单测 + 真机闭环（含"考生视图无测试点"安全约束验证）。**服务间测试点接口已落地**（`GET /api/v1/internal/problems/{problemId}/versions/{versionId}/testcases`，不经网关、**只认服务身份 `roles=["SERVICE"]`**、带体积上限 413）。**资源范围（2026-10，BE-01）**：`owner_teacher_id`（迁移按 `created_by` 回填）+ 列表/新版本/版本列表/发布/测试点入口的范围校验，越权按 404 隐藏存在；题目详情已分层授权：老师/管理员按题目归属校验（越权 404），考生只能读到已发布版本；"考生只读本场分配给他的题"仍需 contest 侧按 (考生, 题目) 反查，列为待办。测试点数据 v1 直接落库，大文件对象存储迁移留后。
 - 下一步：测试点对象存储引用（测试点当前随事件进 MQ，受 1 MiB 上限约束）；语言执行模板配置（当前硬编码在 judge 的 `LanguageTemplate`）。
 
 ## submission-service
