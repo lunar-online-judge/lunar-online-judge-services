@@ -72,5 +72,13 @@
             <groupId>org.apache.rocketmq</groupId>
             <artifactId>rocketmq-spring-boot-starter</artifactId>
         </dependency>
-    </dependencies>
+            <!--
+          必须显式声明：本服务用到了 @Valid / @Pattern / @Size，而这些注解**不会**因为引了
+          spring-boot-starter-web 就生效（hibernate-validator 是独立 starter）。此前靠其它依赖
+          传递进来才侥幸生效——一旦传递链变化，校验会静默失效（400 变 200、脏数据落库）。
+        -->
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-validation</artifactId>
+        </dependency></dependencies>
 </project>
