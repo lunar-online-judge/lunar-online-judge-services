@@ -175,6 +175,16 @@ public class ProblemService {
         return toView(version);
     }
 
+    /** 指定版本的详情（服务间，BE-04）：提交按考试锁定的版本校验语言与限制，而不是全局 current 版本。 */
+    public VersionView getVersion(String problemId, String versionId) {
+        requireProblem(problemId);
+        ProblemVersionEntity version = versionMapper.selectById(versionId);
+        if (version == null || !problemId.equals(version.getProblemId())) {
+            throw new ProblemException.VersionNotFound();
+        }
+        return toView(version);
+    }
+
     /** 版本列表（老师/管理员管理视图）。 */
     public List<VersionView> listVersions(String problemId) {
         requireProblem(problemId);

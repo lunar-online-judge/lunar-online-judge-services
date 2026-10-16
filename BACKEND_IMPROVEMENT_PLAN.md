@@ -15,6 +15,8 @@
 > **BE-02 已落地（2026-10）**：`prod` profile 下的生产配置门禁（fail fast，含"缺持久 RSA 密钥""开发种子未关""数据库口令/客户端密钥是开发默认""配置中心未 fail-fast"）与密钥轮换窗口（JWKS 保留退役公钥、多实例互认）已实现并真机验收，见 `CHANGELOG.md` 与 `docs/deployment.md`。**仍未自动化**：首次管理员的"一次性受控初始化流程"目前是文档步骤（生产 `AUTH_DEV_SEED=false` + 受控初始化），未做成脚本/流程。
 >
 > **BE-01 已落地一部分（2026-10）**：contest / problem 的**归属范围**（`owner_teacher_id` + 管理端入口范围校验，越权按 404 隐藏存在；列表 total 也在范围内）、考生侧按报名放行、内部测试点接口收紧为只认服务身份、auth 密码重置的目标角色与"不改归属"、风险与审计查询先收紧为 ADMIN——均已实现并真机验收（见 `CHANGELOG.md`）。**仍未做**：`INVIGILATOR` 的"被分配考试"关系（监考分配模型）、题目分配与考生可见题目的范围、anti-cheat/audit 的跨服务范围查询（当前用 ADMIN-only 兜住）、权限转移的独立审核动作。
+>
+> **BE-04 已落地（2026-10）**：contest 的 `contest_problems`（加入题目即**锁定 `problemVersionId`**）+ submission 按锁定版本提交与判题（判题限制与测试点都取该版本）、幂等指纹补 `contestId`、题目不属于考试返回 `SUBMISSION_PROBLEM_NOT_IN_CONTEST`——已实现并真机验收（见 `CHANGELOG.md`）。**仍未做**：按学生随机分配（`docs/exam-process.md` §3 的 assignment 表与 randomSeed）、次数限制的原子校验（当前是"窗口内计数后插入"，并发下可能超出阈值；计数语义已在文档说明）。
 
 ## 1. 目标与执行规则
 

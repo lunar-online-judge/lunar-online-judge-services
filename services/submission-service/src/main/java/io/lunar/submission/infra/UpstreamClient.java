@@ -51,6 +51,18 @@ public class UpstreamClient {
         return response == null || response.data() == null ? List.of() : response.data();
     }
 
+    /** 考试给该题目锁定的版本（BE-04）；题目不在考试里时上游 404，异常原样抛出由调用方映射。 */
+    public String lockedProblemVersion(String contestId, String problemId, String operatorToken) {
+        Map<String, Object> locked = unwrap(
+                contestApi.lockedProblemVersion(contestId, problemId, bearer(operatorToken)));
+        return locked.get("problemVersionId") == null ? null : String.valueOf(locked.get("problemVersionId"));
+    }
+
+    /** 指定版本详情（BE-04）：按锁定版本取判题限制，同样用服务身份。 */
+    public Map<String, Object> problemVersion(String problemId, String versionId) {
+        return unwrap(problemInternalApi.version(problemId, versionId, bearer(serviceTokenProvider.token())));
+    }
+
     private static String bearer(String token) {
         String rawToken = token == null ? "" : token.replaceFirst("(?i)^Bearer\\s+", "");
         return "Bearer " + rawToken;

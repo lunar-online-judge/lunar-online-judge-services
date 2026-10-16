@@ -4,6 +4,7 @@ import io.lunar.common.api.ApiResponse;
 import io.lunar.common.web.RequestIdFilter;
 import io.lunar.problem.domain.ProblemService;
 import io.lunar.problem.domain.dto.TestcaseView;
+import io.lunar.problem.domain.dto.VersionView;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.web.bind.annotation.GetMapping;
@@ -27,6 +28,17 @@ public class InternalProblemController {
 
     public InternalProblemController(ProblemService problemService) {
         this.problemService = problemService;
+    }
+
+    /** 指定版本详情（BE-04）：submission 按考试锁定的版本校验语言/限制，不受全局发布影响。 */
+    @GetMapping("/{problemId}/versions/{versionId}")
+    @PreAuthorize("hasRole('SERVICE')")
+    public ResponseEntity<ApiResponse<VersionView>> version(
+            @PathVariable String problemId,
+            @PathVariable String versionId,
+            @RequestHeader(value = RequestIdFilter.HEADER, required = false) String requestId) {
+        return ResponseEntity.ok(ApiResponse.success(requestId,
+                problemService.getVersion(problemId, versionId)));
     }
 
     /**

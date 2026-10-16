@@ -107,7 +107,7 @@ HTTP 前缀统一为 `/api/v1`。各服务经 gateway 对外暴露；客户端�
 
 ## 端点总表
 
-下表与代码一致（共 41 个端点，分布在 13 个控制器）。"鉴权"列是 `@PreAuthorize` / `SecurityConfig` 的实际规则；"任意已认证"表示当前只要求有效令牌、**尚未做资源范围校验**（属待办，见 `BACKEND_IMPROVEMENT_PLAN.md` BE-01）。
+下表与代码一致（共 46 个端点，分布在 16 个控制器）。"鉴权"列是 `@PreAuthorize` / `SecurityConfig` 的实际规则；"任意已认证"表示当前只要求有效令牌、**尚未做资源范围校验**（属待办，见 `BACKEND_IMPROVEMENT_PLAN.md` BE-01）。
 
 | 服务 | 方法 | 路径 | 鉴权 | 状态 |
 |---|---|---|---|---|
@@ -124,8 +124,10 @@ HTTP 前缀统一为 `/api/v1`。各服务经 gateway 对外暴露；客户端�
 | problem | GET | `/api/v1/problems/{id}/versions` | TEACHER/ADMIN | 已实现（版本列表） |
 | problem | POST | `/api/v1/problems/{id}/versions/{versionId}/publish` | TEACHER/ADMIN | 已实现（发布并切换 `current_version_id`，发布后版本不可变） |
 | problem | GET | `/api/v1/problems/{id}/versions/{versionId}/testcases` | TEACHER/ADMIN | 已实现（仅老师/管理员；判题链路走下面的内部端点） |
+| problem | GET | `/api/v1/internal/problems/{problemId}/versions/{versionId}` | **SERVICE** | 已实现（BE-04：按考试锁定版本取判题限制，不受全局发布影响） |
+| contest | GET | `/api/v1/internal/contests/{contestId}/problems/{problemId}` | CANDIDATE | 已实现（BE-04：提交时查该考试给这道题锁定的版本；题目不在考试里返回 404 `CONTEST_PROBLEM_NOT_IN_CONTEST`） |
 | problem | GET | `/api/v1/internal/problems/{problemId}/versions/{versionId}/testcases` | **SERVICE**（服务身份令牌） | 已实现（**不经网关**，只能内网直连；**只认服务身份**——测试数据不能靠"内网 + 考生/教师令牌"取走，BE-01；submission 用自己的服务令牌取到后随 `lunar-submission-created` 事件送到评测引擎；超限 413 `PROBLEM_TESTDATA_TOO_LARGE`） |
-| submission | POST | `/api/v1/submissions` | CANDIDATE | 已实现（幂等 + 会话/竞赛/语言/频率四项校验 + Outbox；**题目归属校验未实现**，依赖随机分配表） |
+| submission | POST | `/api/v1/submissions` | CANDIDATE | 已实现（幂等 + 会话/竞赛/**题目属于竞赛**/语言/频率五项校验 + Outbox；版本取自考试锁定值，见 BE-04） |
 | submission | GET | `/api/v1/submissions/{id}` | 任意已认证（本人；TEACHER/ADMIN 可查任意） | 已实现（权限在 Service 内判定，方法上无 `@PreAuthorize`） |
 | submission | POST | `/api/v1/internal/submissions/{id}/judged` | ADMIN | 已实现（判题回写过渡端点） |
 | judge | POST | `/api/v1/judge/submissions` | **未接验签** | 代码存在，但**当前对所有调用者恒 401**（未配 `jwk-set-uri` / `oauth2ResourceServer`）；`requestId` 硬编码为 `"pending"`，测试点恒为空 |
@@ -134,6 +136,9 @@ HTTP 前缀统一为 `/api/v1`。各服务经 gateway 对外暴露；客户端�
 | contest | GET | `/api/v1/contests/{id}` | 任意已认证 | 已实现（**未做资源范围限制**） |
 | contest | POST | `/api/v1/contests/{id}/review` | TEACHER/ADMIN | 已实现（DRAFT→REVIEWING） |
 | contest | POST | `/api/v1/contests/{id}/publish` | ADMIN | 已实现（REVIEWING→PUBLISHED；发布前**只校验时间窗口**，随机题目分配未实现） |
+| contest | POST | `/api/v1/contests/{contestId}/problems` | TEACHER（限归属）/ADMIN | 已实现（BE-04：加入题目并**锁定 `problemVersionId`**；重复加入同一题目视为改锁定版本） |
+| contest | GET | `/api/v1/contests/{contestId}/problems` | TEACHER（限归属）/ADMIN | 已实现（考试题目清单与锁定版本） |
+| contest | DELETE | `/api/v1/contests/{contestId}/problems/{problemId}` | TEACHER（限归属）/ADMIN | 已实现（移出题目） |
 | contest | POST | `/api/v1/contests/{id}/archive` | ADMIN | 已实现（FINISHED→ARCHIVED） |
 | contest | POST | `/api/v1/contests/{contestId}/students` | TEACHER/ADMIN | 已实现（账号经 auth 创建/复用；**不校验操作者是否拥有该竞赛**） |
 | contest | GET | `/api/v1/contests/{contestId}/students` | TEACHER/ADMIN | 已实现（分页 + 学号 keyword） |

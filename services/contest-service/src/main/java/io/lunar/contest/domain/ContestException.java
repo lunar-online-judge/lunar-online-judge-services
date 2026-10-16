@@ -64,4 +64,11 @@ public class ContestException extends ApiException {
             super("SESSION_NOT_ACTIVE", 409, "考试会话未激活，请重新进入考试");
         }
     }
+
+    /** 404：该题目不属于这场考试（或未锁定版本）。BE-04：提交校验"题目属于竞赛"的事实源。 */
+    public static final class ProblemNotInContest extends ContestException {
+        public ProblemNotInContest() {
+            super("CONTEST_PROBLEM_NOT_IN_CONTEST", 404, "该题目不属于这场考试");
+        }
+    }
 }

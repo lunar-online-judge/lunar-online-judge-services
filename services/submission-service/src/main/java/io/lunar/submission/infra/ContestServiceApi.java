@@ -18,4 +18,10 @@ public interface ContestServiceApi {
     @GetExchange("/{contestId}/session")
     ApiResponse<Map<String, Object>> checkSession(@PathVariable("contestId") String contestId,
                                                   @RequestHeader("Authorization") String authorization);
+
+    /** 这场考试给该题目锁定的版本（BE-04）；题目不在考试里时上游返回 404。 */
+    @GetExchange("/{contestId}/problems/{problemId}")
+    ApiResponse<Map<String, Object>> lockedProblemVersion(@PathVariable("contestId") String contestId,
+                                                          @PathVariable("problemId") String problemId,
+                                                          @RequestHeader("Authorization") String authorization);
 }

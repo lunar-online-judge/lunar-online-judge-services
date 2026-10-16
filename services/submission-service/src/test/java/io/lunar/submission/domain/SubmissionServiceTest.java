@@ -70,6 +70,9 @@ class SubmissionServiceTest {
                 "timeLimitMs", 1000, "memoryLimitKb", 131072));
         when(upstream.problemTestcases(any(), any())).thenReturn(List.of(
                 Map.of("name", "case1", "inputContent", "1 2", "expectedOutput", "3")));
+        // BE-04：版本以考试锁定值为准，判题限制取自该版本
+        when(upstream.lockedProblemVersion(any(), any(), any())).thenReturn("v1");
+        when(upstream.problemVersion(any(), any())).thenReturn(Map.of("timeLimitMs", 1000, "memoryLimitKb", 131072));
     }
 
     private static String sha256(String content) {
@@ -114,10 +117,26 @@ class SubmissionServiceTest {
                 "题目 p1 语言 cpp", "trace-1", "Bearer t");
     }
 
+    /** BE-04：提交用的版本是**考试锁定版本**，不是题目当前发布版本（否则考试中途发布会改掉测试数据）。 */
+    @Test
+    void submitUsesContestLockedProblemVersion() {
+        when(upstream.currentProblemVersion(any(), any())).thenReturn(Map.of(
+                "versionId", "v-current", "allowedLanguages", List.of("cpp", "c"),
+                "timeLimitMs", 1000, "memoryLimitKb", 131072));
+        when(upstream.lockedProblemVersion("c1", "p1", "Bearer t")).thenReturn("v-locked");
+
+        service.submit("c1", "p1", "cpp", "int main(){}", "key-9", "trace-9", "stu_1", "Bearer t");
+
+        ArgumentCaptor<OutboxEventEntity> captor = ArgumentCaptor.forClass(OutboxEventEntity.class);
+        verify(outboxMapper).insert(captor.capture());
+        assertThat(captor.getValue().getPayload()).contains("\"problemVersionId\":\"v-locked\"");
+    }
+
     @Test
     void idempotentReplayReturnsFirstResult() {
         // 同键同指纹：直接返回首次结果，不再写库
-        String fingerprint = sha256("p1|cpp|" + sha256("int main(){}"));
+        // 指纹含 contestId（BE-04）：同一个幂等键不能跨考试复用
+        String fingerprint = sha256("c1|p1|cpp|" + sha256("int main(){}"));
         when(submissionMapper.selectOne(any())).thenReturn(existing(fingerprint));
 
         SubmissionView view = service.submit("c1", "p1", "cpp", "int main(){}", "key-1", null,

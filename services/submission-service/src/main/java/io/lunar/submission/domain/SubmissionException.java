@@ -65,4 +65,11 @@ public class SubmissionException extends ApiException {
             super("SUBMISSION_INVALID_TRANSITION", 409, "提交状态不允许该流转：" + from);
         }
     }
+
+    /** 404：该题目不属于这场考试（考试锁定清单里没有它）。BE-04 的"题目属于竞赛"校验。 */
+    public static final class ProblemNotInContest extends SubmissionException {
+        public ProblemNotInContest() {
+            super("SUBMISSION_PROBLEM_NOT_IN_CONTEST", 404, "该题目不属于这场考试");
+        }
+    }
 }

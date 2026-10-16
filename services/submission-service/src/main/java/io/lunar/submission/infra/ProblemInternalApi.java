@@ -24,4 +24,10 @@ public interface ProblemInternalApi {
     ApiResponse<List<Map<String, Object>>> testcases(@PathVariable("problemId") String problemId,
                                                      @PathVariable("versionId") String versionId,
                                                      @RequestHeader("Authorization") String authorization);
+
+    /** 指定版本详情（BE-04）：按考试锁定版本取判题限制，而不是题目当前发布版本。 */
+    @GetExchange("/{problemId}/versions/{versionId}")
+    ApiResponse<Map<String, Object>> version(@PathVariable("problemId") String problemId,
+                                             @PathVariable("versionId") String versionId,
+                                             @RequestHeader("Authorization") String authorization);
 }

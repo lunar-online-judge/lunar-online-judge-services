@@ -73,6 +73,11 @@
 
 ### 新增
 
+- **提交所属关系与版本快照（`BACKEND_IMPROVEMENT_PLAN` BE-04，P0）**：考试锁定的题目版本成为提交与判题的权威
+  - contest 新增 `contest_problems`（V6 迁移）：加入题目时**必须指定并锁定 `problemVersionId`**，之后全局再发布新版本也不会改变正在进行的考试的题面与测试数据；提供加入/清单/移出（限考试归属者或 ADMIN，BE-01 范围校验）与服务间"取该考试锁定版本"接口
+  - submission 的版本来源改为**考试锁定值**（新增 `ContestServiceApi.lockedProblemVersion`），判题限制也取自该版本（新增 problem 的 `GET /api/v1/internal/problems/{problemId}/versions/{versionId}`，只认服务身份）；`problemVersionId` 随 `lunar-submission-created` 事件送到判题引擎，**测试点也按这个版本取**——不再有"提交表存快照、执行时取全局 current 版本"的错位
+  - 幂等指纹补上 `contestId`：此前同一个幂等键可以跨考试复用，会被判成"同键异体"或误返首次结果；题目不属于该考试时返回新错误码 `SUBMISSION_PROBLEM_NOT_IN_CONTEST`（404，上游 `CONTEST_PROBLEM_NOT_IN_CONTEST`）
+  - 单测覆盖"提交用的是锁定版本而不是当前发布版本"
 - **资源授权范围（`BACKEND_IMPROVEMENT_PLAN` BE-01，P0）**：把"角色校验"补成"角色 + 资源归属"两层
   - `lunar-common` 新增 `AccessScope`：ADMIN 全局、TEACHER 仅自己拥有的资源；身份只取令牌的 authorities/sub，**不取请求体、查询参数或任何代理头里的 actor 字段**
   - contest / problem 新增 `owner_teacher_id`（迁移按 `created_by` 回填，**回填不到的存量行仅 ADMIN 可见**——不给旧数据默认开放）；创建即归属创建者，`created_by` 保留为"谁创建"的事实

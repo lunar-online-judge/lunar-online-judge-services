@@ -62,7 +62,8 @@ public class SubmissionService {
     public SubmissionView submit(String contestId, String problemId, String language, String sourceCode,
                                  String idempotencyKey, String traceId, String studentId, String operatorToken) {
         String sourceHash = sha256(sourceCode);
-        String fingerprint = sha256(problemId + "|" + language + "|" + sourceHash);
+        // 指纹必须含 contestId（BE-04）：否则同一个幂等键可以跨考试复用，第二次会被判成"同键异体"或误返首次结果
+        String fingerprint = sha256(contestId + "|" + problemId + "|" + language + "|" + sourceHash);
 
         // 幂等：同键同指纹返回首次结果；同键不同指纹 409
         if (idempotencyKey != null && !idempotencyKey.isBlank()) {
@@ -80,9 +81,21 @@ public class SubmissionService {
 
         validateSubmittableSession(contestId, operatorToken);
         Map<String, Object> problem = loadAllowedProblem(problemId, language, operatorToken);
-        String problemVersionId = String.valueOf(problem.get("versionId"));
-        Integer timeLimitMs = asInt(problem.get("timeLimitMs"));
-        Integer memoryLimitKb = asInt(problem.get("memoryLimitKb"));
+        // 校验四「题目属于竞赛」+ 版本快照（BE-04）：版本以**考试锁定值**为准，而不是题目当前发布版本，
+        // 否则考试中途的全局发布会改掉题面与测试数据（problemVersionId 随事件送到判题引擎）
+        String problemVersionId;
+        try {
+            problemVersionId = upstream.lockedProblemVersion(contestId, problemId, operatorToken);
+        } catch (HttpClientErrorException.NotFound exception) {
+            // 上游 404 = 该题目不在考试锁定清单里；映射成稳定错误码而不是 500
+            throw new SubmissionException.ProblemNotInContest();
+        }
+        if (problemVersionId == null) {
+            throw new SubmissionException.ProblemNotInContest();
+        }
+        Map<String, Object> lockedVersion = upstream.problemVersion(problemId, problemVersionId);
+        Integer timeLimitMs = asInt(lockedVersion.get("timeLimitMs"));
+        Integer memoryLimitKb = asInt(lockedVersion.get("memoryLimitKb"));
         // 判题链路取测试点（problem 服务间端点）：随 created 事件送到评测引擎；
         // 不取的话真实引擎没有测试数据，只能返回 SYSTEM_ERROR（docs/architecture.md §8 第 5 步）
         Map<String, String> testFiles = toTestFiles(
