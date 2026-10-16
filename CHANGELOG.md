@@ -73,6 +73,11 @@
 
 ### 新增
 
+- **Outbox 投递的重试退避与死信（`BACKEND_IMPROVEMENT_PLAN` BE-07，submission 先行）**
+  - 原实现投递失败只记一条 warn 就"留待下一轮"——坏 broker 或坏消息会**永远每 2 秒重试**，日志与 CPU 白烧且运维看不出哪条事件投不出去
+  - 新增 `attempts` / `next_attempt_at` / `dead_lettered_at` 三列（V3 迁移 + 待投递部分索引）：失败累计次数并**指数退避**（2s 起、上限 300s），超过 `outbox.max-attempts`（默认 10）转**死信**、不再自动重试，等待人工重放
+  - **真机验收**：向 outbox 插入一条 5MB 的毒消息（RocketMQ 拒收 >4MB）→ 观察 `attempts=4` 且 `next_attempt_at` 递增（退避生效、未死信）→ 把 `attempts` 顶到 9 再等一轮 → `attempts=10`、`dead_lettered_at` 置位、不再自动重试 ✓
+  - **仍未做**：同样缺退避/死信的是 **anti-cheat 与 judge 的 OutboxPublisher**（本轮只改 submission，下一轮按同一模式补齐）；死信的**管理员重放接口**尚未提供
 - **审计记录带"动作实际发生时间"（`BACKEND_IMPROVEMENT_PLAN` BE-07 的 originalOccurredAt）**
   - 账本新增 `original_occurred_at`（V5 迁移），消费端把**事件信封的 `occurredAt`** 落库：审计改异步后 `created_at` 是入账时间，投递可能因 audit 重启/积压延迟，排查"什么时候发生的"必须看动作时间
   - 真机验收：V5 已应用；新入账的 `SUBMISSION_CREATED`/`SUBMISSION_JUDGED` 均带 `original_occurred_at`，实测投递延迟 0.6s / 1.9s（入账时间 − 动作时间），改造前的旧记录为 NULL（符合预期）

@@ -31,6 +31,15 @@ public class OutboxEventEntity {
 
     private Instant publishedAt;
 
+    /** 连续投递失败次数（BE-07 退避/死信）。 */
+    private Integer attempts;
+
+    /** 下次可投递时间（指数退避，BE-07）。 */
+    private Instant nextAttemptAt;
+
+    /** 转入死信的时间（超过上限不再自动重试，等待人工重放，BE-07）。 */
+    private Instant deadLetteredAt;
+
     public String getId() { return id; }
     public void setId(String id) { this.id = id; }
     public String getEventId() { return eventId; }
@@ -51,4 +60,10 @@ public class OutboxEventEntity {
     public void setCreatedAt(Instant createdAt) { this.createdAt = createdAt; }
     public Instant getPublishedAt() { return publishedAt; }
     public void setPublishedAt(Instant publishedAt) { this.publishedAt = publishedAt; }
+    public Integer getAttempts() { return attempts; }
+    public void setAttempts(Integer attempts) { this.attempts = attempts; }
+    public Instant getNextAttemptAt() { return nextAttemptAt; }
+    public void setNextAttemptAt(Instant nextAttemptAt) { this.nextAttemptAt = nextAttemptAt; }
+    public Instant getDeadLetteredAt() { return deadLetteredAt; }
+    public void setDeadLetteredAt(Instant deadLetteredAt) { this.deadLetteredAt = deadLetteredAt; }
 }
