@@ -95,4 +95,40 @@ class ProductionConfigGuardTest {
 
         assertTrue(failure.getMessage().contains("spring.flyway.placeholders.dev_seed"));
     }
+
+    /**
+     * map 型配置必须逐个键检查：服务客户端密钥注册表每个 clientId 一个键，
+     * 漏掉任意一个就等于留了一条"用默认口令换 SERVICE 令牌"的通道（SERVICE 令牌能读内部测试点与源码）。
+     */
+    @Test
+    void devDefaultServiceClientSecretIsRejectedInProduction() {
+        MockEnvironment environment = productionEnvironment();
+        environment.setProperty("auth.service-clients.secrets.contest-service", "change-me-contest");
+        environment.setProperty("auth.service-clients.secrets.ai-service", "already-rotated");
+
+        IllegalStateException failure = assertThrows(IllegalStateException.class,
+                () -> ProductionConfigGuard.forService(environment)
+                        .requireAllPrefixedNotDevDefault("auth.service-clients.secrets",
+                                ProductionConfigGuard.DEV_DEFAULT_PREFIX)
+                        .verify());
+
+        // 指出是哪个 clientId 仍是默认值，但不回显取值本身
+        assertTrue(failure.getMessage().contains("auth.service-clients.secrets.contest-service"));
+        assertFalse(failure.getMessage().contains("change-me-contest"));
+    }
+
+    @Test
+    void rotatedServiceClientSecretsPass() {
+        MockEnvironment environment = productionEnvironment();
+        environment.setProperty("spring.flyway.enabled", "true");
+        environment.setProperty("spring.datasource.password", "s3cret-from-vault");
+        environment.setProperty("service.identity.client-secret", "s3cret-from-vault");
+        environment.setProperty("spring.cloud.nacos.discovery.fail-fast", "true");
+        environment.setProperty("auth.service-clients.secrets.contest-service", "s3cret-from-vault");
+
+        assertDoesNotThrow(() -> ProductionConfigGuard.forService(environment)
+                .requireAllPrefixedNotDevDefault("auth.service-clients.secrets",
+                        ProductionConfigGuard.DEV_DEFAULT_PREFIX)
+                .verify());
+    }
 }

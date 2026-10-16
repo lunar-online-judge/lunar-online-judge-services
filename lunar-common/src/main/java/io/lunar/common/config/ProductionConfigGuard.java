@@ -2,7 +2,10 @@ package io.lunar.common.config;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.core.env.ConfigurableEnvironment;
+import org.springframework.core.env.EnumerablePropertySource;
 import org.springframework.core.env.Environment;
+import org.springframework.core.env.PropertySource;
 
 import java.util.ArrayList;
 import java.util.Arrays;
@@ -85,6 +88,34 @@ public class ProductionConfigGuard {
         String value = environment.getProperty(propertyName);
         if (isProduction() && value != null && Arrays.asList(devDefaults).contains(value)) {
             violations.add(propertyName + " 仍是开发默认值");
+        }
+        return this;
+    }
+
+    /**
+     * 以某前缀开头的**所有**属性都不得以开发默认值开头（用于 map 型配置）。
+     *
+     * 为什么必须有它：{@link #requireNotPrefixed} 只读单个键，而 map（如服务客户端密钥注册表，
+     * 每个 clientId 一个键）没法用单键表达——漏掉任意一个 clientId，就等于漏掉一条
+     * "用默认口令换 SERVICE 令牌"的通道，而 SERVICE 令牌能读内部测试点与源码。
+     */
+    public ProductionConfigGuard requireAllPrefixedNotDevDefault(String propertyPrefix, String devDefaultPrefix) {
+        if (!isProduction()) {
+            return this;
+        }
+        if (environment instanceof ConfigurableEnvironment configurable) {
+            for (PropertySource<?> source : configurable.getPropertySources()) {
+                if (source instanceof EnumerablePropertySource<?> enumerable) {
+                    for (String name : enumerable.getPropertyNames()) {
+                        if (name.startsWith(propertyPrefix)) {
+                            Object value = enumerable.getProperty(name);
+                            if (value instanceof String text && text.startsWith(devDefaultPrefix)) {
+                                violations.add(name + " 仍是开发默认值（" + devDefaultPrefix + "*）");
+                            }
+                        }
+                    }
+                }
+            }
         }
         return this;
     }

@@ -21,6 +21,10 @@ public class ProductionConfigGate {
                 .requirePresent("auth.jwt.private-key")
                 // V3 迁移的开发种子管理员（admin/admin123）绝不能带进生产
                 .requireFalse("spring.flyway.placeholders.dev_seed")
+                // 服务客户端密钥注册表（map，每个 clientId 一个键）：漏掉任意一个，
+                // 就等于留了一条"用默认口令换 SERVICE 令牌"的通道，而 SERVICE 令牌能读内部测试点与源码
+                .requireAllPrefixedNotDevDefault("auth.service-clients.secrets",
+                        ProductionConfigGuard.DEV_DEFAULT_PREFIX)
                 .verify();
     }
 }
