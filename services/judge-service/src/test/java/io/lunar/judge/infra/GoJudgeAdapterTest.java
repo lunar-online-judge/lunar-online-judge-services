@@ -33,6 +33,8 @@ class GoJudgeAdapterTest {
         assertThat(submit.engineSubmissionId()).startsWith("gojudge-");
         assertThat(result.verdict()).isEqualTo("ACCEPTED");
         assertThat(result.message()).isEqualTo("通过 2/2 测试点");
+        assertThat(result.passedCases()).isEqualTo(2);
+        assertThat(result.totalCases()).isEqualTo(2);
         assertThat(transport.calls).isEqualTo(3);
     }
 
@@ -62,6 +64,8 @@ class GoJudgeAdapterTest {
 
         assertThat(result.verdict()).isEqualTo("WRONG_ANSWER");
         assertThat(result.message()).contains("测试点 2").contains("通过 1/2");
+        assertThat(result.passedCases()).isEqualTo(1);
+        assertThat(result.totalCases()).isEqualTo(2);
     }
 
     @Test

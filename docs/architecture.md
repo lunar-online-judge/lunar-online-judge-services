@@ -276,7 +276,7 @@ audit-service：记录重置操作
 
 评测服务不向 go-judge 发送数据库凭据、消息队列地址或宿主机路径。源代码和测试数据只在评测任务临时目录存在，任务结束后清理。
 
-**当前实现与上图的差距**：第 5 步的 `judge_task(status=DISPATCHING)` 不存在（judge-service 无 DataSource、无迁移，评测结果只存内存）；第 9 步 judge 是**直接发送** `lunar-submission-judged`（不经 Outbox、无信封）；第 10 步只有 submission 更新提交状态，**contest 更新排名与 gateway 推送未实现**；第 2 步的五项校验已实现 4 项（会话有效、竞赛进行中、语言允许、提交频率未超限），"题目属于竞赛"仍需随机分配表落地；测试点也不随事件传输，真实引擎会因缺测试点返回 `SYSTEM_ERROR`。
+**当前实现与上图的差距**：第 5 步的 `judge_task(status=DISPATCHING)` 不存在（judge-service 无 DataSource、无迁移，评测结果只存内存）；第 9 步 judge 是**直接发送** `lunar-submission-judged`（不经 Outbox、无信封）；第 10 步只有 submission 更新提交状态，**contest 更新排名与 gateway 推送未实现**；第 2 步的五项校验已实现 4 项（会话有效、竞赛进行中、语言允许、提交频率未超限），"题目属于竞赛"仍需随机分配表落地。**测试点已随事件传输**（submission 经 problem 的服务间接口取到后放进 `testFiles`），真实引擎可出真实 verdict 与按测试点比例的部分分。
 
 学生没有主动交卷接口，服务端在统一结束时间关闭进入和提交入口。已提交任务在最终结算策略确定前保持独立状态，不能因为客户端关闭而删除。
 
@@ -397,7 +397,7 @@ CREATED -> AUTHORIZED -> CONNECTING -> LIVE
 - auth-service：登录（BCrypt + RS256 JWT）、JWKS、Redis 登录失败限流、学生账号服务间接口（创建/查询/重置）；
 - contest-service：生命周期 6 状态（含按时间自动 PUBLISHED→RUNNING→FINISHED 与人工归档）、名单（唯一约束/软删除/重新加入）、考生会话（进入/心跳/超时/断线恢复）、公告（发布/送达/确认）；
 - problem-service：题目 + 版本 + 测试点，发布后版本不可变、考生视角不含测试点；
-- submission-service：提交（幂等 + 4 项校验 + Outbox）、判决回写、Outbox 发布器、judged 消费者；
+- submission-service：提交（幂等 + 4 项校验 + 取测试点 + Outbox）、判决回写、Outbox 发布器、judged 消费者；
 - judge-service：`lunar-submission-created` 消费者、`GoJudgeAdapter`（设 `GO_JUDGE_BASE_URL` 激活）与 `MockJudgeEngine`（`mock` profile）、verdict 归一化；
 - anti-cheat-service：风险事件上报（服务端算 severity）/分页查询/人工审核状态机；
 - audit-service：追加式账本写入与查询；

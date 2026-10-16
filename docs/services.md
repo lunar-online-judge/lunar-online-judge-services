@@ -89,8 +89,8 @@ anti-cheat ──(plagiarism-requested)──> plagiarism-worker（独立部署�
 - 不负责：测试数据绝不能通过公开题目 API 返回给考生。
 - 数据与基础设施：`problem_schema`。
 - 对外接口：`POST /api/v1/problems`（题目+首版本+测试点）、`GET /{id}`（考生视角：当前发布版本，**不含测试点**）、`POST /{id}/versions`（新版本，可复制已有版本）、`GET /{id}/versions`、`POST /{id}/versions/{versionId}/publish`、`GET /{id}/versions/{versionId}/testcases`（仅老师/管理员/判题链路）。
-- 当前实现（2026-10-06）：`problem_schema` 落库（problems + problem_versions + testcases，独立 Flyway 历史表 `problem_history`）；版本模型——创建即 v1 草稿，发布后不可变，改动建新版本（复制+覆盖，`baseVersionId` 缺省时基于当前版本），发布时切换 `current_version_id`；判题限制（CPU/内存/输出）与语言白名单（逗号分隔）；JWT 资源服务器 + 角色控制；8 个单测 + 真机闭环（含"考生视图无测试点"安全约束验证）。测试点数据 v1 直接落库，大文件对象存储迁移留后。
-- 下一步：测试点对象存储引用；语言执行模板配置；供 judge-service 的服务间测试点接口（复用管理查询）。
+- 当前实现（2026-10-06）：`problem_schema` 落库（problems + problem_versions + testcases，独立 Flyway 历史表 `problem_history`）；版本模型——创建即 v1 草稿，发布后不可变，改动建新版本（复制+覆盖，`baseVersionId` 缺省时基于当前版本），发布时切换 `current_version_id`；判题限制（CPU/内存/输出）与语言白名单（逗号分隔）；JWT 资源服务器 + 角色控制；11 个单测 + 真机闭环（含"考生视图无测试点"安全约束验证）。**服务间测试点接口已落地**（`GET /api/v1/internal/problems/{problemId}/versions/{versionId}/testcases`，不经网关、`isAuthenticated()`，带体积上限 413）。测试点数据 v1 直接落库，大文件对象存储迁移留后。
+- 下一步：测试点对象存储引用（测试点当前随事件进 MQ，受 1 MiB 上限约束）；语言执行模板配置（当前硬编码在 judge 的 `LanguageTemplate`）。
 
 ## submission-service
 
@@ -102,7 +102,7 @@ anti-cheat ──(plagiarism-requested)──> plagiarism-worker（独立部署�
 - 对外接口：`POST /api/v1/submissions`（考生；`Idempotency-Key` 幂等）、`GET /{id}`（学生看自己，老师/管理员可查任意）、`POST /api/v1/internal/submissions/{id}/judged`（判题回写过渡端点）；生产 `lunar-submission-created`、消费 `lunar-submission-judged`。
 - 当前实现（2026-10-06）：`submission_schema` 落库（submissions + outbox_events，独立 Flyway 历史表 `submission_history`）；五项校验实现四项——会话有效 + 竞赛进行中（contest 服务间判定 `/api/v1/internal/contests/{id}/session`）、语言白名单 + 判题限制（problem 服务间查询）、提交频率未超限（按学生做窗口计数，阈值经 Nacos `exam.submission.*` 热更新，默认每 60 秒 30 次，超限 429）；「题目属于竞赛」依赖随机分配表，仍未实现并在代码中标注；幂等=同键同指纹返首次、异指纹 409；提交与 Outbox（信封含 traceId）同一事务；判决回写更新状态并写 `lunar-submission-judged` Outbox；9 个单测 + 真机闭环通过。
 - 事件总线（2026-10-07）：`OutboxPublisher`（2s 周期扫未发布事件行 → RocketMQTemplate 投递 → 标记 published_at，失败留待重试）；`JudgedConsumer` 消费 `lunar-submission-judged` 更新成绩读模型（终态保护幂等吞重复）。
-- 下一步：题目归属校验（依赖随机分配表落地）；judged 事件携带 per-case 明细（部分分）；提交频率阈值目前是保守默认，正式考试前按考场规模调整 `exam.submission.*`。
+- 下一步：题目归属校验（依赖随机分配表落地）；"该题最高有效分"聚合与成绩读模型；提交频率阈值目前是保守默认，正式考试前按考场规模调整 `exam.submission.*`。
 
 ## judge-service
 
@@ -113,8 +113,8 @@ anti-cheat ──(plagiarism-requested)──> plagiarism-worker（独立部署�
 - 数据与基础设施：**当前无数据库**（无 DataSource、无 `judge_schema`、无迁移；规划中为 `judge_schema` + Redis 评测短期锁）；go-judge 节点（独立 Linux，通过 `GO_JUDGE_BASE_URL` 配置）。
 - 对外接口：`POST /api/v1/judge/submissions`（代码存在但**当前不可用**：未接入验签，所有请求 401；也不落库、不发事件、测试点恒为空）；生产 `lunar-submission-judged`、消费 `lunar-submission-created`。
 - 当前实现：`JudgeServiceApplication`、`JudgeController`、`MockJudgeEngine`（mock profile）；`GoJudgeAdapter`（`infra/`，设置 `GO_JUDGE_BASE_URL` 即启用且优先于 mock）翻译 go-judge `POST /run` 协议并归一化 verdict，内置 C/C++/Java/Python/JavaScript/TypeScript 六种语言模板，14 个适配器单测通过；go-judge 容器由 `docker/compose.judge.yml` 提供（用 `docker/go-judge/Dockerfile` 构建带工具链的镜像）。**真机实测（2026-10）**：五种语言（C++/Python/Java/JS/TS）在同一个 go-judge 实例内编译/运行/比对均正常，C++ 的五类 verdict（ACCEPTED/WRONG_ANSWER/COMPILE_ERROR/RUNTIME_ERROR/TIME_LIMIT_EXCEEDED）均按预期归一化；但**经事件链路的真实评测目前必然 `SYSTEM_ERROR`**——消费者把 `testFiles` 硬编码为空，适配器在缺测试点时短路返回（见"下一步"）。唯一启用 spring-boot-maven-plugin 的模块。
-- 事件总线（2026-10-07）：`SubmissionCreatedConsumer` 消费 `lunar-submission-created` → JudgeEngine 执行 → 发布 `lunar-submission-judged`（verdict 归一化，ACCEPTED=100 分）；Mock 引擎模拟"提交即判对"供全链路演示，真实引擎 `GO_JUDGE_BASE_URL` 启用；测试点经事件传输待服务间接口落地（真实引擎缺测试点返回 SYSTEM_ERROR）；新增 application.yml（rocketmq 配置，SERVER_PORT 仍需显式设置）。积压消息在消费组上线后自动补消费（观测验证）。
-- 下一步：**测试点传输**（当前 `SubmissionCreatedConsumer` 把 `testFiles` 硬编码为空，真实引擎必然 `SYSTEM_ERROR`；需要"事件携带测试点"或"judge 回源 problem-service"二选一，后者还要先落服务间身份）；judge_task 表与异步状态机（重试/超时补偿）；生产镜像锁定 digest 与工具链版本。
+- 事件总线（2026-10-07，2026-10 更新）：`SubmissionCreatedConsumer` 消费 `lunar-submission-created` → JudgeEngine 执行 → 发布 `lunar-submission-judged`（verdict 归一化 + `passedCases`/`totalCases`，`score` 按测试点通过比例计算，通过全部为满分）；Mock 引擎模拟"提交即判对"供全链路演示，真实引擎 `GO_JUDGE_BASE_URL` 启用；**测试点随事件传输**（submission 经 problem 的服务间接口取到后放进 `testFiles`），真实引擎因此能出真实 verdict；新增 application.yml（rocketmq 配置，SERVER_PORT 仍需显式设置）。积压消息在消费组上线后自动补消费（观测验证）。
+- 下一步：judge_task 表与异步状态机（重试/超时补偿）；事件信封与消费端 `eventId` 去重；生产镜像锁定 digest 与工具链版本。
 
 ## anti-cheat-service
 

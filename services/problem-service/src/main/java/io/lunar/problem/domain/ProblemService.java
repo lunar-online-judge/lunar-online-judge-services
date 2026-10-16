@@ -1,5 +1,6 @@
 package io.lunar.problem.domain;
 
+import io.lunar.problem.config.TestdataProperties;
 import io.lunar.problem.domain.dto.ProblemPage;
 import io.lunar.problem.domain.dto.ProblemSummary;
 import io.lunar.problem.domain.dto.ProblemView;
@@ -17,6 +18,7 @@ import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.nio.charset.StandardCharsets;
 import java.time.Instant;
 import java.util.List;
 import java.util.UUID;
@@ -37,17 +39,19 @@ public class ProblemService {
     private static final int DEFAULT_TIME_LIMIT_MS = 2000;
     private static final int DEFAULT_MEMORY_LIMIT_KB = 262144;
     private static final int DEFAULT_OUTPUT_LIMIT_KB = 65536;
-    private static final String DEFAULT_ALLOWED_LANGUAGES = "c,cpp,java,python";
+    private static final String DEFAULT_ALLOWED_LANGUAGES = "c,cpp,java,python,javascript,typescript";
 
     private final ProblemMapper problemMapper;
     private final ProblemVersionMapper versionMapper;
     private final TestcaseMapper testcaseMapper;
+    private final TestdataProperties testdataProperties;
 
     public ProblemService(ProblemMapper problemMapper, ProblemVersionMapper versionMapper,
-                          TestcaseMapper testcaseMapper) {
+                          TestcaseMapper testcaseMapper, TestdataProperties testdataProperties) {
         this.problemMapper = problemMapper;
         this.versionMapper = versionMapper;
         this.testcaseMapper = testcaseMapper;
+        this.testdataProperties = testdataProperties;
     }
 
     /** 创建题目 + 首版本（versionNo=1，DRAFT）+ 测试点，同一事务。 */
@@ -187,6 +191,26 @@ public class ProblemService {
                 .stream().map(testcase -> new TestcaseView(testcase.getName(), testcase.getInputContent(),
                         testcase.getExpectedOutput()))
                 .toList();
+    }
+
+    /**
+     * 判题链路取测试点（服务间接口，docs/services.md problem-service 节）：
+     * 复用管理端查询，另加体积上限校验——测试点要随 submission.created 事件进 MQ，
+     * 超限的消息永远发不出去（Outbox 每轮重试），所以在上游就拦住并给出明确错误。
+     */
+    public List<TestcaseView> listTestcasesForJudging(String problemId, String versionId) {
+        List<TestcaseView> testcases = listTestcases(problemId, versionId);
+        long totalBytes = testcases.stream()
+                .mapToLong(testcase -> utf8Length(testcase.inputContent()) + utf8Length(testcase.expectedOutput()))
+                .sum();
+        if (totalBytes > testdataProperties.getMaxBytes()) {
+            throw new ProblemException.TestdataTooLarge(totalBytes, testdataProperties.getMaxBytes());
+        }
+        return testcases;
+    }
+
+    private static long utf8Length(String text) {
+        return text == null ? 0 : text.getBytes(StandardCharsets.UTF_8).length;
     }
 
     private ProblemEntity requireProblem(String problemId) {

@@ -65,6 +65,8 @@ class SubmissionServiceTest {
         when(upstream.currentProblemVersion(any(), any())).thenReturn(Map.of(
                 "versionId", "v1", "allowedLanguages", List.of("cpp", "c"),
                 "timeLimitMs", 1000, "memoryLimitKb", 131072));
+        when(upstream.problemTestcases(any(), any(), any())).thenReturn(List.of(
+                Map.of("name", "case1", "inputContent", "1 2", "expectedOutput", "3")));
     }
 
     private static String sha256(String content) {
@@ -102,6 +104,8 @@ class SubmissionServiceTest {
         assertThat(captor.getValue().getEventType()).isEqualTo("lunar-submission-created");
         assertThat(captor.getValue().getTraceId()).isEqualTo("trace-1");
         assertThat(captor.getValue().getPayload()).contains("\"problemVersionId\":\"v1\"");
+        // 测试点随 created 事件送到评测引擎（键名与 GoJudgeAdapter.parseTestCases 约定一致）
+        assertThat(captor.getValue().getPayload()).contains("\"case1.in\":\"1 2\"").contains("\"case1.out\":\"3\"");
     }
 
     @Test

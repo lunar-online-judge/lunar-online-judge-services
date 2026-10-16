@@ -2,6 +2,7 @@ package io.lunar.submission.config;
 
 import io.lunar.common.client.HttpServiceClientFactory;
 import io.lunar.submission.infra.ContestServiceApi;
+import io.lunar.submission.infra.ProblemInternalApi;
 import io.lunar.submission.infra.ProblemServiceApi;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.annotation.Bean;
@@ -29,5 +30,12 @@ public class ServiceClientConfig {
     ProblemServiceApi problemServiceApi(RestClient.Builder loadBalancedRestClientBuilder,
                                         @Value("${PROBLEM_BASE_URL:http://problem-service}") String problemBaseUrl) {
         return HttpServiceClientFactory.create(ProblemServiceApi.class, loadBalancedRestClientBuilder, problemBaseUrl);
+    }
+
+    /** 判题链路的测试点查询（服务间内部端点，同样按服务名寻址）。 */
+    @Bean
+    ProblemInternalApi problemInternalApi(RestClient.Builder loadBalancedRestClientBuilder,
+                                          @Value("${PROBLEM_BASE_URL:http://problem-service}") String problemBaseUrl) {
+        return HttpServiceClientFactory.create(ProblemInternalApi.class, loadBalancedRestClientBuilder, problemBaseUrl);
     }
 }

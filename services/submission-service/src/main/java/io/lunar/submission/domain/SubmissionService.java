@@ -79,6 +79,10 @@ public class SubmissionService {
         String problemVersionId = String.valueOf(problem.get("versionId"));
         Integer timeLimitMs = asInt(problem.get("timeLimitMs"));
         Integer memoryLimitKb = asInt(problem.get("memoryLimitKb"));
+        // 判题链路取测试点（problem 服务间端点）：随 created 事件送到评测引擎；
+        // 不取的话真实引擎没有测试数据，只能返回 SYSTEM_ERROR（docs/architecture.md §8 第 5 步）
+        Map<String, String> testFiles = toTestFiles(
+                upstream.problemTestcases(problemId, problemVersionId, operatorToken));
 
         // 校验四「题目属于竞赛」仍依赖竞赛题目分配表（exam-process §3 随机分配未落地）。
         enforceRateLimit(studentId);
@@ -111,7 +115,8 @@ public class SubmissionService {
                 "language", language,
                 "sourceCode", sourceCode,
                 "timeLimitMs", timeLimitMs == null ? 0 : timeLimitMs,
-                "memoryLimitKb", memoryLimitKb == null ? 0 : memoryLimitKb)));
+                "memoryLimitKb", memoryLimitKb == null ? 0 : memoryLimitKb,
+                "testFiles", testFiles)));
         log.info("AUDIT event=SUBMISSION_CREATED submissionId={} contestId={} problemId={} studentId={}",
                 submission.getId(), contestId, problemId, studentId);
         return toView(submission);
@@ -251,6 +256,24 @@ public class SubmissionService {
 
     private static Integer asInt(Object rawValue) {
         return rawValue instanceof Number number ? number.intValue() : null;
+    }
+
+    /**
+     * 测试点 → JudgeEngine 约定的 testFiles：{@code <name>.in} / {@code <name>.out}
+     * （见 judge-service 的 GoJudgeAdapter.parseTestCases；缺期望输出的用例会被判为 SYSTEM_ERROR）。
+     */
+    private static Map<String, String> toTestFiles(List<Map<String, Object>> testcases) {
+        Map<String, String> testFiles = new LinkedHashMap<>();
+        for (Map<String, Object> testcase : testcases) {
+            String name = String.valueOf(testcase.get("name"));
+            testFiles.put(name + ".in", textOf(testcase.get("inputContent")));
+            testFiles.put(name + ".out", textOf(testcase.get("expectedOutput")));
+        }
+        return testFiles;
+    }
+
+    private static String textOf(Object rawValue) {
+        return rawValue == null ? "" : String.valueOf(rawValue);
     }
 
     private static String sha256(String content) {

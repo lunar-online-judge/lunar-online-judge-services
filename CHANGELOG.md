@@ -73,6 +73,15 @@
 
 ### 新增
 
+- **测试点随事件传输到评测引擎**（打通真实判题的最后一块）
+  - problem-service 新增服务间接口 `GET /api/v1/internal/problems/{problemId}/versions/{versionId}/testcases`（`isAuthenticated()`，不经网关、只能内网直连——与 audit 的服务间写入同一约定）；新增可配置体积上限 `problem.testdata.max-bytes`（默认 1 MiB），超限抛新错误码 `PROBLEM_TESTDATA_TOO_LARGE`（413）：测试点要进 MQ，超限的消息会永远发不出去（Outbox 每轮重试）
+  - submission-service 提交时取测试点（新增 `ProblemInternalApi` 声明式接口 + `UpstreamClient.problemTestcases`），按 `<name>.in` / `<name>.out` 组装进 `lunar-submission-created` 的 `testFiles` 字段
+  - judge-service 的 `SubmissionCreatedConsumer` 从 payload 读 `testFiles`（取代硬编码的 `Map.of()`）——真实引擎因此第一次能拿到测试数据
+  - 顺带把新建题目的默认语言白名单从 `c,cpp,java,python` 扩到含 `javascript,typescript`
+- **按测试点通过比例给分**（`docs/exam-process.md` §7 早已确认，此前硬编码 `ACCEPTED=100 否则 0`）
+  - `JudgeResult` 增加 `passedCases` / `totalCases`（保留 5 参构造器，兼容不区分测试点的引擎）；`GoJudgeAdapter` 把已统计的通过数/总数带出，`MockJudgeEngine` 按 `testFiles` 推算
+  - `SubmissionCreatedConsumer` 把两个计数写进 judged 事件，`score = round(passed/total*100)`（未上报计数时退回"满分或 0 分"）；submission 侧 `JudgedConsumer` 原本就会读这两个字段，无需改动
+  - 语义：适配器"首个失败即停"，`passedCases` 是失败前通过的数量；"该题最高有效分"聚合仍属成绩读模型（未实现）
 - **判题语言扩到 JavaScript / TypeScript**（`docs/architecture.md` §9 早已确认"TypeScript 采用 `tsc` 生成 JavaScript 后由 Node.js 运行"）
   - `LanguageTemplate` 新增 `JAVASCRIPT`（无编译步骤，`node main.js`）与 `TYPESCRIPT`（`tsc --target es2020 --module commonjs --typeRoots /usr/share/nodejs/@types main.ts` → `node main.js`），别名 `js`/`javascript`/`node` 与 `ts`/`typescript`；别名表超过 `Map.of` 的 10 项上限，改用 `Map.ofEntries`
   - `docker/go-judge/Dockerfile` 增装 `nodejs` + `node-typescript`（后者同时提供 `tsc` 与 `/usr/share/nodejs/@types`，TS 模板的 `--typeRoots` 指向它，学生代码可直接用 `require`/`process` 而不必自己 `declare`）；JDK 从 `default-jdk-headless` 固定为 `openjdk-21-jdk-headless`——官方 `mount.yaml` 为 Java 预留的路径就是 `/etc/java-21-openjdk`

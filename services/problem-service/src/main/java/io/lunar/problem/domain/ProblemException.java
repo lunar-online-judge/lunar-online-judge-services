@@ -29,4 +29,16 @@ public class ProblemException extends ApiException {
             super("PROBLEM_VERSION_IMMUTABLE", 409, "版本已发布，不可修改；请创建新版本");
         }
     }
+
+    /**
+     * 413：测试点数据超过服务间传输上限。
+     * 测试点随 submission.created 事件进 MQ，超限会让消息永远发不出去（Outbox 每轮重试），
+     * 所以在上游就拦住并给出明确错误，而不是让它卡在事件里。
+     */
+    public static final class TestdataTooLarge extends ProblemException {
+        public TestdataTooLarge(long actualBytes, long maxBytes) {
+            super("PROBLEM_TESTDATA_TOO_LARGE", 413,
+                    "测试点数据过大：" + actualBytes + " 字节，服务间传输上限 " + maxBytes + " 字节");
+        }
+    }
 }

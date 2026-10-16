@@ -47,6 +47,7 @@ HTTP 前缀统一为 `/api/v1`。各服务经 gateway 对外暴露；客户端�
 | `PROBLEM_NOT_FOUND` | 题目不存在 | 404 |
 | `PROBLEM_VERSION_NOT_FOUND` | 题目版本不存在（含未发布） | 404 |
 | `PROBLEM_VERSION_IMMUTABLE` | 版本已发布不可修改（改动须创建新版本） | 409 |
+| `PROBLEM_TESTDATA_TOO_LARGE` | 测试点数据超过服务间传输上限（默认 1 MiB，`PROBLEM_TESTDATA_MAX_BYTES` 可配）：测试点随事件进 MQ，超限的消息发不出去 | 413 |
 | `MONITOR_EVENT_NOT_FOUND` | 风险事件不存在 | 404 |
 | `MONITOR_INVALID_TRANSITION` | 审核流转非法（重复终审/未知动作） | 409 |
 | `SUBMISSION_LIMIT_EXCEEDED` | 学生提交过于频繁（窗口内超限；阈值经 Nacos `exam.submission.*` 配置，默认每 60 秒 30 次） | 429 |
@@ -104,7 +105,7 @@ HTTP 前缀统一为 `/api/v1`。各服务经 gateway 对外暴露；客户端�
 
 ## 端点总表
 
-下表与代码一致（共 39 个端点，分布在 11 个控制器）。"鉴权"列是 `@PreAuthorize` / `SecurityConfig` 的实际规则；"任意已认证"表示当前只要求有效令牌、**尚未做资源范围校验**（属待办，见 `BACKEND_IMPROVEMENT_PLAN.md` BE-01）。
+下表与代码一致（共 40 个端点，分布在 12 个控制器）。"鉴权"列是 `@PreAuthorize` / `SecurityConfig` 的实际规则；"任意已认证"表示当前只要求有效令牌、**尚未做资源范围校验**（属待办，见 `BACKEND_IMPROVEMENT_PLAN.md` BE-01）。
 
 | 服务 | 方法 | 路径 | 鉴权 | 状态 |
 |---|---|---|---|---|
@@ -119,7 +120,8 @@ HTTP 前缀统一为 `/api/v1`。各服务经 gateway 对外暴露；客户端�
 | problem | POST | `/api/v1/problems/{id}/versions` | TEACHER/ADMIN | 已实现（新版本：`baseVersionId` 缺省时基于题目当前版本，字段缺省沿用基线；无当前版本时 404） |
 | problem | GET | `/api/v1/problems/{id}/versions` | TEACHER/ADMIN | 已实现（版本列表） |
 | problem | POST | `/api/v1/problems/{id}/versions/{versionId}/publish` | TEACHER/ADMIN | 已实现（发布并切换 `current_version_id`，发布后版本不可变） |
-| problem | GET | `/api/v1/problems/{id}/versions/{versionId}/testcases` | TEACHER/ADMIN | 已实现（仅老师/管理员；"供 judge 取测试点"的服务间接口未实现） |
+| problem | GET | `/api/v1/problems/{id}/versions/{versionId}/testcases` | TEACHER/ADMIN | 已实现（仅老师/管理员；判题链路走下面的内部端点） |
+| problem | GET | `/api/v1/internal/problems/{problemId}/versions/{versionId}/testcases` | 任意已认证（服务间） | 已实现（**不经网关**，只能内网直连；submission 取到后随 `lunar-submission-created` 事件送到评测引擎；超限 413 `PROBLEM_TESTDATA_TOO_LARGE`） |
 | submission | POST | `/api/v1/submissions` | CANDIDATE | 已实现（幂等 + 会话/竞赛/语言/频率四项校验 + Outbox；**题目归属校验未实现**，依赖随机分配表） |
 | submission | GET | `/api/v1/submissions/{id}` | 任意已认证（本人；TEACHER/ADMIN 可查任意） | 已实现（权限在 Service 内判定，方法上无 `@PreAuthorize`） |
 | submission | POST | `/api/v1/internal/submissions/{id}/judged` | ADMIN | 已实现（判题回写过渡端点） |
@@ -205,7 +207,7 @@ HTTP 前缀统一为 `/api/v1`。各服务经 gateway 对外暴露；客户端�
 }
 ```
 
-评测链路（**当前实现**）：客户端 → submission-service 落库并发 `lunar-submission-created`（Outbox）→ judge-service 消费并经 `GoJudgeAdapter`（或 `mock` profile 下的 Mock 引擎）评测 → 归一化 verdict → 直接向 `lunar-submission-judged` 发送 → **只有 submission-service 消费**（contest 更新排名与 gateway 推送尚未实现）。注意：测试点目前不随事件传输，真实引擎因缺测试点会返回 `SYSTEM_ERROR`。完整设计见 `docs/architecture.md` 第 8 节。
+评测链路（**当前实现**）：客户端 → submission-service 落库并发 `lunar-submission-created`（Outbox）→ judge-service 消费并经 `GoJudgeAdapter`（或 `mock` profile 下的 Mock 引擎）评测 → 归一化 verdict → 直接向 `lunar-submission-judged` 发送 → **只有 submission-service 消费**（contest 更新排名与 gateway 推送尚未实现）。**测试点随事件传输**：submission 在提交时经 `GET /api/v1/internal/problems/{problemId}/versions/{versionId}/testcases` 取到测试点，按 `<name>.in` / `<name>.out` 组装进事件的 `testFiles` 字段；总字节超上限（默认 1 MiB）时上游直接返回 413，避免超限消息卡在 Outbox。judged 事件携带 `passedCases` / `totalCases`，`score` 按通过比例计算（通过全部为满分）。完整设计见 `docs/architecture.md` 第 8 节。
 
 ## 考试流程
 

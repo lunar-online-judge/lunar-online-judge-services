@@ -87,7 +87,7 @@ java -jar services/judge-service/target/judge-service-0.1.0-SNAPSHOT.jar
 
 **本地启动注意**（2026-10-05 实测）：
 
-- `mvn spring-boot:run -pl <module>` 前必须先执行 `mvn -DskipTests install`，否则单模块解析不到 `lunar-common`（依赖解析失败）；
+- `mvn spring-boot:run -pl <module>` 前必须先执行 `mvn -DskipTests install`，否则单模块解析不到 `lunar-common`（依赖解析失败）；**改过 `lunar-common` 后尤其要重装**——本地仓库里的旧 jar 仍能被解析（不报错），但新增的方法在运行时才炸 `NoSuchMethodError`（`Error` 不是 `Exception`，业务代码的 `catch (Exception)` 兜不住，表现为 MQ 消息无限重试、判题结果永不回写）。2026-10 实测踩过：给 `JudgeResult` 加 `passedCases()/totalCases()` 后没 install，judge 消费的每条消息都失败重试；
 - auth-service 连 Docker postgres 需设置 `POSTGRES_PORT=5433`（见上方端口表）；
 - judge-service 有 `application.yml` 但**未设 `server.port`**（默认 8080，与 gateway 冲突），且 `JudgeEngine` Bean 需要明确激活条件：本地以 `SPRING_PROFILES_ACTIVE=mock SERVER_PORT=8085 java -jar ...` 启动（或设 `GO_JUDGE_BASE_URL` 切真实引擎），否则会因找不到 `JudgeEngine` Bean 而启动失败。
 
@@ -145,6 +145,7 @@ curl -s -i -H "X-Request-Id: test-123" http://localhost:8081/api/v1/auth/jwks | 
 | `GO_JUDGE_BASE_URL` | go-judge 内网地址；**设置后 judge-service 自动启用 GoJudgeAdapter（优先于 mock profile）** | 未设置（此时需 `SPRING_PROFILES_ACTIVE=mock`，否则容器内没有 `JudgeEngine` Bean） |
 | `GO_JUDGE_CONNECT_TIMEOUT_MS` | go-judge 连接超时 | `2000` |
 | `GO_JUDGE_READ_TIMEOUT_MS` | go-judge 读取超时 | `10000` |
+| `PROBLEM_TESTDATA_MAX_BYTES` | 服务间传输的测试点总字节上限（测试点随 `lunar-submission-created` 事件进 MQ，超限直接 413 而不是卡在 Outbox） | `1048576` |
 | `POSTGRES_HOST` | PostgreSQL 地址 | `localhost` |
 | `POSTGRES_PORT` | PostgreSQL 端口（本地 Compose 映射在 5433） | `5432`，**anti-cheat / audit 的默认值却是 `5433`**（两处不一致，见"已知限制"） |
 | `POSTGRES_DB` | 数据库名 | `lunar` |

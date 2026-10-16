@@ -128,7 +128,7 @@ public class GoJudgeAdapter implements JudgeEngine {
                     : compileResult.fileIds().get(template.compileOutputs.get(0));
             if (!GO_JUDGE_ACCEPTED.equals(compileResult.status()) || programFileId == null) {
                 return new JudgeResult(engineId, JudgeVerdict.COMPILE_ERROR.name(), null, null,
-                        truncate(compileStderr(compileResult)));
+                        truncate(compileStderr(compileResult)), 0, testcases.size());
             }
         }
 
@@ -146,12 +146,13 @@ public class GoJudgeAdapter implements JudgeEngine {
                 String detail = "测试点 " + (i + 1) + "：" + failDetailOf(failVerdict.get(), runResult) + "（通过 "
                         + passed + "/" + testcases.size() + "）";
                 return new JudgeResult(engineId, failVerdict.get().name(), timeMsOf(maxTimeNs),
-                        memoryKbOf(maxMemoryBytes), truncate(detail));
+                        memoryKbOf(maxMemoryBytes), truncate(detail), passed, testcases.size());
             }
             passed++;
         }
         return new JudgeResult(engineId, JudgeVerdict.ACCEPTED.name(), timeMsOf(maxTimeNs),
-                memoryKbOf(maxMemoryBytes), "通过 " + passed + "/" + testcases.size() + " 测试点");
+                memoryKbOf(maxMemoryBytes), "通过 " + passed + "/" + testcases.size() + " 测试点",
+                passed, testcases.size());
     }
 
     private GoJudgeModels.Cmd compileCmd(LanguageTemplate template, String sourceCode) {

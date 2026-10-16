@@ -2,8 +2,10 @@ package io.lunar.problem.domain;
 
 import com.baomidou.mybatisplus.core.MybatisConfiguration;
 import com.baomidou.mybatisplus.core.metadata.TableInfoHelper;
+import io.lunar.problem.config.TestdataProperties;
 import io.lunar.problem.domain.dto.ProblemView;
 import io.lunar.problem.domain.dto.TestcasePayload;
+import io.lunar.problem.domain.dto.TestcaseView;
 import io.lunar.problem.domain.dto.VersionView;
 import io.lunar.problem.infra.ProblemEntity;
 import io.lunar.problem.infra.ProblemMapper;
@@ -33,7 +35,15 @@ class ProblemServiceTest {
     private final ProblemMapper problemMapper = mock(ProblemMapper.class);
     private final ProblemVersionMapper versionMapper = mock(ProblemVersionMapper.class);
     private final TestcaseMapper testcaseMapper = mock(TestcaseMapper.class);
-    private final ProblemService service = new ProblemService(problemMapper, versionMapper, testcaseMapper);
+    private final TestdataProperties testdataProperties = testdataProperties();
+    private final ProblemService service = new ProblemService(problemMapper, versionMapper, testcaseMapper,
+            testdataProperties);
+
+    private static TestdataProperties testdataProperties() {
+        TestdataProperties properties = new TestdataProperties();
+        properties.setMaxBytes(1024 * 1024);
+        return properties;
+    }
 
     @BeforeAll
     static void initMpMetadata() {
@@ -89,7 +99,7 @@ class ProblemServiceTest {
         ArgumentCaptor<ProblemVersionEntity> captor = ArgumentCaptor.forClass(ProblemVersionEntity.class);
         verify(versionMapper).insert(captor.capture());
         assertThat(captor.getValue().getTimeLimitMs()).isEqualTo(2000);
-        assertThat(captor.getValue().getAllowedLanguages()).isEqualTo("c,cpp,java,python");
+        assertThat(captor.getValue().getAllowedLanguages()).isEqualTo("c,cpp,java,python,javascript,typescript");
         assertThat(captor.getValue().getStatus()).isEqualTo("DRAFT");
     }
 
@@ -131,6 +141,35 @@ class ProblemServiceTest {
         assertThat(view.versionNo()).isEqualTo(2);
         verify(versionMapper).selectById("v1");
         verify(testcaseMapper).insert(any(TestcaseEntity.class));
+    }
+
+    @Test
+    void judgingTestcaseQueryRejectsOversizedTestdata() {
+        // 测试点要随 submission.created 事件进 MQ：超限必须在上游拦住，否则消息永远发不出去
+        ProblemEntity problem = new ProblemEntity();
+        problem.setId("p1");
+        when(problemMapper.selectById("p1")).thenReturn(problem);
+        when(versionMapper.selectById("v1")).thenReturn(problemVersion("v1", "p1", 1, "PUBLISHED"));
+        when(testcaseMapper.selectList(any())).thenReturn(List.of(testcase("big", "x".repeat(2048), "y")));
+        testdataProperties.setMaxBytes(1024);
+
+        assertThatThrownBy(() -> service.listTestcasesForJudging("p1", "v1"))
+                .isInstanceOf(ProblemException.TestdataTooLarge.class);
+    }
+
+    @Test
+    void judgingTestcaseQueryReturnsTestcasesWithinLimit() {
+        ProblemEntity problem = new ProblemEntity();
+        problem.setId("p1");
+        when(problemMapper.selectById("p1")).thenReturn(problem);
+        when(versionMapper.selectById("v1")).thenReturn(problemVersion("v1", "p1", 1, "PUBLISHED"));
+        when(testcaseMapper.selectList(any())).thenReturn(List.of(testcase("01", "1 2", "3")));
+
+        List<TestcaseView> testcases = service.listTestcasesForJudging("p1", "v1");
+
+        assertThat(testcases).hasSize(1);
+        assertThat(testcases.get(0).name()).isEqualTo("01");
+        assertThat(testcases.get(0).expectedOutput()).isEqualTo("3");
     }
 
     @Test

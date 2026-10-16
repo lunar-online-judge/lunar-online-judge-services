@@ -46,3 +46,9 @@ management:
     health:
       # 只返回 UP/DOWN，不展示组件细节
       show-details: never
+
+problem:
+  testdata:
+    # 服务间传输的测试点总字节上限：测试点随 submission.created 事件进 MQ，
+    # 超过消息上限会让它永远发不出去（Outbox 每轮重试），所以在 problem 侧就拦住
+    max-bytes: ${PROBLEM_TESTDATA_MAX_BYTES:1048576}
