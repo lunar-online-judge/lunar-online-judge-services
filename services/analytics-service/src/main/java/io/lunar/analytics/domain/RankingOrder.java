@@ -1,6 +1,7 @@
 package io.lunar.analytics.domain;
 
 import io.lunar.analytics.domain.dto.ScoreAggregate;
+import org.springframework.stereotype.Component;
 
 import java.util.ArrayList;
 import java.util.Comparator;
@@ -12,6 +13,7 @@ import java.util.List;
  * 编译发生在 Bean 构造期（启动时）：配置写错字段名或方向必须让服务起不来，而不是等到第一批学生交卷、
  * 榜单排出来的顺序没人能解释的时候才发现。这样做也让"排序"在重算路径上只是一次 sort，没有运行期解析。
  */
+@Component
 public class RankingOrder {
 
     /** 学生 ID 是唯一键，排在最后可保证比较是全序（否则同档次的两人顺序由排序算法决定）。 */

@@ -78,6 +78,16 @@
 
 - **添加学生响应缺少文档声明的 `passwordChangeRequired`**（全量 API 测试发现）：`docs/api.md"添加学生"` 的响应契约含该字段，实现返回的却是名单视图 `CandidateView`（含加入人/加入时间、无该字段）。现为 `add()` 引入与文档一致的 `EnrollmentResult`（studentId/studentNo/username/displayName/enrollmentStatus/passwordChangeRequired）：新建账号时取 auth 响应值（true），账号复用（学生已在其他竞赛报名）时为 false——本次未下发任何密码；加入人/加入时间仍由名单查询返回，与文档分工一致。`EnrollmentServiceTest` 新增两条断言覆盖新建与复用两种分支
 
+### 变更
+
+- **AI 能力简化（按产品决定裁剪，并把两个新服务纳入版本库）**
+  - **保留**：代码评审（`CODE_REVIEW`）、出题草稿（`PROBLEM_DRAFT`）
+  - **删除**：风险辅助研判（`RISK_ASSESSMENT`）、语义查重（`SIMILARITY_SCAN`，本就无需模型）——连同其 Handler/Assistant/DTO/测试与 `AntiCheatInternalApi`
+  - **去掉隐私守卫**（`AiPrivacyGuard`）：出境门禁与"公网地址必须带 api-key"的规则随之取消，`AiModelFactory` 只保留 base-url 必填的最小校验
+  - **findings 不再回写 analytics**：删掉 ai-service 的 Outbox/发布器与 rocketmq 依赖，analytics 删掉 AI findings 读模型（新增 V3 drop 迁移），风险面板不再并入模型结论（`RiskStudentView.findings`、`RiskSummaryView.aiFindingCount` 移除）
+  - 连带影响：AI 服务的三个审计动作（`AI_JOB_REQUESTED` / `AI_FINDING_CREATED` / `AI_JOB_FAILED`）不再走 Outbox 入审计账本，改为结构化日志
+  - 顺带修复：`analytics-service` 的 `RankingOrder` 漏了 `@Component`，导致该服务**从未成功启动过**（`No qualifying bean of type RankingOrder`）
+  - 真机验收（`scripts/ai-test.sh`，16 项 0 失败）：2 个保留端点入队成功；2 个删除端点不再可调用；`/jobs`、`/findings`、`/provider`（不含 embedding 字段）、`/drafts` 正常；考生访问 AI 端点 403；analytics 成绩榜与风险汇总正常
 ### 新增
 
 - **会话失效承诺：令牌失效时间线（`BACKEND_IMPROVEMENT_PLAN` BE-09 第二部分）**
@@ -296,6 +306,16 @@
 
 ## [0.5.0] - 2026-10-08
 
+### 变更
+
+- **AI 能力简化（按产品决定裁剪，并把两个新服务纳入版本库）**
+  - **保留**：代码评审（`CODE_REVIEW`）、出题草稿（`PROBLEM_DRAFT`）
+  - **删除**：风险辅助研判（`RISK_ASSESSMENT`）、语义查重（`SIMILARITY_SCAN`，本就无需模型）——连同其 Handler/Assistant/DTO/测试与 `AntiCheatInternalApi`
+  - **去掉隐私守卫**（`AiPrivacyGuard`）：出境门禁与"公网地址必须带 api-key"的规则随之取消，`AiModelFactory` 只保留 base-url 必填的最小校验
+  - **findings 不再回写 analytics**：删掉 ai-service 的 Outbox/发布器与 rocketmq 依赖，analytics 删掉 AI findings 读模型（新增 V3 drop 迁移），风险面板不再并入模型结论（`RiskStudentView.findings`、`RiskSummaryView.aiFindingCount` 移除）
+  - 连带影响：AI 服务的三个审计动作（`AI_JOB_REQUESTED` / `AI_FINDING_CREATED` / `AI_JOB_FAILED`）不再走 Outbox 入审计账本，改为结构化日志
+  - 顺带修复：`analytics-service` 的 `RankingOrder` 漏了 `@Component`，导致该服务**从未成功启动过**（`No qualifying bean of type RankingOrder`）
+  - 真机验收（`scripts/ai-test.sh`，16 项 0 失败）：2 个保留端点入队成功；2 个删除端点不再可调用；`/jobs`、`/findings`、`/provider`（不含 embedding 字段）、`/drafts` 正常；考生访问 AI 端点 403；analytics 成绩榜与风险汇总正常
 ### 新增
 
 - **audit-service 审计账本**
@@ -306,6 +326,16 @@
 
 ## [0.4.0] - 2026-10-07
 
+### 变更
+
+- **AI 能力简化（按产品决定裁剪，并把两个新服务纳入版本库）**
+  - **保留**：代码评审（`CODE_REVIEW`）、出题草稿（`PROBLEM_DRAFT`）
+  - **删除**：风险辅助研判（`RISK_ASSESSMENT`）、语义查重（`SIMILARITY_SCAN`，本就无需模型）——连同其 Handler/Assistant/DTO/测试与 `AntiCheatInternalApi`
+  - **去掉隐私守卫**（`AiPrivacyGuard`）：出境门禁与"公网地址必须带 api-key"的规则随之取消，`AiModelFactory` 只保留 base-url 必填的最小校验
+  - **findings 不再回写 analytics**：删掉 ai-service 的 Outbox/发布器与 rocketmq 依赖，analytics 删掉 AI findings 读模型（新增 V3 drop 迁移），风险面板不再并入模型结论（`RiskStudentView.findings`、`RiskSummaryView.aiFindingCount` 移除）
+  - 连带影响：AI 服务的三个审计动作（`AI_JOB_REQUESTED` / `AI_FINDING_CREATED` / `AI_JOB_FAILED`）不再走 Outbox 入审计账本，改为结构化日志
+  - 顺带修复：`analytics-service` 的 `RankingOrder` 漏了 `@Component`，导致该服务**从未成功启动过**（`No qualifying bean of type RankingOrder`）
+  - 真机验收（`scripts/ai-test.sh`，16 项 0 失败）：2 个保留端点入队成功；2 个删除端点不再可调用；`/jobs`、`/findings`、`/provider`（不含 embedding 字段）、`/drafts` 正常；考生访问 AI 端点 403；analytics 成绩榜与风险汇总正常
 ### 新增
 
 - **anti-cheat-service 风险事件与人工审核**
@@ -321,6 +351,16 @@
 
 ## [0.2.0] - 2026-10-07
 
+### 变更
+
+- **AI 能力简化（按产品决定裁剪，并把两个新服务纳入版本库）**
+  - **保留**：代码评审（`CODE_REVIEW`）、出题草稿（`PROBLEM_DRAFT`）
+  - **删除**：风险辅助研判（`RISK_ASSESSMENT`）、语义查重（`SIMILARITY_SCAN`，本就无需模型）——连同其 Handler/Assistant/DTO/测试与 `AntiCheatInternalApi`
+  - **去掉隐私守卫**（`AiPrivacyGuard`）：出境门禁与"公网地址必须带 api-key"的规则随之取消，`AiModelFactory` 只保留 base-url 必填的最小校验
+  - **findings 不再回写 analytics**：删掉 ai-service 的 Outbox/发布器与 rocketmq 依赖，analytics 删掉 AI findings 读模型（新增 V3 drop 迁移），风险面板不再并入模型结论（`RiskStudentView.findings`、`RiskSummaryView.aiFindingCount` 移除）
+  - 连带影响：AI 服务的三个审计动作（`AI_JOB_REQUESTED` / `AI_FINDING_CREATED` / `AI_JOB_FAILED`）不再走 Outbox 入审计账本，改为结构化日志
+  - 顺带修复：`analytics-service` 的 `RankingOrder` 漏了 `@Component`，导致该服务**从未成功启动过**（`No qualifying bean of type RankingOrder`）
+  - 真机验收（`scripts/ai-test.sh`，16 项 0 失败）：2 个保留端点入队成功；2 个删除端点不再可调用；`/jobs`、`/findings`、`/provider`（不含 embedding 字段）、`/drafts` 正常；考生访问 AI 端点 403；analytics 成绩榜与风险汇总正常
 ### 新增
 
 - **RocketMQ 事件总线接通，评测链路端到端自动化**
@@ -338,6 +378,16 @@
 开发期首个可用切片：认证、考试生命周期、学生管理、考生会话、公告、题库、提交与评测适配
 全部为真实实现（落库 + JWT 验签 + 角色控制），81 个单元测试，全部端到端实测通过。
 
+### 变更
+
+- **AI 能力简化（按产品决定裁剪，并把两个新服务纳入版本库）**
+  - **保留**：代码评审（`CODE_REVIEW`）、出题草稿（`PROBLEM_DRAFT`）
+  - **删除**：风险辅助研判（`RISK_ASSESSMENT`）、语义查重（`SIMILARITY_SCAN`，本就无需模型）——连同其 Handler/Assistant/DTO/测试与 `AntiCheatInternalApi`
+  - **去掉隐私守卫**（`AiPrivacyGuard`）：出境门禁与"公网地址必须带 api-key"的规则随之取消，`AiModelFactory` 只保留 base-url 必填的最小校验
+  - **findings 不再回写 analytics**：删掉 ai-service 的 Outbox/发布器与 rocketmq 依赖，analytics 删掉 AI findings 读模型（新增 V3 drop 迁移），风险面板不再并入模型结论（`RiskStudentView.findings`、`RiskSummaryView.aiFindingCount` 移除）
+  - 连带影响：AI 服务的三个审计动作（`AI_JOB_REQUESTED` / `AI_FINDING_CREATED` / `AI_JOB_FAILED`）不再走 Outbox 入审计账本，改为结构化日志
+  - 顺带修复：`analytics-service` 的 `RankingOrder` 漏了 `@Component`，导致该服务**从未成功启动过**（`No qualifying bean of type RankingOrder`）
+  - 真机验收（`scripts/ai-test.sh`，16 项 0 失败）：2 个保留端点入队成功；2 个删除端点不再可调用；`/jobs`、`/findings`、`/provider`（不含 embedding 字段）、`/drafts` 正常；考生访问 AI 端点 403；analytics 成绩榜与风险汇总正常
 ### 新增
 
 - **auth-service（认证与用户）**

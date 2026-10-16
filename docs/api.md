@@ -147,7 +147,7 @@ HTTP 前缀统一为 `/api/v1`。各服务经 gateway 对外暴露；客户端�
 | submission | GET | `/api/v1/submissions/{id}` | 任意已认证（本人；TEACHER/ADMIN 可查任意） | 已实现（权限在 Service 内判定，方法上无 `@PreAuthorize`） |
 | submission | POST | `/api/v1/internal/submissions/{id}/judged` | ADMIN | 已实现（判题回写过渡端点） |
 | submission | GET | `/api/v1/internal/submissions/{submissionId}` | **SERVICE** | 已实现（**含源码**的服务间详情：源码是学生作品，只认服务身份、不经网关；当前调用方是 ai-service 的代码评审作业） |
-| submission | GET | `/api/v1/internal/submissions` | **SERVICE** | 已实现（按 `contestId`+`problemId` 批量取提交摘要，**含源码**；`limit` 由服务端夹取到 ≤500，调用方无法把它变成全库导出；当前调用方是 ai-service 的语义查重） |
+| submission | GET | `/api/v1/internal/submissions` | **SERVICE** | 已实现（按 `contestId`+`problemId` 批量取提交摘要，**含源码**；`limit` 由服务端夹取到 ≤500，调用方无法把它变成全库导出；当前调用方是 ai-service 的代码评审） |
 | judge | POST | `/api/v1/judge/submissions` | **未接验签** | 代码存在，但**当前对所有调用者恒 401**（未配 `jwk-set-uri` / `oauth2ResourceServer`）；`requestId` 硬编码为 `"pending"`，测试点恒为空 |
 | contest | POST | `/api/v1/contests` | TEACHER/ADMIN | 已实现（创建草稿） |
 | contest | GET | `/api/v1/contests` | 任意已认证 | 已实现（分页 + status 过滤；**未做资源范围限制**） |
@@ -181,10 +181,8 @@ HTTP 前缀统一为 `/api/v1`。各服务经 gateway 对外暴露；客户端�
 | ai | GET | `/api/v1/ai/jobs` | TEACHER（限归属）/ADMIN | 已实现（分页 + contestId/jobType/status 过滤；不给 contestId 时仅 ADMIN） |
 | ai | GET | `/api/v1/ai/findings` | TEACHER（限归属）/ADMIN | 已实现（分页 + contestId/submissionId/findingType 过滤；`score` 是可疑度，**仅用于排序展示，禁止据此自动处置**） |
 | ai | GET | `/api/v1/ai/findings/{findingId}` | TEACHER（限归属）/ADMIN | 已实现（结论详情，含结构化 `detailJson`） |
-| ai | GET | `/api/v1/ai/provider` | **ADMIN** | 已实现（Provider 运行态：mode/地址主机/模型/向量检索开关；**不回显 api-key**） |
+| ai | GET | `/api/v1/ai/provider` | **ADMIN** | 已实现（Provider 运行态：mode/地址主机/模型；**不回显 api-key**） |
 | ai | POST | `/api/v1/ai/jobs/problem-draft` | TEACHER（限归属）/ADMIN | 已实现（请求出题草稿：产物是**草稿**，落 `problem_drafts`，教师确认后才由 problem 既有接口落库；不给 `contestId` 时仅 ADMIN） |
-| ai | POST | `/api/v1/ai/jobs/similarity-scan` | TEACHER（限归属）/ADMIN | 已实现（语义查重：按考试+题目两两比对代码指纹，**不需要模型**，因此不受 Provider 可用性影响；结论里的可疑度仅用于排序） |
-| ai | POST | `/api/v1/ai/jobs/risk-assessment` | **ADMIN** | 已实现（作弊风险辅助研判：证据取自风险事件，产出可疑度+理由+反方证据+人工介入方向；**不写成绩、不流转审核状态机、不含处罚建议**；模型给出约定外的动作取值时降级为最保守的 `REVIEW_MANUALLY`） |
 | ai | GET | `/api/v1/ai/drafts` | TEACHER（限归属）/ADMIN | 已实现（出题草稿分页；不给 `contestId` 时仅 ADMIN） |
 | ai | GET | `/api/v1/ai/drafts/{draftId}` | TEACHER（限归属）/ADMIN | 已实现（草稿详情：题面/样例/建议测试点/知识点标签） |
 | analytics | GET | `/api/v1/analytics/contests/{contestId}/scoreboard` | TEACHER（限归属）/ADMIN | 已实现（成绩榜分页；名次由成绩读模型授予，排序口径可配 `analytics.ranking.tie-break`，默认 总分降序 → 先达到者在前 → 解出题数降序 → student_id 升序（**前三档待产品确认**，docs/exam-process.md §10）；读模型为空时顺带自愈重算一次） |
@@ -405,7 +403,7 @@ AI 能力由 ai-service 提供（`/api/v1/ai/**`，经网关可达）。端点�
 
 ### 作业是异步的
 
-四类作业（`CODE_REVIEW` / `RISK_ASSESSMENT` / `SIMILARITY_SCAN` / `PROBLEM_DRAFT`）都是慢操作（模型调用秒级到分钟级），因此 `POST /api/v1/ai/jobs/*` **立即返回作业号**，实际执行在后台 worker（租约 + 指数退避重试，失败终态为 `FAILED`）。
+两类作业（`CODE_REVIEW` / `PROBLEM_DRAFT`）都是慢操作（模型调用秒级到分钟级），因此 `POST /api/v1/ai/jobs/*` **立即返回作业号**，实际执行在后台 worker（租约 + 指数退避重试，失败终态为 `FAILED`）。
 
 请求（代码评审；`risk-assessment` 传 `contestId`+`studentId`，`similarity-scan` 传 `contestId`+`problemId`，`problem-draft` 传 `requirement`（必填，≤4000 字）与可选的 `contestId`/`difficulty`/`languageHint`）：
 
@@ -454,7 +452,7 @@ AI 能力由 ai-service 提供（`/api/v1/ai/**`，经网关可达）。端点�
 - 判据是 Provider 的 **base-url 地址**（不是 `ai.provider.mode`）：回环、私有网段、`.local`/`.internal` 后缀、不含点的短名都算内网；**地址无法解析时按非内网处理**（fail closed）；
 - base-url 指向非内网地址时必须显式设置环境变量 `AI_EGRESS_APPROVED=true`，否则服务**启动失败**；并且**每次构建模型前都会复核**——把 base-url 热切成公网地址同样拦得住；
 - 授权值**只从环境变量读**，配置中心改不动它（详见 `docs/middleware.md`"LLM 推理服务"节）；
-- `GET /api/v1/ai/provider`（仅 ADMIN）回显当前 mode / 地址主机 / 模型名 / 向量检索开关，**不回显 api-key**。
+- `GET /api/v1/ai/provider`（仅 ADMIN）回显当前 mode / 地址主机 / 模型名，**不回显 api-key**。
 
 失败语义：Provider 不可达或超时 → 503 `AI_PROVIDER_UNAVAILABLE`（值得重试）；Provider 返回非 2xx（模型名/密钥/额度，含 Provider 侧限流）→ 502 `AI_PROVIDER_REJECTED`（重试无用，要改配置）；模型输出不符合约定结构 → 502 `AI_INVALID_MODEL_OUTPUT`（**不得当成功结果使用**）。这些码会记进作业的 `errorCode` 并按 attempts 退避重试；当日配额用尽 → 429 `AI_QUOTA_EXCEEDED`（`ai.limits.max-jobs-per-day`）；需要向量检索但未启用 → 409 `AI_EMBEDDING_DISABLED`。
 

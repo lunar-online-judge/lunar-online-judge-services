@@ -25,7 +25,7 @@ ok "go-judge /version 返回版本号" "$(echo "$VERSION" | grep -o '"buildVersi
 step "0.3 服务注册（Nacos）"
 SERVICES=$(curl -s "http://localhost:8848/nacos/v1/ns/service/list?pageNo=1&pageSize=20")
 COUNT=$(echo "$SERVICES" | grep -o '"count":[0-9]*' | head -1 | cut -d: -f2)
-ok "已注册服务数（8 个）" "$COUNT" "8"
+ok "已注册服务数（10 个：8 核心 + ai + analytics）" "$COUNT" "10"
 echo "        已注册：$(echo "$SERVICES" | grep -o '"[a-z-]*-service"' | tr -d '"' | tr '\n' ' ')"
 INSTANCE=$(curl -s "http://localhost:8848/nacos/v1/ns/instance/list?serviceName=auth-service")
 echo "        auth-service 实例：$(echo "$INSTANCE" | head -c 160)"
