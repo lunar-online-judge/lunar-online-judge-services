@@ -67,6 +67,11 @@
 
 ### 新增
 
+- **CSV 批量导入名单**（`docs/exam-process.md` §9 早已确认，此前只有逐个添加）
+  - 新增 `POST /api/v1/contests/{contestId}/students/import`（老师/管理员，`multipart/form-data` 字段 `file`）：列顺序 `studentNo,username,displayName,initialPassword`，首个非空行是同名表头则跳过，空行跳过，字段支持双引号包裹（内部逗号、`""` 转义）
+  - **逐行等价于一次"添加学生"**：复用同一套唯一性校验与审计；部分行失败不回滚已成功行，响应逐行返回 `status`（ENROLLED/FAILED）、`lineNumber`、稳定 `errorCode` 与可读原因；未分类失败（上游不可用）只记日志、原因不泄漏内部细节；竞赛不存在时整批 404
+  - 幂等靠唯一约束而非显式幂等键：账号唯一性 + 名单唯一约束保证重复导入不产生重复数据，已在名单中的行按 `CONTEST_STUDENT_ALREADY_ENROLLED` 逐行报回（`docs/api.md` 已注明这一与 §9 表述的差异）
+  - 新增 `StudentRosterCsv` 解析器（无第三方依赖）与 `RosterEntry` / `RosterRowResult` / `RosterImportResult` 三个 record；单测 6 个（解析器 5 个 + 服务层"部分失败不回滚"1 个），真机 multipart 上传验证 3 行 → `succeeded=1, failed=2` 且成功行未被回滚
 - **考试会话的失效路径补齐**（`docs/exam-process.md` §6/§9 早已确认，此前只有"读时拒绝"、没有写入方）
   - 新增 `POST /api/v1/contests/{contestId}/students/{studentId}/session/terminate`（老师/管理员）：`ACTIVE`/`EXPIRED` → `TERMINATED`（终态，考生重进被拒）；写入走前态条件更新，并发下不谎报成功，已是终态时幂等返回
   - 移出名单（软删除）时同步使当前会话失效——原先只在下次心跳/进入时才被拒绝，会话行一直是 `ACTIVE`
@@ -128,7 +133,7 @@
 - 成绩读模型：排名、该题最高有效分、成绩状态机（PROVISIONAL/FINAL）、按测试点比例的部分分
 - 考试预检（客户端版本/屏幕/网络/摄像头）与"同一账号仅一个活动会话 + 踢旧设备"
 - 媒体链路（监考令牌、WebRTC 信令、截图与 MinIO）与 WebSocket 推送
-- 代码查重（JPlag worker）、指定题目公告、CSV 批量导入
+- 代码查重（JPlag worker）、指定题目公告
 - Redis 其余用途（令牌吊销、接口频控、会话在线状态镜像、评测短期锁、截图频控）；登录限流已迁，幂等键与会话状态经评估不迁（见上）
 - 题目归属竞赛校验（依赖随机分配表落地）
 

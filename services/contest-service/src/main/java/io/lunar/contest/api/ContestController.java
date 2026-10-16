@@ -19,9 +19,11 @@ import io.lunar.contest.domain.dto.AnnouncementView;
 import io.lunar.contest.domain.dto.CandidatePage;
 import io.lunar.contest.domain.dto.ContestPage;
 import io.lunar.contest.domain.dto.EnrollmentResult;
+import io.lunar.contest.domain.dto.RosterImportResult;
 import io.lunar.contest.domain.dto.SessionView;
 import io.lunar.contest.infra.ContestEntity;
 import jakarta.validation.Valid;
+import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.security.core.Authentication;
@@ -35,7 +37,10 @@ import org.springframework.web.bind.annotation.RequestHeader;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
+import org.springframework.web.multipart.MultipartFile;
 
+import java.io.IOException;
+import java.nio.charset.StandardCharsets;
 import java.util.List;
 
 /**
@@ -144,6 +149,25 @@ public class ContestController {
             @RequestHeader(value = RequestIdFilter.HEADER, required = false) String requestId) {
         return ResponseEntity.ok(ApiResponse.success(requestId,
                 enrollmentService.list(contestId, page, pageSize, keyword)));
+    }
+
+    /**
+     * CSV 批量导入名单（docs/exam-process.md §9）：multipart 上传，列顺序
+     * studentNo,username,displayName,initialPassword，可选表头；逐行等价于一次"添加学生"，
+     * 逐行返回成功或失败原因，部分行失败不回滚已成功行。
+     */
+    @PostMapping(value = "/{contestId}/students/import", consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
+    @PreAuthorize("hasAnyRole('TEACHER', 'ADMIN')")
+    public ResponseEntity<ApiResponse<RosterImportResult>> importStudents(
+            @PathVariable String contestId,
+            @RequestParam("file") MultipartFile file,
+            Authentication authentication,
+            @RequestHeader(value = RequestIdFilter.HEADER, required = false) String requestId,
+            @RequestHeader(value = "Authorization", required = false) String authorization) throws IOException {
+        String csvContent = new String(file.getBytes(), StandardCharsets.UTF_8);
+        RosterImportResult result = enrollmentService.importRoster(contestId, csvContent,
+                authorization, authentication.getName());
+        return ResponseEntity.ok(ApiResponse.success(requestId, result));
     }
 
     /** 重置学生密码：学生须在名单中；返回 passwordChangeRequired=true，不返回密码。 */

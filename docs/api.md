@@ -104,7 +104,7 @@ HTTP 前缀统一为 `/api/v1`。各服务经 gateway 对外暴露；客户端�
 
 ## 端点总表
 
-下表与代码一致（共 38 个端点，分布在 11 个控制器）。"鉴权"列是 `@PreAuthorize` / `SecurityConfig` 的实际规则；"任意已认证"表示当前只要求有效令牌、**尚未做资源范围校验**（属待办，见 `BACKEND_IMPROVEMENT_PLAN.md` BE-01）。
+下表与代码一致（共 39 个端点，分布在 11 个控制器）。"鉴权"列是 `@PreAuthorize` / `SecurityConfig` 的实际规则；"任意已认证"表示当前只要求有效令牌、**尚未做资源范围校验**（属待办，见 `BACKEND_IMPROVEMENT_PLAN.md` BE-01）。
 
 | 服务 | 方法 | 路径 | 鉴权 | 状态 |
 |---|---|---|---|---|
@@ -132,6 +132,7 @@ HTTP 前缀统一为 `/api/v1`。各服务经 gateway 对外暴露；客户端�
 | contest | POST | `/api/v1/contests/{id}/archive` | ADMIN | 已实现（FINISHED→ARCHIVED） |
 | contest | POST | `/api/v1/contests/{contestId}/students` | TEACHER/ADMIN | 已实现（账号经 auth 创建/复用；**不校验操作者是否拥有该竞赛**） |
 | contest | GET | `/api/v1/contests/{contestId}/students` | TEACHER/ADMIN | 已实现（分页 + 学号 keyword） |
+| contest | POST | `/api/v1/contests/{contestId}/students/import` | TEACHER/ADMIN | 已实现（CSV 批量导入：multipart 上传，逐行等价于添加学生，逐行返回成功/失败原因） |
 | contest | POST | `/api/v1/contests/{contestId}/students/{studentId}/password-reset` | TEACHER/ADMIN | 已实现（经 auth 重置） |
 | contest | DELETE | `/api/v1/contests/{contestId}/students/{studentId}` | TEACHER/ADMIN | 已实现（软删除，置 `REMOVED`；当前考试会话同时失效） |
 | contest | POST | `/api/v1/contests/{contestId}/students/{studentId}/session/terminate` | TEACHER/ADMIN | 已实现（终止考生会话：ACTIVE/EXPIRED → TERMINATED，终态重进被拒；重复调用幂等） |
@@ -284,7 +285,34 @@ PROVISIONAL -> UNDER_REVIEW -> FINAL
 }
 ```
 
-幂等键使用 `Idempotency-Key`。同一个 `contestId + studentNo` 只能有一条有效报名关系；已存在的学生账号不能被重复创建。
+幂等性由唯一约束保证：同一个 `contestId + studentNo` 只能有一条有效报名关系，已存在的学生账号不会被重复创建；重复添加返回 409 `CONTEST_STUDENT_ALREADY_ENROLLED`。
+
+### CSV 批量导入名单
+
+`POST /api/v1/contests/{contestId}/students/import`（`multipart/form-data`，字段名 `file`，内容 UTF-8）
+
+CSV 列顺序固定为 `studentNo,username,displayName,initialPassword`；首个非空行若是同名表头会自动跳过，空行跳过，字段可用双引号包裹（内部逗号保留、`""` 表示一个字面双引号）。**每一行等价于一次"添加学生"**：复用同一套唯一性校验与审计，部分行失败不回滚已成功行，响应逐行给出结果：
+
+```json
+{
+  "requestId": "req_123",
+  "data": {
+    "total": 3,
+    "succeeded": 1,
+    "failed": 2,
+    "items": [
+      {"lineNumber": 2, "studentNo": "20260001", "status": "ENROLLED", "studentId": "user_123", "errorCode": null, "message": null},
+      {"lineNumber": 3, "studentNo": "20260001", "status": "FAILED", "studentId": null, "errorCode": "CONTEST_STUDENT_ALREADY_ENROLLED", "message": "该学生已在本竞赛名单中"},
+      {"lineNumber": 4, "studentNo": "20260002", "status": "FAILED", "studentId": null, "errorCode": "VALIDATION_FAILED", "message": "缺少必填字段：username"}
+    ]
+  },
+  "error": null
+}
+```
+
+`lineNumber` 是 CSV 文件中的行号（含表头与空行），便于老师定位问题行；`status` 只有 `ENROLLED` 与 `FAILED` 两种，未分类失败（上游不可用等）`errorCode` 为 null 且原因不泄漏内部细节。竞赛不存在时整批返回 404 `CONTEST_NOT_FOUND`。
+
+**幂等的实现方式**：与 §9"逐行携带 `Idempotency-Key`"的意图一致，但落地靠唯一约束而不是显式幂等键——账号唯一性（学号/账户名）与名单唯一约束（竞赛+学生）保证重复导入不产生重复数据，已在名单中的行按 `CONTEST_STUDENT_ALREADY_ENROLLED` 逐行报回，调用方可据此视为"已存在"。
 
 ### 查询竞赛学生
 

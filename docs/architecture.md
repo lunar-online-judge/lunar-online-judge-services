@@ -404,7 +404,7 @@ CREATED -> AUTHORIZED -> CONNECTING -> LIVE
 - gateway-service：6 条路由前缀 + `X-Request-Id` 透传，`/api/v1/internal/**` 不暴露；
 - 基础设施：Compose（PostgreSQL / Redis / MinIO / Nacos / RocketMQ / OpenResty / go-judge）、Nacos 注册 + 配置中心（4 个服务托管热更新项）、Actuator 健康检查（8 个服务）。
 
-**尚未实现**（相对本文档其余章节的确认设计）：随机题目分配、成绩读模型（排名/最高分/成绩状态机/部分分）、考试预检 6 项与重复登录踢设备、CSV 批量导入、指定题目公告、代码查重、媒体链路（监考令牌/WebRTC/截图）、WebSocket 推送、`judge_task` 异步评测状态机与退避/死信、事件信封上线与消费端 `eventId` 幂等、竞赛级授权范围（含 `INVIGILATOR` 权限）。
+**尚未实现**（相对本文档其余章节的确认设计）：随机题目分配、成绩读模型（排名/最高分/成绩状态机/部分分）、考试预检 6 项与重复登录踢设备、指定题目公告、代码查重、媒体链路（监考令牌/WebRTC/截图）、WebSocket 推送、`judge_task` 异步评测状态机与退避/死信、事件信封上线与消费端 `eventId` 幂等、竞赛级授权范围（含 `INVIGILATOR` 权限）。
 
 后续顺序：
 

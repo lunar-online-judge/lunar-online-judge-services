@@ -1,8 +1,12 @@
 package io.lunar.contest.domain;
 
+import io.lunar.common.api.ApiException;
 import io.lunar.contest.domain.dto.CandidatePage;
 import io.lunar.contest.domain.dto.CandidateView;
 import io.lunar.contest.domain.dto.EnrollmentResult;
+import io.lunar.contest.domain.dto.RosterEntry;
+import io.lunar.contest.domain.dto.RosterImportResult;
+import io.lunar.contest.domain.dto.RosterRowResult;
 import io.lunar.contest.infra.AuthInternalClient;
 import io.lunar.contest.infra.CandidateEntity;
 import io.lunar.contest.infra.CandidateMapper;
@@ -13,6 +17,7 @@ import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Component;
 
 import java.time.Instant;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
@@ -108,6 +113,68 @@ public class EnrollmentService {
         candidateMapper.insert(candidate);
         log.info("AUDIT event=STUDENT_ENROLLED contestId={} studentId={} by={}", contestId, studentId, operatorId);
         return toEnrollmentResult(candidate, passwordChangeRequired);
+    }
+
+    /**
+     * CSV 批量导入名单（docs/exam-process.md §9）：逐行等价于一次"添加学生"，
+     * 复用同一套唯一性校验与审计；部分行失败不回滚已成功行，逐行返回成功或失败原因。
+     * 幂等：账号唯一性（学号/用户名）与名单唯一约束（竞赛+学生）保证重复导入不产生重复数据。
+     */
+    public RosterImportResult importRoster(String contestId, String csvContent,
+                                           String operatorToken, String operatorId) {
+        contestService.get(contestId); // 竞赛不存在直接 404，而不是逐行报错
+        List<RosterEntry> entries = StudentRosterCsv.parse(csvContent);
+        List<RosterRowResult> items = new ArrayList<>();
+        int succeeded = 0;
+        for (RosterEntry entry : entries) {
+            RosterRowResult rowResult = importRow(contestId, entry, operatorToken, operatorId);
+            items.add(rowResult);
+            if ("ENROLLED".equals(rowResult.status())) {
+                succeeded++;
+            }
+        }
+        return new RosterImportResult(items.size(), succeeded, items.size() - succeeded, items);
+    }
+
+    /** 单行导入：任何失败都收敛成该行的结果，不影响其它行。 */
+    private RosterRowResult importRow(String contestId, RosterEntry entry, String operatorToken, String operatorId) {
+        String missingField = firstMissingField(entry);
+        if (missingField != null) {
+            return new RosterRowResult(entry.lineNumber(), entry.studentNo(), "FAILED", null,
+                    "VALIDATION_FAILED", "缺少必填字段：" + missingField);
+        }
+        try {
+            EnrollmentResult enrolled = add(contestId, entry.studentNo(), entry.username(),
+                    entry.displayName(), entry.initialPassword(), operatorToken, operatorId);
+            return new RosterRowResult(entry.lineNumber(), entry.studentNo(), "ENROLLED",
+                    enrolled.studentId(), null, null);
+        } catch (ApiException exception) {
+            // 域异常自带稳定错误码（重复报名、学号/用户名冲突等），原样逐行返回
+            return new RosterRowResult(entry.lineNumber(), entry.studentNo(), "FAILED", null,
+                    exception.code(), exception.getMessage());
+        } catch (RuntimeException exception) {
+            // 上游不可用等未分类失败：细节只进日志，逐行返回不泄漏内部信息
+            log.warn("名单导入行失败 contestId={} line={} studentNo={}",
+                    contestId, entry.lineNumber(), entry.studentNo(), exception);
+            return new RosterRowResult(entry.lineNumber(), entry.studentNo(), "FAILED", null,
+                    null, "导入失败：上游服务不可用或响应异常");
+        }
+    }
+
+    private static String firstMissingField(RosterEntry entry) {
+        if (entry.studentNo() == null) {
+            return "studentNo";
+        }
+        if (entry.username() == null) {
+            return "username";
+        }
+        if (entry.displayName() == null) {
+            return "displayName";
+        }
+        if (entry.initialPassword() == null) {
+            return "initialPassword";
+        }
+        return null;
     }
 
     /** 分页查询名单；keyword 匹配学号快照。 */

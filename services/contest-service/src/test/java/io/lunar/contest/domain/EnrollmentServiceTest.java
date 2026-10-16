@@ -1,6 +1,7 @@
 package io.lunar.contest.domain;
 
 import io.lunar.contest.domain.dto.EnrollmentResult;
+import io.lunar.contest.domain.dto.RosterImportResult;
 import io.lunar.contest.infra.AuthInternalClient;
 import io.lunar.contest.infra.CandidateEntity;
 import io.lunar.contest.infra.CandidateMapper;
@@ -130,6 +131,33 @@ class EnrollmentServiceTest {
 
         assertThatThrownBy(() -> service.resetPassword("c1", "stu_x", "temp-pass-456", "tok", "teacher_1"))
                 .isInstanceOf(ContestException.NotEnrolled.class);
+    }
+
+    @Test
+    void importRosterReportsPerRowFailuresWithoutRollingBackSuccesses() {
+        // 第 1 行：账号不存在 → 新建并报名；第 2 行：学号已在名单中 → 逐行失败；第 3 行：缺用户名 → 逐行失败
+        CandidateEntity alreadyEnrolled = candidate("stu_existing", "20260002", "ENROLLED");
+        when(candidateMapper.selectOne(any())).thenReturn(null, null, alreadyEnrolled);
+        when(authClient.findStudent(any(), any(), any())).thenReturn(null);
+        when(authClient.createStudent(any(), any(), any(), any(), any()))
+                .thenReturn(Map.of("studentId", "stu_new", "passwordChangeRequired", true));
+
+        String csv = "studentNo,username,displayName,initialPassword\n"
+                + "20260001,student_a,学生A,init-pass-123\n"
+                + "20260002,student_b,学生B,init-pass-123\n"
+                + "20260003,,学生C,init-pass-123\n";
+
+        RosterImportResult result = service.importRoster("c1", csv, "tok", "teacher_1");
+
+        assertThat(result.total()).isEqualTo(3);
+        assertThat(result.succeeded()).isEqualTo(1);
+        assertThat(result.failed()).isEqualTo(2);
+        assertThat(result.items().get(0).status()).isEqualTo("ENROLLED");
+        assertThat(result.items().get(0).studentId()).isEqualTo("stu_new");
+        assertThat(result.items().get(1).errorCode()).isEqualTo("CONTEST_STUDENT_ALREADY_ENROLLED");
+        assertThat(result.items().get(2).errorCode()).isEqualTo("VALIDATION_FAILED");
+        // 部分失败不回滚：成功行照常落库
+        verify(candidateMapper).insert(any(CandidateEntity.class));
     }
 
     @Test
