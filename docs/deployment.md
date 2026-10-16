@@ -89,6 +89,7 @@ java -jar services/judge-service/target/judge-service-0.1.0-SNAPSHOT.jar
 
 - `mvn spring-boot:run -pl <module>` 前必须先执行 `mvn -DskipTests install`，否则单模块解析不到 `lunar-common`（依赖解析失败）；**改过 `lunar-common` 后尤其要重装**——本地仓库里的旧 jar 仍能被解析（不报错），但新增的方法在运行时才炸 `NoSuchMethodError`（`Error` 不是 `Exception`，业务代码的 `catch (Exception)` 兜不住，表现为 MQ 消息无限重试、判题结果永不回写）。2026-10 实测踩过：给 `JudgeResult` 加 `passedCases()/totalCases()` 后没 install，judge 消费的每条消息都失败重试；
 - auth-service 连 Docker postgres 需设置 `POSTGRES_PORT=5433`（见上方端口表）；
+- **重启 auth-service 会让令牌"集体 401"几分钟**：未配置 `AUTH_JWT_PRIVATE_KEY` 时它每次启动生成临时开发密钥，而各资源服务的 JWKS 有缓存（Nimbus 默认 5 分钟，且 `kid` 不变时不会主动刷新）——表现为重启后**新登录拿到的令牌**在 problem/contest/submission 等资源服务上仍是 401。本地联调时要么等缓存过期或重启那些服务，要么给 auth 配置固定的开发密钥（生产本就要求外部注入）；
 - judge-service 有 `application.yml` 但**未设 `server.port`**（默认 8080，与 gateway 冲突），且 `JudgeEngine` Bean 需要明确激活条件：本地以 `SPRING_PROFILES_ACTIVE=mock SERVER_PORT=8085 java -jar ...` 启动（或设 `GO_JUDGE_BASE_URL` 切真实引擎），否则会因找不到 `JudgeEngine` Bean 而启动失败。
 
 **开发种子管理员**：`FLYWAY_ENABLED=true` 且 `AUTH_DEV_SEED=true`（默认）时，V3 迁移插入 `admin` / `admin123`（BCrypt 存储）；生产必须设置 `AUTH_DEV_SEED=false`。

@@ -39,6 +39,7 @@ public class ContestScheduler {
                 .set(ContestEntity::getStatus, ContestStatus.RUNNING.name())
                 .set(ContestEntity::getUpdatedAt, now));
         if (started > 0) {
+            // 定时任务没有用户令牌：账本留痕需要服务间身份（客户端凭证），暂只落结构化日志
             log.info("AUDIT event=EXAM_STARTED count={}", started);
         }
 
@@ -49,6 +50,7 @@ public class ContestScheduler {
                 .set(ContestEntity::getStatus, ContestStatus.FINISHED.name())
                 .set(ContestEntity::getUpdatedAt, now));
         if (finished > 0) {
+            // 同上：定时任务无令牌，账本留痕待服务间身份
             log.info("AUDIT event=EXAM_FINISHED count={}", finished);
         }
     }

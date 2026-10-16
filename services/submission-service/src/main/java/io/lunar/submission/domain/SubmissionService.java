@@ -1,5 +1,6 @@
 package io.lunar.submission.domain;
 
+import io.lunar.common.audit.AuditRecorder;
 import io.lunar.common.judge.JudgeVerdict;
 import io.lunar.submission.config.SubmissionLimitProperties;
 import io.lunar.submission.domain.dto.SubmissionView;
@@ -44,14 +45,17 @@ public class SubmissionService {
     private final OutboxEventMapper outboxMapper;
     private final UpstreamClient upstream;
     private final SubmissionLimitProperties limitProperties;
+    private final AuditRecorder auditRecorder;
     private final ObjectMapper objectMapper = new ObjectMapper();
 
     public SubmissionService(SubmissionMapper submissionMapper, OutboxEventMapper outboxMapper,
-                             UpstreamClient upstream, SubmissionLimitProperties limitProperties) {
+                             UpstreamClient upstream, SubmissionLimitProperties limitProperties,
+                             AuditRecorder auditRecorder) {
         this.submissionMapper = submissionMapper;
         this.outboxMapper = outboxMapper;
         this.upstream = upstream;
         this.limitProperties = limitProperties;
+        this.auditRecorder = auditRecorder;
     }
 
     @Transactional
@@ -119,6 +123,8 @@ public class SubmissionService {
                 "testFiles", testFiles)));
         log.info("AUDIT event=SUBMISSION_CREATED submissionId={} contestId={} problemId={} studentId={}",
                 submission.getId(), contestId, problemId, studentId);
+        auditRecorder.record("SUBMISSION_CREATED", "SUBMISSION", submission.getId(), contestId,
+                "题目 " + problemId + " 语言 " + language, traceId, operatorToken);
         return toView(submission);
     }
 
@@ -177,6 +183,7 @@ public class SubmissionService {
                 "score", score == null ? 0 : score,
                 "passedCases", passedCases == null ? 0 : passedCases,
                 "totalCases", totalCases == null ? 0 : totalCases)));
+        // 判决回写由 MQ 消费者触发（没有用户令牌），账本留痕需要服务间身份，暂只落结构化日志
         log.info("AUDIT event=SUBMISSION_JUDGED submissionId={} verdict={} score={}",
                 submissionId, judged.name(), score);
         return toView(submission);

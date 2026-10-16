@@ -1,5 +1,7 @@
 package io.lunar.submission.config;
 
+import io.lunar.common.audit.AuditRecorder;
+import io.lunar.common.audit.AuditServiceApi;
 import io.lunar.common.client.HttpServiceClientFactory;
 import io.lunar.submission.infra.ContestServiceApi;
 import io.lunar.submission.infra.ProblemInternalApi;
@@ -37,5 +39,17 @@ public class ServiceClientConfig {
     ProblemInternalApi problemInternalApi(RestClient.Builder loadBalancedRestClientBuilder,
                                           @Value("${PROBLEM_BASE_URL:http://problem-service}") String problemBaseUrl) {
         return HttpServiceClientFactory.create(ProblemInternalApi.class, loadBalancedRestClientBuilder, problemBaseUrl);
+    }
+
+    /** 审计账本写入：契约被四个服务共用，故复用 lunar-common 的 {@link AuditServiceApi}。 */
+    @Bean
+    AuditServiceApi auditServiceApi(RestClient.Builder loadBalancedRestClientBuilder,
+                                    @Value("${AUDIT_BASE_URL:http://audit-service}") String auditBaseUrl) {
+        return HttpServiceClientFactory.create(AuditServiceApi.class, loadBalancedRestClientBuilder, auditBaseUrl);
+    }
+
+    @Bean
+    AuditRecorder auditRecorder(AuditServiceApi auditServiceApi) {
+        return new AuditRecorder(auditServiceApi);
     }
 }

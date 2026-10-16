@@ -70,7 +70,7 @@
 
 **功能**：
 
-- **服务注册与发现**：8 个服务启动时注册到 `DEFAULT_GROUP`，调用方按服务名寻址——gateway 的 6 条路由用 `lb://<服务名>`，服务间调用走 **Spring 原生声明式 HTTP 接口**（`@HttpExchange`：`AuthServiceApi` / `ContestServiceApi` / `ProblemServiceApi` / `AuditServiceApi`，由各服务的 `ServiceClientConfig` 经 `HttpServiceClientFactory` 装配成 Bean），baseUrl 默认服务名、`*_BASE_URL` 可覆盖为固定地址排障，实例由 Nacos 注册表 + Spring Cloud LoadBalancer（`@LoadBalanced RestClient.Builder`）解析；
+- **服务注册与发现**：8 个服务启动时注册到 `DEFAULT_GROUP`，调用方按服务名寻址——gateway 的 6 条路由用 `lb://<服务名>`，服务间调用走 **Spring 原生声明式 HTTP 接口**（`@HttpExchange`：`AuthServiceApi` / `ContestServiceApi` / `ProblemServiceApi` / `ProblemInternalApi`，以及**四个服务共用的审计写入 `AuditServiceApi`（定义在 lunar-common，因为契约完全相同）**，由各服务的 `ServiceClientConfig` 经 `HttpServiceClientFactory` 装配成 Bean），baseUrl 默认服务名、`*_BASE_URL` 可覆盖为固定地址排障，实例由 Nacos 注册表 + Spring Cloud LoadBalancer（`@LoadBalanced RestClient.Builder`）解析；
 - **配置中心**：托管"运行时可变"的服务私有配置，改值后无需重启即生效。
 
 ### 配置中心：放什么、不放什么

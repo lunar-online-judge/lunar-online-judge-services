@@ -1,10 +1,10 @@
 package io.lunar.anticheat.domain;
 
-import io.lunar.anticheat.infra.AuditClient;
 import io.lunar.anticheat.infra.OutboxEventEntity;
 import io.lunar.anticheat.infra.OutboxEventMapper;
 import io.lunar.anticheat.infra.RiskEventEntity;
 import io.lunar.anticheat.infra.RiskEventMapper;
+import io.lunar.common.audit.AuditRecorder;
 import com.baomidou.mybatisplus.core.MybatisConfiguration;
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.baomidou.mybatisplus.core.metadata.TableInfoHelper;
@@ -31,8 +31,8 @@ class RiskEventServiceTest {
 
     private final RiskEventMapper riskEventMapper = mock(RiskEventMapper.class);
     private final OutboxEventMapper outboxMapper = mock(OutboxEventMapper.class);
-    private final AuditClient auditClient = mock(AuditClient.class);
-    private final RiskEventService service = new RiskEventService(riskEventMapper, outboxMapper, auditClient);
+    private final AuditRecorder auditRecorder = mock(AuditRecorder.class);
+    private final RiskEventService service = new RiskEventService(riskEventMapper, outboxMapper, auditRecorder);
 
     @BeforeAll
     static void initMpMetadata() {

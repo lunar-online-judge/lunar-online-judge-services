@@ -18,7 +18,7 @@
 | 安全 | Spring Security Starter | 随 Spring Boot 3.5.16 管理 | 7 个服务已生效（auth 显式引入，其余经资源服务器 starter 传递）；gateway 与 media 无 |
 | 资源服务器 | OAuth2 Resource Server Starter | 随 Spring Boot 3.5.16 管理 | auth、contest、problem、submission、judge、anti-cheat、media（占位）、audit 已引入；**gateway 未引入**；judge 引入依赖但**未配置验签**，端点当前恒 401 |
 | 服务发现 | Spring Cloud Alibaba Nacos Discovery | 2025.0.0.0 | 8 个服务均已注册到 Nacos；网关路由与服务间调用按服务名寻址 |
-| 服务间调用 | Spring HTTP Interface（`@HttpExchange`）+ RestClient | 随 Spring Framework 6.2 管理 | contest / submission / anti-cheat 三个调用方用声明式接口（各服务 `ServiceClientConfig` 装配，baseUrl 默认服务名、`*_BASE_URL` 可覆盖）；寻址靠 `spring-cloud-starter-loadbalancer`，无需额外 starter |
+| 服务间调用 | Spring HTTP Interface（`@HttpExchange`）+ RestClient | 随 Spring Framework 6.2 管理 | contest / submission / anti-cheat / auth 四个调用方用声明式接口（各服务 `ServiceClientConfig` 装配，baseUrl 默认服务名、`*_BASE_URL` 可覆盖）；审计写入契约 `AuditServiceApi` 因四个调用方完全相同而定义在 lunar-common 共享；寻址靠 `spring-cloud-starter-loadbalancer`，无需额外 starter |
 | 配置中心 | Spring Cloud Alibaba Nacos Config | 2025.0.0.0 | 4 个服务托管运行时可变参数（登录限流阈值、心跳超时等），改值后无需重启 |
 | 健康检查 | Spring Boot Actuator | 随 Spring Boot 3.5.16 管理 | 8 个服务已引入，仅暴露 `/actuator/health`（匿名、只返回 UP/DOWN） |
 
@@ -29,7 +29,7 @@
 - `spring-boot-starter-security`：auth-service 显式声明；contest / problem / submission / judge / anti-cheat / audit 经资源服务器 starter 传递生效；
 - `spring-boot-starter-oauth2-resource-server`：auth、contest、problem、submission、judge、anti-cheat、media、audit（**gateway 未引入**；judge 引入了依赖但未配置验签）；
 - `springdoc-openapi-starter-webmvc-ui:2.8.17`：除 gateway/media 外的 7 个服务；
-- `spring-cloud-starter-loadbalancer`：按服务名调用/路由（gateway 的路由 `lb://`，contest / submission / anti-cheat 的服务间调用）；服务间声明式接口用 Spring Framework 自带的 `@HttpExchange`，不需要额外 starter；
+- `spring-cloud-starter-loadbalancer`：按服务名调用/路由（gateway 的路由 `lb://`，contest / submission / anti-cheat / auth 的服务间调用）；服务间声明式接口用 Spring Framework 自带的 `@HttpExchange`，不需要额外 starter；**调用方必须引入它**，否则 baseUrl（如 `http://audit-service`）会被当成真实域名解析（实测踩过：auth 接入审计留痕时缺该依赖，写账本全部 DNS 失败）；
 - `spring-boot-maven-plugin`：judge-service 当前启用可执行 Spring Boot 打包。
 
 ### 当前仅纳入编排或设计、尚未接入 Java 依赖的组件

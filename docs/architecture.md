@@ -400,7 +400,7 @@ CREATED -> AUTHORIZED -> CONNECTING -> LIVE
 - submission-service：提交（幂等 + 4 项校验 + 取测试点 + Outbox）、判决回写、Outbox 发布器、judged 消费者；
 - judge-service：`lunar-submission-created` 消费者、`GoJudgeAdapter`（设 `GO_JUDGE_BASE_URL` 激活）与 `MockJudgeEngine`（`mock` profile）、verdict 归一化；
 - anti-cheat-service：风险事件上报（服务端算 severity）/分页查询/人工审核状态机；
-- audit-service：追加式账本写入与查询；
+- audit-service：追加式账本写入与查询（**contest / auth / submission / anti-cheat 四个调用方已接入**，共用 lunar-common 的 `AuditServiceApi` + 尽力而为的 `AuditRecorder`）；
 - gateway-service：6 条路由前缀 + `X-Request-Id` 透传，`/api/v1/internal/**` 不暴露；
 - 基础设施：Compose（PostgreSQL / Redis / MinIO / Nacos / RocketMQ / OpenResty / go-judge）、Nacos 注册 + 配置中心（4 个服务托管热更新项）、Actuator 健康检查（8 个服务）。
 

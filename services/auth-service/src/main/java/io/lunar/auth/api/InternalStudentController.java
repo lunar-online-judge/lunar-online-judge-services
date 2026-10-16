@@ -25,7 +25,7 @@ import org.springframework.web.bind.annotation.RestController;
 /**
  * 服务间接口：学生账号由 contest-service 编排、auth-service 执行（docs/api.md"老师管理竞赛学生"）。
  * 鉴权过渡方案：要求操作者（老师/管理员）的有效令牌，由 contest 转发；
- * 服务间独立身份（客户端凭证）后续接入时替换。审计事件见 StudentAccountService 日志。
+ * 服务间独立身份（客户端凭证）后续接入时替换。审计：账号创建/密码重置写 audit-service 账本（见 StudentAccountService）。
  * 异常响应由 lunar-common 的全局异常处理器统一产出，本类不再自带 advice。
  */
 @RestController
@@ -57,10 +57,11 @@ public class InternalStudentController {
     public ResponseEntity<ApiResponse<StudentResponse>> create(
             @Valid @RequestBody CreateStudentRequest request,
             Authentication authentication,
-            @RequestHeader(value = RequestIdFilter.HEADER, required = false) String requestId) {
+            @RequestHeader(value = RequestIdFilter.HEADER, required = false) String requestId,
+            @RequestHeader(value = "Authorization", required = false) String authorization) {
         CreatedStudent created = studentAccountService.createStudent(
                 request.studentNo(), request.username(), request.displayName(),
-                request.initialPassword(), authentication.getName());
+                request.initialPassword(), authentication.getName(), authorization);
         return ResponseEntity.ok(ApiResponse.success(requestId, StudentResponse.of(created)));
     }
 
@@ -70,8 +71,10 @@ public class InternalStudentController {
             @PathVariable String studentId,
             @Valid @RequestBody ResetPasswordRequest request,
             Authentication authentication,
-            @RequestHeader(value = RequestIdFilter.HEADER, required = false) String requestId) {
-        studentAccountService.resetStudentPassword(studentId, request.temporaryPassword(), authentication.getName());
+            @RequestHeader(value = RequestIdFilter.HEADER, required = false) String requestId,
+            @RequestHeader(value = "Authorization", required = false) String authorization) {
+        studentAccountService.resetStudentPassword(studentId, request.temporaryPassword(),
+                authentication.getName(), authorization);
         return ResponseEntity.ok(ApiResponse.success(requestId, new PasswordResetResponse(true)));
     }
 }

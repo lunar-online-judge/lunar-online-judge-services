@@ -60,7 +60,8 @@ class InternalStudentControllerTest {
     @Test
     void teacherCreatesStudent() throws Exception {
         when(studentAccountService.createStudent(eq("20260001"), eq("student_20260001"),
-                eq("张三"), eq("initial-pass-123"), eq("teacher_1"))).thenReturn(CREATED);
+                eq("张三"), eq("initial-pass-123"), eq("teacher_1"), eq("Bearer token-value")))
+                .thenReturn(CREATED);
 
         mockMvc.perform(post("/api/v1/internal/students")
                         .header("Authorization", "Bearer token-value")
@@ -87,7 +88,7 @@ class InternalStudentControllerTest {
 
     @Test
     void duplicateUsernameReturns409() throws Exception {
-        when(studentAccountService.createStudent(any(), any(), any(), any(), any()))
+        when(studentAccountService.createStudent(any(), any(), any(), any(), any(), any()))
                 .thenThrow(new UserException.UsernameExists());
 
         mockMvc.perform(post("/api/v1/internal/students")
@@ -101,7 +102,7 @@ class InternalStudentControllerTest {
 
     @Test
     void weakPasswordReturns400() throws Exception {
-        when(studentAccountService.createStudent(any(), any(), any(), any(), any()))
+        when(studentAccountService.createStudent(any(), any(), any(), any(), any(), any()))
                 .thenThrow(new UserException.WeakPassword());
 
         mockMvc.perform(post("/api/v1/internal/students")
@@ -136,7 +137,8 @@ class InternalStudentControllerTest {
     @Test
     void resetPasswordReturnsPasswordChangeRequired() throws Exception {
         Mockito.doNothing()
-                .when(studentAccountService).resetStudentPassword(eq("stu_1"), eq("temp-pass-456"), eq("teacher_1"));
+                .when(studentAccountService).resetStudentPassword(eq("stu_1"), eq("temp-pass-456"),
+                        eq("teacher_1"), eq("Bearer token-value"));
 
         mockMvc.perform(post("/api/v1/internal/students/stu_1/password-reset")
                         .header("Authorization", "Bearer token-value")

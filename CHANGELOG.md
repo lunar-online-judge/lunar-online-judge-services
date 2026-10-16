@@ -73,6 +73,11 @@
 
 ### 新增
 
+- **审计留痕接入四个服务**（`docs/services.md` audit 节"下一步"：把各服务"先落结构化日志"的点迁入账本）
+  - `lunar-common` 新增共享的 `AuditServiceApi`（写入契约）、`AuditRecordCommand`（请求体）与 `AuditRecorder`（尽力而为封装：失败只告警、缺令牌跳过，绝不阻断主流程）——四个调用方需要**完全相同**的审计写入契约，因此不再每个服务复制一份；各服务仍在自己的 `ServiceClientConfig` 里装配 Bean
+  - 新接入 7 个动作：contest 的 `STUDENT_ENROLLED` / `STUDENT_REENROLLED` / `STUDENT_PASSWORD_RESET` / `STUDENT_REMOVED`（`remove` 补传操作者令牌）、auth 的 `STUDENT_CREATED` / `STUDENT_PASSWORD_RESET`（服务间接口补传令牌）、submission 的 `SUBMISSION_CREATED`（traceId 一并透传）
+  - anti-cheat 从自带的 `AuditClient` 迁到共享实现，删掉两份重复文件；行为不变（审核留痕尽力而为）
+  - **仍未入账本**（需要服务间身份，代码中已就地注明）：`ContestScheduler` 的 `EXAM_STARTED` / `EXAM_FINISHED` 与 MQ 消费者触发的 `SUBMISSION_JUDGED`——它们没有用户令牌，服务间独立身份（客户端凭证）落地后再补
 - **测试点随事件传输到评测引擎**（打通真实判题的最后一块）
   - problem-service 新增服务间接口 `GET /api/v1/internal/problems/{problemId}/versions/{versionId}/testcases`（`isAuthenticated()`，不经网关、只能内网直连——与 audit 的服务间写入同一约定）；新增可配置体积上限 `problem.testdata.max-bytes`（默认 1 MiB），超限抛新错误码 `PROBLEM_TESTDATA_TOO_LARGE`（413）：测试点要进 MQ，超限的消息会永远发不出去（Outbox 每轮重试）
   - submission-service 提交时取测试点（新增 `ProblemInternalApi` 声明式接口 + `UpstreamClient.problemTestcases`），按 `<name>.in` / `<name>.out` 组装进 `lunar-submission-created` 的 `testFiles` 字段

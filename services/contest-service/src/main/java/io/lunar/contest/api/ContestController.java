@@ -192,8 +192,9 @@ public class ContestController {
             @PathVariable String contestId,
             @PathVariable String studentId,
             Authentication authentication,
-            @RequestHeader(value = RequestIdFilter.HEADER, required = false) String requestId) {
-        enrollmentService.remove(contestId, studentId, authentication.getName());
+            @RequestHeader(value = RequestIdFilter.HEADER, required = false) String requestId,
+            @RequestHeader(value = "Authorization", required = false) String authorization) {
+        enrollmentService.remove(contestId, studentId, authorization, authentication.getName());
         return ResponseEntity.ok(ApiResponse.success(requestId, null));
     }
 

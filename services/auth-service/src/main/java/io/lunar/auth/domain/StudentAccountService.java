@@ -3,6 +3,7 @@ package io.lunar.auth.domain;
 import io.lunar.auth.domain.dto.CreatedStudent;
 import io.lunar.auth.infra.UserEntity;
 import io.lunar.auth.infra.UserMapper;
+import io.lunar.common.audit.AuditRecorder;
 import io.lunar.common.security.Role;
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import org.slf4j.Logger;
@@ -17,7 +18,8 @@ import java.util.UUID;
  * 学生账号管理（服务间接口，供 contest-service 编排调用，docs/architecture.md §2.1.1）：
  * 明文密码只存在于当前请求生命周期，服务端立即哈希；响应不含密码或哈希。
  * 幂等由 username 全局唯一 + studentNo 组织内唯一约束兜底，重复创建返回 409。
- * 审计：audit-service 未建成，先以结构化日志落 AUDIT 事件（不含密码/哈希），建成后迁移。
+ * 审计：账号创建/密码重置写 audit-service 账本（尽力而为，失败不阻断），结构化日志同时保留兜底；
+ * 账本内容不含密码或哈希。
  */
 @Component
 public class StudentAccountService {
@@ -26,10 +28,13 @@ public class StudentAccountService {
 
     private final UserMapper userMapper;
     private final PasswordEncoder passwordEncoder;
+    private final AuditRecorder auditRecorder;
 
-    public StudentAccountService(UserMapper userMapper, PasswordEncoder passwordEncoder) {
+    public StudentAccountService(UserMapper userMapper, PasswordEncoder passwordEncoder,
+                                 AuditRecorder auditRecorder) {
         this.userMapper = userMapper;
         this.passwordEncoder = passwordEncoder;
+        this.auditRecorder = auditRecorder;
     }
 
     /** 按学号或账户名查学生账号；两个条件至少传一个，都不匹配返回 null。 */
@@ -53,7 +58,8 @@ public class StudentAccountService {
     }
 
     public CreatedStudent createStudent(String studentNo, String username, String displayName,
-                                        String initialPassword, String operatorTeacherId) {
+                                        String initialPassword, String operatorTeacherId,
+                                        String operatorToken) {
         if (initialPassword == null || initialPassword.length() < 8) {
             throw new UserException.WeakPassword();
         }
@@ -82,11 +88,14 @@ public class StudentAccountService {
 
         log.info("AUDIT event=STUDENT_CREATED studentId={} studentNo={} managedBy={}",
                 user.getId(), studentNo, operatorTeacherId);
+        auditRecorder.record("STUDENT_CREATED", "STUDENT_ACCOUNT", user.getId(), null,
+                "学号 " + studentNo, null, operatorToken);
         return new CreatedStudent(user.getId(), studentNo, username, displayName, true);
     }
 
     /** 重置学生密码：新临时密码立即哈希，置 passwordChangeRequired；不返回任何密码材料。 */
-    public void resetStudentPassword(String studentId, String temporaryPassword, String operatorTeacherId) {
+    public void resetStudentPassword(String studentId, String temporaryPassword, String operatorTeacherId,
+                                     String operatorToken) {
         if (temporaryPassword == null || temporaryPassword.length() < 8) {
             throw new UserException.WeakPassword();
         }
@@ -101,5 +110,7 @@ public class StudentAccountService {
         userMapper.updateById(user);
 
         log.info("AUDIT event=STUDENT_PASSWORD_RESET studentId={} managedBy={}", studentId, operatorTeacherId);
+        auditRecorder.record("STUDENT_PASSWORD_RESET", "STUDENT_ACCOUNT", studentId, null,
+                "重置为临时密码", null, operatorToken);
     }
 }

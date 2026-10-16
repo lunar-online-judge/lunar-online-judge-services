@@ -3,11 +3,11 @@ package io.lunar.anticheat.domain;
 import io.lunar.anticheat.domain.dto.ReportedEvent;
 import io.lunar.anticheat.domain.dto.ReviewPage;
 import io.lunar.anticheat.domain.dto.RiskEventView;
-import io.lunar.anticheat.infra.AuditClient;
 import io.lunar.anticheat.infra.OutboxEventEntity;
 import io.lunar.anticheat.infra.OutboxEventMapper;
 import io.lunar.anticheat.infra.RiskEventEntity;
 import io.lunar.anticheat.infra.RiskEventMapper;
+import io.lunar.common.audit.AuditRecorder;
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.baomidou.mybatisplus.core.conditions.update.LambdaUpdateWrapper;
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
@@ -39,14 +39,14 @@ public class RiskEventService {
 
     private final RiskEventMapper riskEventMapper;
     private final OutboxEventMapper outboxMapper;
-    private final AuditClient auditClient;
+    private final AuditRecorder auditRecorder;
     private final ObjectMapper objectMapper = new ObjectMapper();
 
     public RiskEventService(RiskEventMapper riskEventMapper, OutboxEventMapper outboxMapper,
-                            AuditClient auditClient) {
+                            AuditRecorder auditRecorder) {
         this.riskEventMapper = riskEventMapper;
         this.outboxMapper = outboxMapper;
-        this.auditClient = auditClient;
+        this.auditRecorder = auditRecorder;
     }
 
     /** 上报风险事件（考生客户端自动上报，studentId = JWT sub）。 */
@@ -139,14 +139,10 @@ public class RiskEventService {
         riskEvent.setReviewNote(note);
         log.info("AUDIT event=RISK_EVENT_REVIEWED riskEventId={} {}->{} by={} note={}",
                 eventId, from, to, reviewerId, note);
-        // 审计账本（尽力而为：audit-service 暂不可用时不阻断审核）
-        try {
-            auditClient.record("RISK_EVENT_REVIEWED", "RISK_EVENT", eventId, riskEvent.getContestId(),
-                    from + "->" + to + (note == null || note.isBlank() ? "" : " note=" + note),
-                    null, operatorToken);
-        } catch (Exception exception) {
-            log.warn("审计写入失败（不影响审核结果）：riskEventId={} err={}", eventId, exception.getMessage());
-        }
+        // 审计账本（尽力而为：AuditRecorder 内部吞掉失败，audit-service 暂不可用也不阻断审核）
+        auditRecorder.record("RISK_EVENT_REVIEWED", "RISK_EVENT", eventId, riskEvent.getContestId(),
+                from + "->" + to + (note == null || note.isBlank() ? "" : " note=" + note),
+                null, operatorToken);
         return toView(riskEvent);
     }
 

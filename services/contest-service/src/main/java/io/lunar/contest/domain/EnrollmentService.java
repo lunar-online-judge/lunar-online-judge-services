@@ -1,6 +1,7 @@
 package io.lunar.contest.domain;
 
 import io.lunar.common.api.ApiException;
+import io.lunar.common.audit.AuditRecorder;
 import io.lunar.contest.domain.dto.CandidatePage;
 import io.lunar.contest.domain.dto.CandidateView;
 import io.lunar.contest.domain.dto.EnrollmentResult;
@@ -26,7 +27,8 @@ import java.util.UUID;
  * 报名关系编排（docs/exam-process.md §9、architecture.md §2.1.1-2.1.2）：
  * 学生账号由 auth-service 创建（本服务转发操作者令牌），报名关系归本服务。
  * 同一 contestId+studentNo 只有一条有效报名关系；移出是软删除并同时使当前会话失效（§9）；重新加入复用原行置回 ENROLLED。
- * 审计：这些动作目前只落结构化日志，尚未写入 audit-service 账本（见 docs/services.md"下一步"）。
+ * 审计：名单变更动作写 audit-service 账本（尽力而为，失败不阻断；见 docs/services.md"下一步"），
+ * 结构化日志同时保留作为兜底。
  */
 @Component
 public class EnrollmentService {
@@ -37,13 +39,16 @@ public class EnrollmentService {
     private final ContestService contestService;
     private final AuthInternalClient authClient;
     private final ExamSessionService examSessionService;
+    private final AuditRecorder auditRecorder;
 
     public EnrollmentService(CandidateMapper candidateMapper, ContestService contestService,
-                             AuthInternalClient authClient, ExamSessionService examSessionService) {
+                             AuthInternalClient authClient, ExamSessionService examSessionService,
+                             AuditRecorder auditRecorder) {
         this.candidateMapper = candidateMapper;
         this.contestService = contestService;
         this.authClient = authClient;
         this.examSessionService = examSessionService;
+        this.auditRecorder = auditRecorder;
     }
 
     /** 添加学生：账号不存在则经 auth 创建（或账号已存在则复用），再建立/激活报名关系。 */
@@ -97,6 +102,8 @@ public class EnrollmentService {
             candidateMapper.updateById(existing);
             log.info("AUDIT event=STUDENT_REENROLLED contestId={} studentId={} by={}",
                     contestId, studentId, operatorId);
+            auditRecorder.record("STUDENT_REENROLLED", "ENROLLMENT", studentId, contestId,
+                    "重新加入名单", null, operatorToken);
             return toEnrollmentResult(existing, passwordChangeRequired);
         }
 
@@ -112,6 +119,8 @@ public class EnrollmentService {
         candidate.setEnrolledAt(Instant.now());
         candidateMapper.insert(candidate);
         log.info("AUDIT event=STUDENT_ENROLLED contestId={} studentId={} by={}", contestId, studentId, operatorId);
+        auditRecorder.record("STUDENT_ENROLLED", "ENROLLMENT", studentId, contestId,
+                "加入名单", null, operatorToken);
         return toEnrollmentResult(candidate, passwordChangeRequired);
     }
 
@@ -199,16 +208,20 @@ public class EnrollmentService {
         authClient.resetPassword(studentId, temporaryPassword, operatorToken);
         log.info("AUDIT event=STUDENT_PASSWORD_RESET contestId={} studentId={} by={}",
                 contestId, studentId, operatorId);
+        auditRecorder.record("STUDENT_PASSWORD_RESET", "STUDENT_ACCOUNT", studentId, contestId,
+                "重置为临时密码", null, operatorToken);
     }
 
     /** 移出名单：软删除（status=REMOVED），学生账号与历史数据保留；当前考试会话同时失效（docs/exam-process.md §9）。 */
-    public void remove(String contestId, String studentId, String operatorId) {
+    public void remove(String contestId, String studentId, String operatorToken, String operatorId) {
         CandidateEntity candidate = requireEnrolled(contestId, studentId);
         candidate.setStatus("REMOVED");
         candidate.setRemovedAt(Instant.now());
         candidateMapper.updateById(candidate);
         examSessionService.terminateIfExists(contestId, studentId);
         log.info("AUDIT event=STUDENT_REMOVED contestId={} studentId={} by={}", contestId, studentId, operatorId);
+        auditRecorder.record("STUDENT_REMOVED", "ENROLLMENT", studentId, contestId,
+                "移出名单", null, operatorToken);
     }
 
     private CandidateEntity requireEnrolled(String contestId, String studentId) {

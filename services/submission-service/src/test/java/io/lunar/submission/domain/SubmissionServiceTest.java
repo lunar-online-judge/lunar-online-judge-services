@@ -1,5 +1,6 @@
 package io.lunar.submission.domain;
 
+import io.lunar.common.audit.AuditRecorder;
 import io.lunar.submission.config.SubmissionLimitProperties;
 import io.lunar.submission.domain.dto.SubmissionView;
 import io.lunar.submission.infra.OutboxEventEntity;
@@ -36,8 +37,9 @@ class SubmissionServiceTest {
     private final SubmissionMapper submissionMapper = mock(SubmissionMapper.class);
     private final OutboxEventMapper outboxMapper = mock(OutboxEventMapper.class);
     private final UpstreamClient upstream = mock(UpstreamClient.class);
+    private final AuditRecorder auditRecorder = mock(AuditRecorder.class);
     private final SubmissionService service = new SubmissionService(
-            submissionMapper, outboxMapper, upstream, limitProperties());
+            submissionMapper, outboxMapper, upstream, limitProperties(), auditRecorder);
 
     private static SubmissionLimitProperties limitProperties() {
         SubmissionLimitProperties properties = new SubmissionLimitProperties();
@@ -106,6 +108,9 @@ class SubmissionServiceTest {
         assertThat(captor.getValue().getPayload()).contains("\"problemVersionId\":\"v1\"");
         // 测试点随 created 事件送到评测引擎（键名与 GoJudgeAdapter.parseTestCases 约定一致）
         assertThat(captor.getValue().getPayload()).contains("\"case1.in\":\"1 2\"").contains("\"case1.out\":\"3\"");
+        // 提交动作写审计账本（尽力而为；traceId 透传给账本，链路不断）
+        verify(auditRecorder).record("SUBMISSION_CREATED", "SUBMISSION", view.submissionId(), "c1",
+                "题目 p1 语言 cpp", "trace-1", "Bearer t");
     }
 
     @Test
