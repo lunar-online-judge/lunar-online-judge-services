@@ -51,11 +51,11 @@ ai:
     # base-url **刻意不在这里给默认值**（连 ${AI_PROVIDER_BASE_URL:} 这种空兜底也不写）：
     # 本项目只接入云端 API 模型，端点必须由部署方显式声明；Spring Boot 的宽松绑定会让
     # 环境变量 AI_PROVIDER_BASE_URL 自动绑到 ai.provider.base-url，无需在此中转。
-    # 未配置时 AiPrivacyGuard 直接抛 IllegalStateException（服务起不来），见其类注释。
+    # 未配置时 AiModelFactory 的出境检查 直接抛 IllegalStateException（服务起不来），见其类注释。
     # 超时启动期固化（建在 RestClient 上，改后需重启）
     connect-timeout-seconds: 10
     read-timeout-seconds: 120
-    # 数据出境授权**不在这里**：它只从环境变量 AI_EGRESS_APPROVED 读（见 AiPrivacyGuard）。
+    # 数据出境授权**不在这里**：它只从环境变量 AI_EGRESS_APPROVED 读（见 AiModelFactory 的出境检查）。
     # 刻意不进配置文件也不进配置中心——安全开关一旦可被一次配置改动打开，它就形同不存在。
     # 另外：base-url 指向非内网地址时，AiModelFactory 每次构建模型前都会复核该门禁，
     # 因此"把 base-url 热切成公网地址"这条绕过路径也是堵住的。

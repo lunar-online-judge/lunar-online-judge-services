@@ -8,11 +8,8 @@
 #   - ai.provider.connect-timeout-seconds / read-timeout-seconds：建在 RestClient 上，启动期固化；
 #   - ai.worker.concurrency / poll-interval-ms：线程池大小与 @Scheduled 周期，启动期固化；
 #
-# **base-url 现在放在这里**：本项目已确定只接入一家云端 API（DeepSeek），端点不再是"待部署方决定的未知量"。
-# 环境变量 AI_PROVIDER_BASE_URL 依然可以覆盖它（环境变量优先级高于配置中心），换厂商或换自建网关无需改本文件。
 ai:
   provider:
-    base-url: https://api.deepseek.com/v1
     # DeepSeek 的 OpenAI 兼容模型名：deepseek-chat（通用对话）/ deepseek-reasoner（推理增强）
     chat-model: deepseek-chat
     max-tokens: 2048

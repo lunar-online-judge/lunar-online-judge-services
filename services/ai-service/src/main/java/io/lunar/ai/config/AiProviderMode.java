@@ -5,7 +5,7 @@ package io.lunar.ai.config;
  *
  * 刻意不参与协议选择——各家 Provider **共用** OpenAI 兼容协议，这个枚举只用于日志、健康检查
  * 与运维语义（"现在把学生源码发去哪儿了"）。真正决定数据是否出境的判据是 base-url 的地址，
- * 见 {@link AiPrivacyGuard}。
+ * 见 {@link AiModelFactory 的出境检查}。
  */
 public enum AiProviderMode {
 

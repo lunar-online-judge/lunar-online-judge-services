@@ -9,7 +9,7 @@ import org.springframework.boot.context.properties.ConfigurationProperties;
  * （{@code /chat/completions}、{@code /embeddings}），因此"切换 Provider"只是
  * 换 base-url + api-key + 模型名，不需要两套客户端实现，也不需要厂商专属 SDK。
  *
- * base-url **刻意不给默认值**（{@code AiPrivacyGuard} 在为空时直接抛
+ * base-url **刻意不给默认值**（{@code AiModelFactory 的出境检查} 在为空时直接抛
  * {@code IllegalStateException}）：默认值意味着"不配置也能跑"，而"跑起来用的到底是哪个端点"
  * 恰恰是数据出境这件事上最不能猜的一项，必须由部署方显式声明。
  *

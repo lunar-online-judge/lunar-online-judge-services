@@ -10,7 +10,7 @@
 # 现状（本轮起）：
 #   - ai-service 只接入**云端 API 模型**（OpenAI 兼容端点），Provider 地址必须由部署方显式给出；
 #   - 未配置 `AI_PROVIDER_BASE_URL`（或配置中心 `ai.provider.base-url`）时 ai-service **启动失败**
-#     （AiPrivacyGuard 的 fail-closed 检查），不会再回落到 `http://localhost:11434/v1`；
+#     （AiModelFactory 的出境检查 的 fail-closed 检查），不会再回落到 `http://localhost:11434/v1`；
 #   - 数据出境门禁不变：地址判内网、授权只认环境变量 `AI_EGRESS_APPROVED`、每次构建模型前复核。
 #
 # 需要"内网自建网关"而不是云厂商时：部署自己的 OpenAI 兼容网关，把 `AI_PROVIDER_BASE_URL`

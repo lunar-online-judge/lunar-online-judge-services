@@ -7,8 +7,8 @@
 
 AUTH=http://localhost:8081
 CONTEST=http://localhost:8082
-AI=http://localhost:8088
-ANALYTICS=http://localhost:8089
+AI=http://localhost:8089
+ANALYTICS=http://localhost:8088
 
 TS=$(date +%s)
 PASS=0; FAIL=0

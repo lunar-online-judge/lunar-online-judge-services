@@ -75,7 +75,7 @@
 
 **本项目只接入云端 API 模型**（2026-10 起不再支持本地 Ollama 这类跑在本机的模型运行时）：
 
-- **Provider 地址必须显式配置**：base-url **没有默认值**（`AiProviderProperties` 的字段默认是空串），未配置 `AI_PROVIDER_BASE_URL`（或配置中心 `ai.provider.base-url`）时 `AiPrivacyGuard` 在启动期直接抛 `IllegalStateException`——服务起不来，而不是回落到某个"碰巧能通"的地址。此前的默认值 `http://localhost:11434/v1` 已删除：默认值意味着"不配置也能跑"，而"跑起来用的到底是哪个端点"恰恰是数据出境这件事上最不能猜的一项；
+- **Provider 地址必须显式配置**：base-url **没有默认值**（`AiProviderProperties` 的字段默认是空串），未配置 `AI_PROVIDER_BASE_URL`（或配置中心 `ai.provider.base-url`）时 `AiModelFactory 的出境检查` 在启动期直接抛 `IllegalStateException`——服务起不来，而不是回落到某个"碰巧能通"的地址。此前的默认值 `http://localhost:11434/v1` 已删除：默认值意味着"不配置也能跑"，而"跑起来用的到底是哪个端点"恰恰是数据出境这件事上最不能猜的一项；
 - **换供应商只换 base-url**：各家云厂商都提供 OpenAI 兼容协议（`/chat/completions`、`/embeddings`），因此换 Provider 只是换 base-url（外加 api-key 与模型名）；
 - **不引任何厂商专属 SDK**：ai-service 只引 `langchain4j-open-ai`，刻意不引 `langchain4j-ollama`、也不引各家官方 SDK，避免形成多条会分叉的调用路径；
 - **模型名走配置，不绑死某一家**：`chat-model` / `embedding-model` 的默认值只是中性占位（`gpt-4o-mini` / `text-embedding-3-small`），**按所选厂商的模型名填**；
@@ -93,7 +93,7 @@
 - **它没有被任何其它 compose 文件 `include`/`extends`**：`docker/compose.full.yml` 只收 `compose.core.yml` / `compose.platform.yml` / `compose.edge.yml` / `compose.judge.yml`，因此废弃它不影响组合启动；
 - 需要"数据不出境"的部署时，正确做法是自建**内网的 OpenAI 兼容网关**并把 base-url 指向它（此时地址判内网、不需要出境授权）——它仍是 API 模型，**不要**回到本机模型运行时。
 
-**数据边界（数据出境门禁）**：`AiPrivacyGuard` 的判据是 **base-url 的地址**，不是 `ai.provider.mode`——把 mode 写成 LOCAL 却填了公网地址，是最容易发生的数据出境方式。**这条逻辑本轮原样保留、不因"只接云端"而放宽**：自建内网网关同样属于"API 模型"，而且按地址判定是后面几项授权/复核机制的基础（没有地址判据，"出境"就无从定义）。
+**数据边界（数据出境门禁）**：`AiModelFactory 的出境检查` 的判据是 **base-url 的地址**，不是 `ai.provider.mode`——把 mode 写成 LOCAL 却填了公网地址，是最容易发生的数据出境方式。**这条逻辑本轮原样保留、不因"只接云端"而放宽**：自建内网网关同样属于"API 模型"，而且按地址判定是后面几项授权/复核机制的基础（没有地址判据，"出境"就无从定义）。
 
 - **地址缺失 → 失败**：base-url 为空/空白时直接抛 `IllegalStateException`，不看授权、不看密钥（"没配"不能靠一次授权兜过去）；
 - 出境授权**只从环境变量 `AI_EGRESS_APPROVED` 读**。此前它与其他 Provider 参数同属 `ai.provider.*`，于是配置中心的 `ai-service.yml` 里写一行 `egress-approved: true` 就能静默打开出境；安全开关绝不能和普通可调参数共用一个可被配置中心覆盖的绑定前缀（环境变量也无法经配置中心注入）；
@@ -142,7 +142,7 @@ ai-service **不放**的键与理由见下文"不放"清单与"LLM 推理服务"
 
 **热更新的边界**：只有 `@ConfigurationProperties`（可变 JavaBean）+ **每次调用时读取**才能热更新。`@Value` 不参与刷新；构造期读进字段等于固化（那样配置中心就只剩"改完重启"的价值）。`@Scheduled(fixedDelayString=…)` 与 HTTP 客户端超时都在启动时解析/固化，改后需重启——上表已逐项标注。
 
-**离线兜底**：`spring.config.import` 用 `optional:` 前缀，Nacos 不可达时服务仍以 `@ConfigurationProperties` 的字段默认值启动（与 `NACOS_FAIL_FAST=false` 一致）。**例外是 `ai.provider.base-url`**：它没有字段默认值，缺了就启动失败（`AiPrivacyGuard` 的 fail-closed 检查，见"LLM 推理服务"节）——地址不允许有"兜底值"。**注意：导入的配置优先级低于本地 yml**——被托管的键不能再写在本地 yml，否则本地值会永远盖住 Nacos 的值（本项目已按此清理过 auth 的 `auth.login.*`）。环境变量优先级高于两者，仍可临时覆盖。
+**离线兜底**：`spring.config.import` 用 `optional:` 前缀，Nacos 不可达时服务仍以 `@ConfigurationProperties` 的字段默认值启动（与 `NACOS_FAIL_FAST=false` 一致）。**例外是 `ai.provider.base-url`**：它没有字段默认值，缺了就启动失败（`AiModelFactory 的出境检查` 的 fail-closed 检查，见"LLM 推理服务"节）——地址不允许有"兜底值"。**注意：导入的配置优先级低于本地 yml**——被托管的键不能再写在本地 yml，否则本地值会永远盖住 Nacos 的值（本项目已按此清理过 auth 的 `auth.login.*`）。环境变量优先级高于两者，仍可临时覆盖。
 
 **配置内容的真源在 git**：`docker/nacos/config/<服务名>.yml` 是这些配置的版本化真源，用 `bash docker/nacos/publish-configs.sh` 推送到 Nacos（走官方 nacos-client，免鉴权、不受 HTTP API 版本差异影响）。推荐流程：改仓库里的 yml → 提交 → 跑脚本。控制台 UI 也能改（适合临时调参），但那样只有 Nacos 自己的变更历史，不在 git 里。
 

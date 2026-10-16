@@ -4,6 +4,7 @@ import dev.langchain4j.model.chat.ChatModel;
 import dev.langchain4j.model.openai.OpenAiChatModel;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.InitializingBean;
 import org.springframework.stereotype.Component;
 
 import java.time.Duration;
@@ -24,7 +25,7 @@ import java.util.concurrent.ConcurrentHashMap;
  * 让框架在内部悄悄重试会让"尝试次数"失真，日志里看到的失败次数也就不可信了。
  */
 @Component
-public class AiModelFactory {
+public class AiModelFactory implements InitializingBean {
 
     private static final Logger log = LoggerFactory.getLogger(AiModelFactory.class);
 
@@ -41,9 +42,19 @@ public class AiModelFactory {
         this.properties = properties;
     }
 
+    /**
+     * 启动期就检查一次：配置错（缺 base-url、公网地址未授权、外部端点缺 key）必须让服务**起不来**，
+     * 而不是等第一位老师点了"生成评审"才发现——那时学生代码已经在路上。
+     * 每次构建模型前还会再查一次：base-url 是可热更新配置，只在启动期检查会被运行期改地址绕过。
+     */
+    @Override
+    public void afterPropertiesSet() {
+        requireEgressApproved();
+    }
+
     public ChatModel chatModel() {
         return chatModels.computeIfAbsent(chatSignature(), signature -> {
-            requireBaseUrl();
+            requireEgressApproved();
             log.info("按当前配置构建 ChatModel：mode={} host={} model={}",
                     properties.getMode(), hostOf(properties.getBaseUrl()), properties.getChatModel());
             return buildChatModel();
@@ -66,14 +77,43 @@ public class AiModelFactory {
     }
 
     /**
-     * base-url 必填：原配置刻意不给默认值，配错时应当在**第一次调用**就给出明确错误，
-     * 而不是让客户端拿着空地址去连接、抛出一句难懂的 URL 异常。
+     * 出境门禁（fail closed）：把学生源码发给外部模型是**合规问题**，不能靠"配置写对了"来保证。
+     *
+     * 三条规则：
+     *   1. base-url 必填——没有默认端点，配错时在第一次调用就给出明确错误；
+     *   2. 指向**外部地址**时，必须显式设置环境变量 {@code AI_EGRESS_APPROVED=true}（只认环境变量，
+     *      配置中心改不动它——否则一次配置误改就能把学生代码发到任意地址）；
+     *   3. 外部地址必须带 api-key（内网自建网关允许不带，用占位值）。
+     *
+     * 每次构建模型前都会执行：base-url 是可热更新的配置，只在启动期检查会被"运行期改成公网地址"绕过。
      */
-    private void requireBaseUrl() {
+    private void requireEgressApproved() {
         String baseUrl = properties.getBaseUrl();
         if (baseUrl == null || baseUrl.isBlank()) {
             throw new IllegalStateException("ai.provider.base-url 未配置：模型调用无法进行");
         }
+        String host = hostOf(baseUrl);
+        if (isInternalHost(host)) {
+            return;
+        }
+        if (!Boolean.parseBoolean(System.getenv().getOrDefault("AI_EGRESS_APPROVED", "false"))) {
+            throw new IllegalStateException("ai.provider.base-url 指向外部地址（" + host
+                    + "）：把学生代码发出去需要显式授权，请设置环境变量 AI_EGRESS_APPROVED=true");
+        }
+        String apiKey = properties.getApiKey();
+        if (apiKey == null || apiKey.isBlank()) {
+            throw new IllegalStateException("外部模型端点必须配置 ai.provider.api-key");
+        }
+    }
+
+    /** 内网/本机地址无需出境授权：自建网关通常不校验密钥，也不涉及数据外发合规。 */
+    private static boolean isInternalHost(String host) {
+        if (host == null || host.isBlank()) {
+            return false;
+        }
+        return host.equals("localhost") || host.equals("::1") || host.startsWith("127.")
+                || host.startsWith("10.") || host.startsWith("192.168.")
+                || host.endsWith(".internal") || host.endsWith(".local");
     }
 
     private String effectiveApiKey() {
