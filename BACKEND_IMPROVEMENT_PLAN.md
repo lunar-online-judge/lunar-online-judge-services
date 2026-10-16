@@ -17,6 +17,8 @@
 > **BE-01 已落地一部分（2026-10）**：contest / problem 的**归属范围**（`owner_teacher_id` + 管理端入口范围校验，越权按 404 隐藏存在；列表 total 也在范围内）、考生侧按报名放行、内部测试点接口收紧为只认服务身份、auth 密码重置的目标角色与"不改归属"、风险与审计查询先收紧为 ADMIN——均已实现并真机验收（见 `CHANGELOG.md`）。**仍未做**：`INVIGILATOR` 的"被分配考试"关系（监考分配模型）、题目分配与考生可见题目的范围、anti-cheat/audit 的跨服务范围查询（当前用 ADMIN-only 兜住）、权限转移的独立审核动作。
 >
 > **BE-04 已落地（2026-10）**：contest 的 `contest_problems`（加入题目即**锁定 `problemVersionId`**）+ submission 按锁定版本提交与判题（判题限制与测试点都取该版本）、幂等指纹补 `contestId`、题目不属于考试返回 `SUBMISSION_PROBLEM_NOT_IN_CONTEST`——已实现并真机验收（见 `CHANGELOG.md`）。**仍未做**：按学生随机分配（`docs/exam-process.md` §3 的 assignment 表与 randomSeed）、次数限制的原子校验（当前是"窗口内计数后插入"，并发下可能超出阈值；计数语义已在文档说明）。
+>
+> **BE-03 已落地一部分（2026-10）**：**复核写入的 CAS 经真机并发实测确认已生效**（两个并发终审恰好一个 200、一个 409；本文档"selectById→检查→updateById"的证据已过时，代码早已改为前态条件更新）；终态结论**必填原因**（空白 400 `MONITOR_REVIEW_REASON_INVALID`，上限 500 字符）、审核日志按纯文本处理——已实现并验收。**仍未做**：上报的 `contestId`/`problemId` 报名/会话/分配校验、迟到事件时间窗口、`clientEventId` 去重、上报速率与请求体大小限制。
 
 ## 1. 目标与执行规则
 

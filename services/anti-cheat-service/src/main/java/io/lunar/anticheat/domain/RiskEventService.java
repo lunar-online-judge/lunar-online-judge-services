@@ -18,6 +18,7 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.time.Instant;
+import java.util.LinkedHashMap;
 import java.util.Map;
 import java.util.UUID;
 
@@ -36,6 +37,22 @@ public class RiskEventService {
 
     /** 明细入库前的最大长度（超出截断，避免恶意超长上报撑爆存储）。 */
     private static final int MAX_DETAIL_LENGTH = 2000;
+
+    /** 审核原因最大长度（BE-03）：终态结论必填，且有上限。 */
+    private static final int MAX_REVIEW_NOTE_LENGTH = 500;
+
+    /**
+     * 日志按纯文本处理（BE-03）：换行/制表符会让一条日志裂成多行、污染结构化字段，
+     * 这里统一折成空格并截断——注意只影响日志，入库内容保持原样。
+     */
+    private static String sanitizeForLog(String text) {
+        if (text == null) {
+            return "";
+        }
+        String flattened = text.replaceAll("[\\r\\n\\t]+", " ");
+        return flattened.length() > MAX_REVIEW_NOTE_LENGTH
+                ? flattened.substring(0, MAX_REVIEW_NOTE_LENGTH) : flattened;
+    }
 
     private final RiskEventMapper riskEventMapper;
     private final OutboxEventMapper outboxMapper;
@@ -118,6 +135,14 @@ public class RiskEventService {
         if (!legal) {
             throw new ReviewException.InvalidTransition(from, action);
         }
+        // 终态结论必须给出可读原因（BE-03）：处置要可追溯，且长度有上限
+        boolean terminal = "CONFIRMED".equals(to) || "DISMISSED".equals(to);
+        if (terminal && (note == null || note.isBlank())) {
+            throw new ReviewException.InvalidReason("最终结论必须填写原因");
+        }
+        if (note != null && note.length() > MAX_REVIEW_NOTE_LENGTH) {
+            throw new ReviewException.InvalidReason("原因长度不能超过 " + MAX_REVIEW_NOTE_LENGTH + " 字符");
+        }
         Instant reviewedAt = Instant.now();
         // 条件更新（CAS）：仅当前态仍是 from 时才写入——两个并发终审最多一个成功，避免后提交者覆盖先提交的终态
         LambdaUpdateWrapper<RiskEventEntity> update = new LambdaUpdateWrapper<RiskEventEntity>()
@@ -138,11 +163,12 @@ public class RiskEventService {
         riskEvent.setReviewedAt(reviewedAt);
         riskEvent.setReviewNote(note);
         log.info("AUDIT event=RISK_EVENT_REVIEWED riskEventId={} {}->{} by={} note={}",
-                eventId, from, to, reviewerId, note);
+                eventId, from, to, reviewerId, sanitizeForLog(note));
         // 审计账本（尽力而为：AuditRecorder 内部吞掉失败，audit-service 暂不可用也不阻断审核）
         auditRecorder.record("RISK_EVENT_REVIEWED", "RISK_EVENT", eventId, riskEvent.getContestId(),
                 from + "->" + to + (note == null || note.isBlank() ? "" : " note=" + note),
                 null, operatorToken);
+        writeReviewOutbox(riskEvent, from, to, reviewerId, reviewedAt);
         return toView(riskEvent);
     }
 
@@ -155,18 +181,57 @@ public class RiskEventService {
             event.setAggregateId(riskEvent.getId());
             event.setSchemaVersion(1);
             event.setTraceId(traceId);
-            event.setPayload(objectMapper.writeValueAsString(Map.of(
-                    "riskEventId", riskEvent.getId(),
-                    "contestId", riskEvent.getContestId(),
-                    "studentId", riskEvent.getStudentId(),
-                    "eventType", riskEvent.getEventType(),
-                    "severity", riskEvent.getSeverity(),
-                    "occurredAt", riskEvent.getOccurredAt().toString())));
+            // 用 LinkedHashMap 而不是 Map.of：problemId 允许为空（不是所有风险事件都绑定题目），
+            // 而 Map.of 遇到 null 值直接抛 NPE。
+            Map<String, Object> payload = new LinkedHashMap<>();
+            payload.put("riskEventId", riskEvent.getId());
+            payload.put("contestId", riskEvent.getContestId());
+            payload.put("studentId", riskEvent.getStudentId());
+            payload.put("problemId", riskEvent.getProblemId());
+            payload.put("eventType", riskEvent.getEventType());
+            payload.put("severity", riskEvent.getSeverity());
+            payload.put("occurredAt", riskEvent.getOccurredAt().toString());
+            event.setPayload(objectMapper.writeValueAsString(payload));
             event.setOccurredAt(Instant.now());
             event.setCreatedAt(Instant.now());
             outboxMapper.insert(event);
         } catch (Exception exception) {
             throw new IllegalStateException("风险事件 Outbox 序列化失败", exception);
+        }
+    }
+
+    /**
+     * 审核流转事件（lunar-risk-event-reviewed）。
+     *
+     * 为什么必须单独发一条：风险事件只在**创建**时进 Outbox，若分析侧只消费 created，
+     * 所有事件在统计里会永远停留在 OPEN——审核结论（CONFIRMED/DISMISSED）根本传不出去。
+     *
+     * 与状态更新在同一个事务里写入：审核成功而事件缺失会让分析侧长期漏掉一次流转；
+     * 反过来（事件成功而审核回滚）则会凭空多出一条不存在的流转记录。两种都不能接受。
+     */
+    private void writeReviewOutbox(RiskEventEntity riskEvent, String fromStatus, String toStatus,
+                                   String reviewerId, Instant reviewedAt) {
+        try {
+            OutboxEventEntity event = new OutboxEventEntity();
+            event.setId(UUID.randomUUID().toString());
+            event.setEventId(UUID.randomUUID().toString());
+            event.setEventType("lunar-risk-event-reviewed");
+            event.setAggregateId(riskEvent.getId());
+            event.setSchemaVersion(1);
+            Map<String, Object> payload = new LinkedHashMap<>();
+            payload.put("riskEventId", riskEvent.getId());
+            payload.put("contestId", riskEvent.getContestId());
+            payload.put("studentId", riskEvent.getStudentId());
+            payload.put("previousStatus", fromStatus);
+            payload.put("newStatus", toStatus);
+            payload.put("reviewedBy", reviewerId);
+            payload.put("reviewedAt", reviewedAt.toString());
+            event.setPayload(objectMapper.writeValueAsString(payload));
+            event.setOccurredAt(Instant.now());
+            event.setCreatedAt(Instant.now());
+            outboxMapper.insert(event);
+        } catch (Exception exception) {
+            throw new IllegalStateException("风险审核 Outbox 序列化失败", exception);
         }
     }
 
