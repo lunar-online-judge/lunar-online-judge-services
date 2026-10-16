@@ -20,6 +20,8 @@
 >
 > **BE-03 已落地一部分（2026-10）**：**复核写入的 CAS 经真机并发实测确认已生效**（两个并发终审恰好一个 200、一个 409；本文档"selectById→检查→updateById"的证据已过时，代码早已改为前态条件更新）；终态结论**必填原因**（空白 400 `MONITOR_REVIEW_REASON_INVALID`，上限 500 字符）、审核日志按纯文本处理——已实现并验收。**仍未做**：上报的 `contestId`/`problemId` 报名/会话/分配校验、迟到事件时间窗口、`clientEventId` 去重、上报速率与请求体大小限制。
 >
+> **BE-10 已落地（2026-10）**：公告 `confirm` 的**并发确认幂等**（撞唯一约束视为成功、条件更新不覆盖首次确认时间）+ 正文 4000 上限——已实现并真机验收（并发 10 次全部 200、无 5xx、首次时间不变、确认行数 1）。考生读/确认的报名范围由 BE-01 的控制器层 `requireEnrolled` 拦截；"送达 ≠ 确认"语义本来已分离。**仍未做**：公告统计接口（分母语义未定，按计划先定再实现，管理端继续隐藏）。
+>
 > **BE-07 已落地一部分（2026-10）**：审计账本的**追加式保护**（DB 触发器拒绝 `UPDATE`/`DELETE`）与 **`event_id` 幂等前置**（可空列 + 唯一索引 `uk_audit_logs_event_id`，供异步消费端做幂等）已实现并真机验证；服务身份令牌、trace 贯通（`RequestIdFilter` 写 MDC）与**事件信封**（`EventEnvelope` + 消费端 `eventId` 幂等：judge 用 Redis 去重、submission 用 `consumed_events` 闸门）也都已就位——异步审计 worker 的前置已齐。**仍未做（下一轮的核心）**：各服务敏感动作改为"与本地 audit outbox 同事务提交" + 异步 worker 用服务身份投递 + audit-service 引入 RocketMQ 依赖与消费端（按 `eventId` 唯一幂等）+ 重试退避/dead-letter + `originalOccurredAt`；当前审计写入仍是同步 HTTP 尽力而为且转发用户 Bearer（token 到期会让补偿永远失败，这是必须改掉的点）。
 
 ## 1. 目标与执行规则

@@ -73,6 +73,11 @@
 
 ### 新增
 
+- **公告范围与首次确认幂等（`BACKEND_IMPROVEMENT_PLAN` BE-10，P1）**
+  - `confirm` 的 select-then-insert 改为**并发容忍**：撞唯一约束（并发确认）视为幂等成功并保留首次时间；已有记录时改用**条件更新**（仅 `confirmed_at` 为空才写），不再覆盖首次确认时间
+  - 公告正文加服务端长度上限（`@Size(max = 4000)`，超长 400）
+  - 真机验收：并发 10 次确认**全部 200、无 5xx、首次确认时间不变、确认行数仍为 1**；超长公告 400；考生读/确认的报名范围由 BE-01 在控制器层拦截（`requireEnrolled`）
+  - **未做**：公告统计接口（分母用当前 ENROLLED 还是发布时名单快照尚未确定，按计划先定语义再实现，管理端继续隐藏）
 - **审计账本的 eventId 幂等前置（`BACKEND_IMPROVEMENT_PLAN` BE-07 的一部分）**：`audit_schema.audit_logs` 加 `event_id`（可空）与唯一索引 `uk_audit_logs_event_id`——下一轮把审计写入改成"本地 outbox + 异步投递"时，消费端直接靠这个唯一约束做幂等，不必再改表。列可空、唯一索引对 NULL 不生效，因此现有同步写入（106 条，全部 event_id 为 NULL）不受影响；真机验证 V4 已应用、约束就位
 - **审计账本的追加式保护（`BACKEND_IMPROVEMENT_PLAN` BE-07 的一部分）**：`audit_schema.audit_logs` 加 DB 触发器，任何 `UPDATE`/`DELETE` 一律被拒绝（应用侧本来就只有 insert/select，这是"就算有人拿到连接也改不了"的兜底）。用触发器而不是 `REVOKE`：所有服务共用同一个数据库角色且是表 owner，对 owner 做 REVOKE 不生效。真机验证：`UPDATE`/`DELETE` 报"审计账本只追加"，`INSERT` 正常
   - **BE-07 的核心仍未做**：敏感动作与本地 audit outbox 同事务提交、异步投递、audit 消费端按 `eventId` 幂等、重试退避与 dead-letter、`originalOccurredAt`；当前审计写入仍是同步 HTTP 尽力而为（audit-service 不可用时丢条目，仅结构化日志兜底），且仍转发用户 Bearer（异步 worker 应改用服务身份，避免 token 到期导致补偿永远失败）

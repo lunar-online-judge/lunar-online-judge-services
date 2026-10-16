@@ -6,6 +6,10 @@ import io.lunar.contest.infra.AnnouncementConfirmMapper;
 import io.lunar.contest.infra.AnnouncementEntity;
 import io.lunar.contest.infra.AnnouncementMapper;
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
+import com.baomidou.mybatisplus.core.conditions.update.LambdaUpdateWrapper;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+import org.springframework.dao.DuplicateKeyException;
 import org.springframework.stereotype.Component;
 
 import java.time.Instant;
@@ -24,6 +28,8 @@ import java.util.stream.Collectors;
  */
 @Component
 public class AnnouncementService {
+
+    private static final Logger log = LoggerFactory.getLogger(AnnouncementService.class);
 
     private final AnnouncementMapper announcementMapper;
     private final AnnouncementConfirmMapper confirmMapper;
@@ -110,16 +116,26 @@ public class AnnouncementService {
                         .eq(AnnouncementConfirmEntity::getStudentId, studentId)
                         .last("limit 1"));
         if (confirm == null) {
-            confirm = new AnnouncementConfirmEntity();
-            confirm.setId(UUID.randomUUID().toString());
-            confirm.setAnnouncementId(announcementId);
-            confirm.setStudentId(studentId);
-            confirm.setDeliveredAt(Instant.now());
-            confirm.setConfirmedAt(Instant.now());
-            confirmMapper.insert(confirm);
-        } else if (confirm.getConfirmedAt() == null) {
-            confirm.setConfirmedAt(Instant.now());
-            confirmMapper.updateById(confirm);
+            AnnouncementConfirmEntity created = new AnnouncementConfirmEntity();
+            created.setId(UUID.randomUUID().toString());
+            created.setAnnouncementId(announcementId);
+            created.setStudentId(studentId);
+            created.setDeliveredAt(Instant.now());
+            created.setConfirmedAt(Instant.now());
+            try {
+                confirmMapper.insert(created);
+            } catch (DuplicateKeyException exception) {
+                // 并发确认：另一请求已插入同一 (announcement, student)。幂等成功，保留首次时间（BE-10）
+                log.debug("并发确认公告，已由其它请求记录：announcementId={} studentId={}", announcementId, studentId);
+            }
+            return;
+        }
+        if (confirm.getConfirmedAt() == null) {
+            // 条件更新：只有 confirmedAt 仍为空才写入，避免并发下覆盖首次确认时间（BE-10）
+            confirmMapper.update(null, new LambdaUpdateWrapper<AnnouncementConfirmEntity>()
+                    .eq(AnnouncementConfirmEntity::getId, confirm.getId())
+                    .isNull(AnnouncementConfirmEntity::getConfirmedAt)
+                    .set(AnnouncementConfirmEntity::getConfirmedAt, Instant.now()));
         }
     }
 
