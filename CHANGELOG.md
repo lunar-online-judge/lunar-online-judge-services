@@ -36,6 +36,13 @@
 - **删除 `lunar-contracts` 空壳模块**：全模块只有一个 `GoJudgeSubmissionRequest` record（4 字段），全仓库 **0 处引用**——judge-service 在 pom 里依赖它，却从未 import 过任何 `io.lunar.contracts` 类型
   - 它描述的其实是 go-judge 的私有 HTTP 协议，与 judge 自己的 `GoJudgeModels`（`RunRequest` / `Cmd` / `Fd`，才是协议权威）不一致，本就不属于"跨服务契约"；而且它自身依赖 `lunar-common`，连"依赖轻量、可给 WebFlux 网关共享"这个唯一站得住的理由也不成立
   - 删除模块目录、根 `pom.xml` 的 `<module>` 与 judge-service 的依赖；`docs/services.md` 改为说明"跨服务契约不单设模块"（服务间 REST 契约走各服务的 `api.dto` / `domain.dto`，引擎契约在 `lunar-common`）。将来若要做类型化事件契约（如 `lunar-submission-judged` 的 payload 类型、可被无 servlet 依赖的 gateway 消费），再按需决定放 `lunar-common` 还是新建一个真正零依赖的模块
+- **AI Provider 改为只接入云端 API 模型**（不再支持本地 Ollama 这类跑在本机的模型运行时）
+  - `AiProviderProperties` 的 `mode` 默认值 `LOCAL` → `CLOUD`，`base-url` 默认值 `http://localhost:11434/v1` → **空**；`chat-model` / `embedding-model` 的默认值改为中性占位（`gpt-4o-mini` / `text-embedding-3-small`，注释写明"按所选厂商的模型名填"），不绑死某一家厂商
+  - **未配置就失败（fail closed）**：`AiPrivacyGuard.verifyCurrentProvider()` 在 base-url 为空/空白时抛 `IllegalStateException`，消息点明"本项目只接入云端 API 模型，必须显式配置 Provider 地址（`AI_PROVIDER_BASE_URL` 或配置中心 `ai.provider.base-url`）"。启动期它让服务起不来，运行期让该次作业失败，两种情况都不会把源码发出去。默认值等于"不配置也能跑"，而"跑起来用的到底是哪个端点"恰恰是数据出境这件事上最不能猜的一项——宁可起不来
+  - 配置来源同步：`docker/nacos/config/ai-service.yml` **删除 `base-url` 键**（在 git 真源里写死一个地址，等于把"某个碰巧能通的端点"变成仓库的默认事实标准），`application.yml` 同样不给 base-url 默认值（连空兜底都不写，由 Spring Boot 宽松绑定直接吃 `AI_PROVIDER_BASE_URL`）；接入方式仍是 `langchain4j-open-ai` + base-url，**未引入任何厂商专属 SDK**
+  - `docker/compose.ai.yml`（Ollama）内容替换为**一段纯注释的弃用说明**（有意保留占位而不删文件：直接删会让照旧执行的人只看到"文件不存在"这种易误判的报错；YAML 只有注释合法，而 compose 会拒绝它——本机实测 `up -d` 与 `config` 都以 `empty compose file` 退出、exit 1，既不建工程也不起容器，这正是想要的效果）。已确认它**没有被任何其它 compose 文件 `include`/`extends`**（`docker/compose.full.yml` 只收 core / platform / edge / judge）
+  - **为什么保留"按地址判内网"这套逻辑**：门禁的判据是 base-url 的地址而不是 `ai.provider.mode`，而自建的内网 OpenAI 兼容网关**同样属于 API 模型**——"只接云端"不等于"只会出网"。更关键的是它是整个出境门禁的基础：没有地址判据就无从定义"出境"，后面"授权只认环境变量 `AI_EGRESS_APPROVED`"与"每次构建模型前复核"（防"把 base-url 热切成公网"绕过）都会失去前提。因此本轮只删掉"本地模型"这个默认落脚点，**没有放宽任何一条出境检查**，也没有改动 `AiModelFactory` 的构建前复核
+  - `AiPrivacyGuardTest` 按新语义改写并扩到 11 个用例：默认值即 `CLOUD` + 空地址、空/空白/null 地址在"已授权 + 有 api-key"时同样失败、自建内网网关（回环 / 私有网段 / 容器短名）免授权、公网地址无授权失败、公网 + 已授权但缺 api-key 失败、公网 + 已授权 + api-key 通过、地址不可解析 fail closed
 
 ### 修复
 
@@ -253,13 +260,34 @@
 - **contest 新增服务级快照端点** `GET /api/v1/internal/contests/{contestId}/snapshot`（只认 `roles=["SERVICE"]`）：一次给出考试元数据、全员名单（含 `REMOVED`，过滤留给使用方）与锁定题目版本。已有的 `/internal/contests/{id}/session` 是**考生令牌**语义，分析型消费者无法使用
 - **anti-cheat 新增审核流转事件** `lunar-risk-event-reviewed`（与审核状态更新同事务）：风险事件此前只在**创建**时进 Outbox，只消费 created 的话分析侧的审核结论会永远停留在 `OPEN`；同时给 created 的 payload 补上 `problemId`（`Map.of` 换成 `LinkedHashMap`——`problemId` 允许为空，而 `Map.of` 遇到 null 值直接抛 NPE）
 
+- **新增 ai-service：AI 能力（首期代码评审），基于 LangChain4j 1.22.0**
+  - **为什么用 LangChain4j 而不是手写 HTTP 客户端**：手写版需要自己拼提示词、解析 JSON、校验字段类型、区分"模型不听话"与"网络不通"；这些正是框架的职责。改用 `AiServices` 声明式接口后，**输出契约由返回类型（record）生成的 JSON schema 唯一决定**，解析失败由框架抛 `dev.langchain4j.exception.*`，我们用一层薄适配（`LlmClient.call`）把它翻译成平台已登记的错误码，上层只认平台码、不认框架异常
+  - **依赖选择**：只用 `langchain4j-bom` + `langchain4j` + `langchain4j-open-ai`（版本由 BOM 统一，避免模块间漂移）。**不用官方 Spring Boot starter**：它走 `-beta` 版本线，且其静态 Bean 与"Provider 参数经配置中心热切换"冲突——本模块要的是**每轮作业按当前配置取模型**，为此 `AiModelFactory` 按配置指纹缓存模型实例
+  - **本地与云共用一个客户端**：Ollama 与云厂商都提供 OpenAI 兼容端点，因此只换 base-url 即可切换 Provider，不再引 `langchain4j-ollama` 形成两条会分叉的路径
+  - **数据出境门禁（`AiPrivacyGuard`）**：判据是 **base-url 的地址**而不是 `mode`——"声明 LOCAL 却填了公网地址"是最容易发生的数据出境方式；地址无法解析时 fail closed。云地址 + 未授权 → **启动失败**（与 `ProductionConfigGuard` 同一取舍：宁可起不来，也不静默把学生源码发出去）。`mode`/`egress-approved`/`api-key` 只从环境变量来，不经配置中心
+  - **异步作业队列**：`ai_jobs` 即队列，领取用 `for update skip locked` + 租约（多实例下同一作业只被领走一次），失败累计次数 + 指数退避 + 上限转 FAILED；**入队即扣配额**（`insert ... on conflict do update ... where used < 上限` 原子占用）；相同输入指纹命中已完成作业时直接复用，不重复烧配额
+  - **产出只作证据**：结论落 `ai_findings`，`score` 是可疑度且**仅用于排序展示**；AI 不写成绩、不流转审核状态、不直接发布题目（出题只落 `problem_drafts` 草稿表，教师确认后走 problem 既有接口）
+  - **事件与审计**：`lunar-ai-finding-created` 与 `lunar-audit-recorded` 都经本地 Outbox 异步投递（含指数退避与死信），与 submission/judge/anti-cheat 同一模式；审计动作 `AI_JOB_REQUESTED` / `AI_FINDING_CREATED` / `AI_JOB_FAILED` 带 actor 快照
+  - 新增 6 个端点（代码评审入队、作业/结论查询、Provider 运行态）与 1 个 submission 侧的服务间端点（**含源码**的详情，只认服务身份）；`docs/api.md` 登记 9 个 `AI_*` 错误码
+  - **语义查重（不需要模型）**：`MinHash` 纯 Java 实现（归一化去注释/字面量/空白 → token 级 k-gram → 128 位签名 → Jaccard 估计）。签名长度固定、系数表用**固定种子**生成——签名必须跨实例/重启/配置变化可比，否则已落库的相似度会不可逆地失去可比性；shingle 大小可配。判定纪律：同一学生的多次提交不互相配对（那是反复提交而非查重目标）、低于阈值不进结论（只作人工复核线索）、提交少于两份不算失败。归一化用手写状态机而非正则，因为注释与字符串会交叉嵌套（`// "` 不是字符串开头）
+  - **出题草稿**：产物落 `problem_drafts` 草稿表（`job_id` 唯一索引保证作业重试不产出第二份），教师确认后才由 problem 既有接口落库——"发布后版本不可变"等既有不变量无需为 AI 让路
+  - **共享前置**：submission 新增服务间批量取数端点（按考试+题目，含源码），**条数上限由服务端夹取到 ≤500**，调用方无法把它变成全库导出
+  - **安全修复（审计发现）**：数据出境授权此前与其他 Provider 参数同属 `@ConfigurationProperties("ai.provider")`，配置中心写一行 `egress-approved: true` 即可静默打开出境。现改为**只认环境变量 `AI_EGRESS_APPROVED`**，并让门禁在**每次构建模型前**复核——只在启动期检查会被"把 base-url 热切成公网地址"绕过
+  - **编译修复（审计发现）**：补 `spring-boot-starter-validation`（`@Valid`/`@NotBlank`/`@Size` 需要它，`spring-boot-starter-web` 不传递；缺了直接编译失败，且校验注解运行时也不生效）
+  - **风险辅助研判（第 4 项能力）**：证据取自 anti-cheat 新增的服务间风险事件查询（只认服务身份——AI 作业由后台 worker 执行，没有用户上下文，走不了 ADMIN 专用的监考查询）。产出可疑度 + 理由（须引用真实记录，便于逐条回原始事件核对）+ 反方证据 + 人工介入方向。红线在代码里兜底：`recommendedAction` 只允许 `DISMISS`/`REVIEW_MANUALLY`/`ESCALATE`，模型给出约定外取值（例如 PUNISH）时**降级为最保守的 `REVIEW_MANUALLY`**，绝不透传未知动作；不写成绩、不流转审核状态机。无证据时产出 0 分结论而非让作业失败重试
+  - **编译与单测验证（首次真正跑通）**：JDK 21 下 `mvn -DskipTests package` 全 12 个模块 BUILD SUCCESS；`EventMessagesTest` / `AiPrivacyGuardTest` / `MinHashTest` / `ModelOutputParserTest` 共 25 个用例全绿
+  - **MinHash 两处实测缺陷修复**：① 数值字面量此前**未**折叠成占位符，"改常数"这类规避会奏效（实测：只把 `0` 改成 `42`，相似度掉到 0.81）；② 空签名（无 token 的提交）的 Jaccard 被判为 1.0，两份空提交会互相"高度雷同"。两处分别在 `tokens()` 与 `jaccard()` 层修正。同时把"k-shingle 对**系统性改名**只能给中等分（实测 0.20）"记为已知边界——要覆盖改名需做标识符归一化，而那会把"结构相同、调用的 API 不同"的代码一起拉高，属待产品确认的取舍
+  - **网关补 `/api/v1/analytics/**` 路由**：此前 analytics 的 9 个端点只能内网直连
+  - **analytics-service（分析读模型）**：新建模块（端口 8088、`analytics_schema`、Flyway 表 `analytics_history`）。**只读投影**：消费 `lunar-submission-judged` / `lunar-risk-event-created` / `lunar-risk-event-reviewed` / `lunar-ai-finding-created` 写入事实，写路径不经过它，因此不影响任何业务不变量；`consumed_events` 幂等闸门与事实写入**同事务**，信封解包复用 `EventMessages`（兼容旧格式裸 payload）。事实表 `submission_facts` **主键取 `submission_id`**——judged 有两个生产者，按提交收敛才能最终一致；`risk_event_facts` 主键取 `event_id`（风险事件不可变）。物化 `student_contest_scores`；参照数据缓存三张表由定时任务按需从 contest 的服务级快照端点刷新（**HTTP 取数在事务外**，考生名单保留 `REMOVED` 状态，过滤留给读模型）。三条读模型：成绩排名（每题取最高分求和；tie-break 可配 `analytics.ranking.tie-break`，缺 `student_id` 会被自动补上以保证分页稳定）、学情与监考风险**按需聚合不物化**（审核状态会反复流转，物化就得跟着失效）；风险可疑度权重外置 `analytics.risk.weight-*`、公式只在 SQL 里出现一处，且 **AI 结论的可疑度不进排序权重**（它可被提示注入影响，不该决定人对学生的怀疑程度）。9 个端点 + 3 个错误码（先登记后用），鉴权三层与 ai-service 同构、**越权与不存在同为 404**；网关 `/api/v1/analytics/**` 路由与 auth 的客户端注册表均已补。已知边界见 `docs/analytics/read-model.md`（重算单飞是进程内的、0 提交学生不入榜、AI 结论为副本不同步）
+  - **相似对逐对落库**：`SimilarityPairService.writeFromCompletedJob` 在作业收尾事务内把 `SimilarityScanResult` 的每一对写入 `ai_schema.similarity_pairs`。唯一约束的第三列 `run_id` 取**作业 id**，写入前先 `deleteByRunId` 再逐对插入——重扫/重跑同一作业只留最后一次结果，既不留旧数据也不撞唯一键。结论 JSON 为空/非法/无相似对时 `log.warn` 后返回、**从不向上抛**（结论已在 finding 的 `detail` 里，落库失败不该让作业变 FAILED）。`minhash_similarity` 显式 `setScale(4, HALF_UP)` 对齐 `numeric(5,4)`，避免存值取决于 PG 的隐式取整；`embedding_similarity` 列保留但恒为 null（embedding 通道默认关闭）。单测用**动态代理记录型假 Mapper** 断言"先删后插"的调用顺序（本环境 Mockito 内联 mock 无法自挂载 agent）
+  - 未落地：`similarity_pairs` 的按阈值查询端点（数据已落库，当前仍可从 finding 的 `detail` JSON 读到）；analytics 的聚合查询依赖"行 → record"映射（`-parameters` + 两个 MyBatis 开关），**尚无数据库验证**
+
 ### 计划中
 
-- **测试点传输到评测引擎**：`SubmissionCreatedConsumer` 把 `testFiles` 硬编码为空、`GoJudgeAdapter` 在缺测试点时短路返回 `SYSTEM_ERROR`，因此真实引擎永远拿不到测试数据（需在"事件携带测试点"与"judge 回源 problem-service"之间选一个，后者还要先落服务间身份）
 - `judge_task` 异步评测状态机（重试/超时补偿/指数退避）、死信表与管理员重放
 - 竞赛级授权范围（owner/grant）与 `INVIGILATOR` 权限矩阵
 - 随机题目分配（发布时生成 + 随机种子 + 分配表）
-- 成绩读模型：排名、该题最高有效分、成绩状态机（PROVISIONAL/FINAL）、按测试点比例的部分分
+- 成绩状态机（PROVISIONAL/FINAL）与考生成绩可见范围的完整口径（排名与该题最高有效分已由 analytics-service 落地）
 - 考试预检（客户端版本/屏幕/网络/摄像头）与"同一账号仅一个活动会话 + 踢旧设备"
 - 媒体链路（监考令牌、WebRTC 信令、截图与 MinIO）与 WebSocket 推送
 - 代码查重（JPlag worker）、指定题目公告

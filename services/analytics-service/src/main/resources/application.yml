@@ -1,0 +1,109 @@
+spring:
+  config:
+    # 只从 Nacos 读取"运行时可变"的服务私有配置（docs/middleware.md"配置中心"节）；
+    # optional: 保证 Nacos 不可达时用本地默认值启动，而不是启动失败
+    import: optional:nacos:${spring.application.name}.yml
+  cloud:
+    nacos:
+      config:
+        # 配置中心连接参数必须留本地：这是"从哪里取配置"的自举信息，无法从 Nacos 自身获取
+        server-addr: ${NACOS_SERVER_ADDR:localhost:8848}
+      discovery:
+        # 注册进 Nacos（docs/middleware.md）；默认不因 Nacos 不可达而启动失败，NACOS_FAIL_FAST=true 可切回严格模式
+        server-addr: ${NACOS_SERVER_ADDR:localhost:8848}
+        # 注册 IP 固定 127.0.0.1：本机多网卡（VMware VMnet / WSL / 虚拟网卡）会被自动探测误选，
+        # 与 RocketMQ brokerIP1=127.0.0.1 同理（docker/rocketmq/broker.conf）；服务容器化后须改为容器可达地址
+        ip: ${NACOS_DISCOVERY_IP:127.0.0.1}
+        fail-fast: ${NACOS_FAIL_FAST:false}
+  application:
+    name: analytics-service
+  datasource:
+    # 读模型独占 analytics_schema：事实表由本服务的消费者投影产生，不与任何业务库共享表
+    url: jdbc:postgresql://${POSTGRES_HOST:localhost}:${POSTGRES_PORT:5433}/${POSTGRES_DB:lunar}?stringtype=unspecified
+    username: ${POSTGRES_USER:lunar}
+    password: ${POSTGRES_PASSWORD:change-me}
+  flyway:
+    enabled: ${FLYWAY_ENABLED:false}
+    schemas: analytics_schema
+    table: analytics_history
+  security:
+    oauth2:
+      resourceserver:
+        jwt:
+          jwk-set-uri: ${AUTH_JWK_SET_URI:http://localhost:8081/api/v1/auth/jwks}
+  http:
+    client:
+      # 服务间取数（contest 快照）的超时：参照数据刷新是后台任务，但它在请求路径上也会被触发（按需刷新），
+      # 不设上限会让上游卡住时一并拖住分析查询
+      connect-timeout: 2s
+      read-timeout: 10s
+
+rocketmq:
+  name-server: ${ROCKETMQ_NAMESRV_ADDR:localhost:9876}
+  producer:
+    group: analytics_producer_group
+
+service:
+  identity:
+    # 服务间身份（客户端凭证）密钥：必须与 auth-service 注册表里的 analytics-service 条目同源。
+    # 环境变量按仓库约定逐服务命名（对照 SERVICE_CLIENT_SECRET_CONTEST/_SUBMISSION/_AI），
+    # 用通用的 SERVICE_CLIENT_SECRET 会让生产运维按注册表命名注入的值读不到（docs/deployment.md 环境变量表）
+    client-secret: ${SERVICE_CLIENT_SECRET_ANALYTICS:change-me-analytics}
+
+mybatis-plus:
+  configuration:
+    # 聚合查询直接返回 record（DTO 不可变）：MyBatis 只有按**构造器参数名**映射才能对上 record，
+    # 否则退化为按列顺序映射，SQL 里列顺序一调整就会静默错位。列别名与 record 组件同名是硬约定
+    arg-name-based-constructor-auto-mapping: true
+    # SQL 里统一用下划线列名（与迁移脚本一致），由 MyBatis 映射到 camelCase 的 record 组件。
+    # 该开关是 MyBatis-Plus 的默认值，这里显式写出来：record 的构造器映射也走这条转换，
+    # 依赖默认值会让"哪天默认值变了"表现为一堆字段静默变 null
+    map-underscore-to-camel-case: true
+
+analytics:
+  refresh:
+    # 参照数据的最长陈旧时间：请求路径上发现超过它就顺带刷一次；定时任务另有更长的兜底周期
+    max-age: ${ANALYTICS_REFRESH_MAX_AGE:5m}
+    # 定时刷新的兜底周期（只刷"最近有事实写入"的考试，不做全表轮询）
+    interval-ms: ${ANALYTICS_REFRESH_INTERVAL_MS:300000}
+    # "最近有事实写入"的时间窗：超出它的考试不再被视为活跃
+    active-window: ${ANALYTICS_REFRESH_ACTIVE_WINDOW:30m}
+  ranking:
+    # 排序字段按优先级排列，写法 "<列名>:<asc|desc>"。默认值取自 docs/exam-process.md §7（每题取最高分）
+    # 与 §10-1 的待确认 tie-break；**tie-break 本身尚未经产品确认**，因此做成可配
+    tie-break:
+      - total_score:desc
+      - last_effective_at:asc
+      - solved_count:desc
+      - student_id:asc
+  recompute:
+    # 成绩读模型的定时增量重算：只算"读模型落后于事实"的考试（computed_at < judged_at）
+    interval-ms: ${ANALYTICS_RECOMPUTE_INTERVAL_MS:600000}
+    # 只看这个窗口内有过判决的考试
+    window: ${ANALYTICS_RECOMPUTE_WINDOW:30m}
+    max-contests-per-run: ${ANALYTICS_RECOMPUTE_MAX_CONTESTS:50}
+  # 成绩可见范围（docs/exam-process.md §10-6 未确认）：OWN_ONLY = 考生只看自己那一行
+  score-visibility: ${ANALYTICS_SCORE_VISIBILITY:OWN_ONLY}
+  risk:
+    # 热力图的时间桶宽度与最大返回桶数（防止一次查询把整个考试的事件全铺开）
+    heatmap-bucket-minutes: ${ANALYTICS_RISK_HEATMAP_BUCKET_MINUTES:30}
+    heatmap-max-buckets: ${ANALYTICS_RISK_HEATMAP_MAX_BUCKETS:96}
+    # 风险加权求可疑度时各计数的权重（产品口径未确认，集中在此便于调整）
+    weight-high: ${ANALYTICS_RISK_WEIGHT_HIGH:5}
+    weight-confirmed: ${ANALYTICS_RISK_WEIGHT_CONFIRMED:10}
+    weight-acknowledged: ${ANALYTICS_RISK_WEIGHT_ACKNOWLEDGED:3}
+    weight-pending: ${ANALYTICS_RISK_WEIGHT_PENDING:1}
+
+server:
+  port: ${SERVER_PORT:8088}
+
+management:
+  endpoints:
+    web:
+      exposure:
+        # 只通过 HTTP 暴露 health（存活探测与运维排障够用），其余端点保持不可达
+        include: health
+  endpoint:
+    health:
+      # 只返回 UP/DOWN，不展示组件细节
+      show-details: never

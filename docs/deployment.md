@@ -23,14 +23,16 @@
 | anti-cheat-service | 8086 | 有 | 风险事件/审核（rocketmq + 分页已配） |
 | media-service | 8080（Spring 默认） | 无 | |
 | audit-service | 8087 | 有 | 审计账本 |
+| ai-service | 8089 | 有 | AI 能力（代码评审/风险研判/语义查重/出题草稿）；依赖 PostgreSQL（`ai_schema`）+ **云厂商 OpenAI 兼容 API 端点**（**外部服务**，地址由 `AI_PROVIDER_BASE_URL` 显式给，没有默认值；未配置则启动失败） |
+| analytics-service | 8088 | 有 | 分析读模型（成绩排名/学情/监考风险）；依赖 PostgreSQL（`analytics_schema`）+ RocketMQ（4 个消费组）；**不使用 Redis**；取考试快照走 contest 的服务间接口。（`docker/nacos/config/` 下暂无 `analytics-service.yml`，全部配置走 `application.yml` 默认值 + 环境变量） |
 
-**健康检查**：8 个服务均引入 Spring Boot Actuator，**只通过 HTTP 暴露 `health`**（`GET /actuator/health`，匿名可访问、只返回 `UP`/`DOWN`，不展示组件细节）。其余 actuator 端点不可用：有 Security 配置的服务上返回 401（安全过滤链先于路由拦截），网关上返回 404。
+**健康检查**：10 个服务均引入 Spring Boot Actuator，**只通过 HTTP 暴露 `health`**（`GET /actuator/health`，匿名可访问、只返回 `UP`/`DOWN`，不展示组件细节）。其余 actuator 端点不可用：有 Security 配置的服务上返回 401（安全过滤链先于路由拦截），网关上返回 404。
 
 健康语义按依赖强度区分，不是"能连的都算"：
 
 | 依赖 | 是否计入健康 | 理由 |
 |---|---|---|
-| PostgreSQL | **计入** | 硬依赖，库不可用则服务真的不可用（judge-service 无库，不涉及） |
+| PostgreSQL | **计入** | 硬依赖，库不可用则服务真的不可用（judge-service 只有 `judge_schema.outbox_events` 一张表，同样计入） |
 | Nacos | **不计入** | `NACOS_FAIL_FAST=false` 的语义就是"Nacos 不可用时服务照常工作"；计入会让编排误杀可用实例 |
 | Redis | **不计入** | 限流层是 fail-open 的（`docs/middleware.md`）；同理 |
 
@@ -51,6 +53,8 @@
 | RocketMQ Dashboard | 8090 | compose.platform.yml | 开发专用管理面板；与 broker 共享网络命名空间（无登录），broker 重启后需一起重启 |
 | OpenResty（反向代理） | 80 | compose.edge.yml | 回源宿主机 gateway-service :8080 |
 | go-judge（评测沙箱） | 5050 | compose.judge.yml | `privileged` + `shm 256m`（官方推荐本地方式），独立网络 |
+
+**不再由 Compose 提供的组件：本地 LLM 推理（原 Ollama，11434 端口）**。本项目只接入**云端 API 模型**，Provider 是外部服务而不是本机容器，因此基础设施端口表里没有它。`docker/compose.ai.yml` 已废弃（文件只剩一段说明性注释，`docker compose -f docker/compose.ai.yml up -d` 本机实测以 `empty compose file` 失败退出、exit 1，既不起容器也不建工程——这是有意为之）；历史上拉模型的 `ollama pull` / `ollama list` 步骤一并删除。需要"数据不出境"的部署改用**自建内网的 OpenAI 兼容网关**，把 `AI_PROVIDER_BASE_URL` 指向它的内网地址（此时不需要出境授权）。
 
 ## 反向代理（OpenResty）
 
@@ -73,6 +77,9 @@ docker compose -f docker/compose.platform.yml up -d
 docker compose -f docker/compose.edge.yml up -d
 # 1.2 评测沙箱节点（与业务服务独立网络；judge-service 经 localhost:5050 访问）
 docker compose -f docker/compose.judge.yml up -d
+# 1.3 AI Provider 是**外部云 API**，不由 Compose 提供：启动 ai-service 前必须已设置
+#     AI_PROVIDER_BASE_URL（+ AI_PROVIDER_API_KEY；公网地址还需 AI_EGRESS_APPROVED=true），
+#     否则 ai-service 启动即失败（本地推理栈 compose.ai.yml 已废弃，只剩注释）
 
 # 2. 构建
 mvn -DskipTests package
@@ -83,7 +90,7 @@ mvn spring-boot:run -pl services/auth-service
 java -jar services/judge-service/target/judge-service-0.1.0-SNAPSHOT.jar
 ```
 
-所有服务的接口都要求认证。**除 gateway（无 Spring Security 依赖）与 media（无代码）外，7 个服务均已配置 `SecurityConfig`**：auth 放行 `POST /api/v1/auth/login` 与 `GET /api/v1/auth/jwks`（登录为真实实现：BCrypt 校验 + RS256 JWT + Redis 失败限流）；contest / problem / submission / anti-cheat / audit 作为 OAuth2 资源服务器经 auth 的 JWKS 本地验签，角色规则在方法级 `@PreAuthorize`；judge 仅放行 `/actuator/health`，**尚未接入验签**，其余端点当前恒 401。数据库迁移由 `FLYWAY_ENABLED=true` 开启，默认关闭。
+所有服务的接口都要求认证。**除 gateway（无 Spring Security 依赖）与 media（无代码）外，9 个服务均已配置 `SecurityConfig`**：auth 放行 `POST /api/v1/auth/login` 与 `GET /api/v1/auth/jwks`（登录为真实实现：BCrypt 校验 + RS256 JWT + Redis 失败限流）；contest / problem / submission / anti-cheat / audit / ai / analytics 作为 OAuth2 资源服务器经 auth 的 JWKS 本地验签，角色规则在方法级 `@PreAuthorize`（ai-service 与 analytics-service 还在此之上做资源范围判断，见 `docs/api.md` 端点总表与 `docs/services.md`）；judge 仅放行 `/actuator/health`，**尚未接入验签**，其余端点当前恒 401。数据库迁移由 `FLYWAY_ENABLED=true` 开启，默认关闭。
 
 **本地启动注意**（2026-10-05 实测）：
 
@@ -128,11 +135,15 @@ curl -s "http://localhost:8848/nacos/v1/ns/service/list?pageNo=1&pageSize=20"
 curl -s "http://localhost:8848/nacos/v1/ns/instance/list?serviceName=auth-service"
 # 控制台：http://localhost:8848/nacos → 服务管理 → 服务列表
 
-# 0.4 健康检查：8 个服务都应返回 {"status":"UP"}（actuator 只暴露 health，匿名可访问）
-for p in 8080 8081 8082 8083 8084 8085 8086 8087; do printf "%s " "$p"; curl -s -m 5 "http://localhost:$p/actuator/health"; echo; done
+# 0.4 健康检查：10 个服务都应返回 {"status":"UP"}（actuator 只暴露 health，匿名可访问）
+for p in 8080 8081 8082 8083 8084 8085 8086 8087 8088 8089; do printf "%s " "$p"; curl -s -m 5 "http://localhost:$p/actuator/health"; echo; done
 # 其余 actuator 端点不可用：有 Security 的服务上返回 401（过滤链先于路由拦截），网关上返回 404
 curl -s -o /dev/null -w "%{http_code}\n" http://localhost:8081/actuator/env   # 401
 curl -s -o /dev/null -w "%{http_code}\n" http://localhost:8080/actuator/env   # 404
+
+# 0.5 AI Provider 是外部云 API（已无本机推理容器/模型可拉）：ai-service 启动前需已配置
+#     AI_PROVIDER_BASE_URL（+ AI_PROVIDER_API_KEY；公网地址还需 AI_EGRESS_APPROVED=true），
+#     未配置地址时 ai-service 启动即失败；地址/模型可经 GET /api/v1/ai/provider（ADMIN）核对
 
 # 1. 真实登录（开发种子管理员 admin/admin123；需 FLYWAY_ENABLED=true + POSTGRES_PORT=5433 启动过一次使迁移生效）
 curl -s -X POST http://localhost:8081/api/v1/auth/login \
@@ -146,7 +157,7 @@ curl -s -o /dev/null -w "%{http_code}\n" http://localhost:8084/api/v1/submission
 # 3. 请求追踪：响应头应回显 X-Request-Id（缺失时由 RequestIdFilter 自动生成）
 curl -s -i -H "X-Request-Id: test-123" http://localhost:8081/api/v1/auth/jwks | grep -i x-request-id
 
-# 4. Swagger（除 judge 外的 6 个服务已放行 /swagger-ui/**；judge 未放行，访问返回 401）
+# 4. Swagger（除 judge 外的 8 个服务已放行 /swagger-ui/**；judge 未放行，访问返回 401）
 # 浏览器打开 http://localhost:8081/swagger-ui.html（端口换成被调试的服务）
 ```
 
@@ -163,11 +174,18 @@ curl -s -i -H "X-Request-Id: test-123" http://localhost:8081/api/v1/auth/jwks | 
 | `GO_JUDGE_CONNECT_TIMEOUT_MS` | go-judge 连接超时 | `2000` |
 | `GO_JUDGE_READ_TIMEOUT_MS` | go-judge 读取超时 | `10000` |
 | `PROBLEM_TESTDATA_MAX_BYTES` | 服务间传输的测试点总字节上限（测试点随 `lunar-submission-created` 事件进 MQ，超限直接 413 而不是卡在 Outbox） | `1048576` |
-| `SERVICE_CLIENT_SECRET` | 本服务作为客户端调用内部接口的密钥（contest 默认 `change-me-contest`、submission 默认 `change-me-submission`）；**生产必须与 auth 侧一致并外部注入** | 见各服务 `application.yml` |
-| `SERVICE_CLIENT_SECRET_CONTEST` / `SERVICE_CLIENT_SECRET_SUBMISSION` | auth-service 侧的服务客户端注册表（clientId → 密钥），供无用户上下文的调用方换取 SERVICE 令牌 | `change-me-*` |
+| `SERVICE_CLIENT_SECRET` | 本服务作为客户端调用内部接口的密钥（contest 默认 `change-me-contest`、submission 默认 `change-me-submission`、**ai 默认 `change-me-ai`、analytics 默认 `change-me-analytics`**）；**生产必须与 auth 侧一致并外部注入** | 见各服务 `application.yml` |
+| `SERVICE_CLIENT_SECRET_CONTEST` / `SERVICE_CLIENT_SECRET_SUBMISSION` / `SERVICE_CLIENT_SECRET_AI` / `SERVICE_CLIENT_SECRET_ANALYTICS` | auth-service 侧的服务客户端注册表（clientId → 密钥），供无用户上下文的调用方换取 SERVICE 令牌；**`SERVICE_CLIENT_SECRET_AI` 是 auth 侧给 `ai-service` 登记的密钥**（ai 取数走服务身份，见 `docs/services.md`"服务间调用关系"），**`SERVICE_CLIENT_SECRET_ANALYTICS` 是给 `analytics-service` 登记的密钥**（取考试快照做范围判断与参照数据刷新） | `change-me-*` |
+| `AI_PROVIDER_BASE_URL` | **AI Provider 地址（必填）**：云厂商 OpenAI 兼容端点（如 `https://api.deepseek.com/v1`）或自建内网兼容网关。**没有默认值**——本项目只接入云端 API 模型，未配置时 `AiPrivacyGuard` 在启动期抛 `IllegalStateException`（服务起不来），构建模型前还会复核一次。绑定到 `ai.provider.base-url`（Spring Boot 宽松绑定）；`docker/nacos/config/ai-service.yml` 刻意不提供该键 | **未设置（缺失即启动失败）** |
+| `AI_PROVIDER_MODE` | AI Provider 部署形态：`CLOUD`（云厂商 OpenAI 兼容端点）或 `LOCAL`（**仅指自建的内网 OpenAI 兼容网关**，不再支持本地 Ollama 这类本机模型运行时）；**只从环境变量读、不走配置中心**，且**不参与协议选择**（两种形态共用 OpenAI 兼容协议），仅用于日志与运维语义。数据出境门禁的判据是 base-url 的地址而不是这个值 | `CLOUD` |
+| `AI_PROVIDER_API_KEY` | Provider 的密钥；指向非内网地址时**必填**（缺失即启动失败），**只从环境变量注入，既不入库也不入配置中心**，`GET /api/v1/ai/provider` 也不回显。自建内网网关通常不校验密钥，可留空（客户端会填占位值） | 空 |
+| `AI_EGRESS_APPROVED` | **数据出境授权**：base-url 指向非内网地址时，必须显式设为 `true` 才允许调用，否则服务**启动失败**（构建模型前还会复核一次，热改 base-url 同样拦得住）。**刻意只认环境变量**——配置中心改不动它 | `false` |
+| `AI_EMBEDDING_ENABLED` | 是否启用向量检索通道（`LlmClient.embed` 的开关，未启用时向量化直接返回 409 `AI_EMBEDDING_DISABLED`）；**当前语义查重只用纯 Java 的 MinHash 代码指纹、尚未调用该通道**，真正启用还需要 Provider 提供 embedding 模型 + 数据库有 pgvector 扩展，属部署期开关 | `false` |
+| `SUBMISSION_BASE_URL` / `PROBLEM_BASE_URL` / `CONTEST_BASE_URL` / `ANTICHEAT_BASE_URL` | **服务间地址覆盖**（排障时钉到固定地址）。默认值均为服务名，经 Nacos + LoadBalancer 解析：`http://submission-service` / `http://problem-service` / `http://contest-service` / `http://anti-cheat-service`（ai-service 的 `ServiceClientConfig` 读取；`PROBLEM_BASE_URL` 与 `CONTEST_BASE_URL` 同时被 submission 使用） | 见括号内 |
+| `ANALYTICS_SERVICE_URI` | 网关到 analytics-service 的路由地址覆盖（默认 `lb://analytics-service`，经 Nacos + LoadBalancer 解析；排障时钉到固定地址，如 `http://localhost:8088`） | `lb://analytics-service` |
 | `SERVICE_TOKEN_TTL_MINUTES` | 服务身份令牌有效期（分钟），刻意比用户令牌短 | `10` |
 | `POSTGRES_HOST` | PostgreSQL 地址 | `localhost` |
-| `POSTGRES_PORT` | PostgreSQL 端口（本地 Compose 映射在 5433） | `5432`，**anti-cheat / audit 的默认值却是 `5433`**（两处不一致，见"已知限制"） |
+| `POSTGRES_PORT` | PostgreSQL 端口（本地 Compose 映射在 5433） | `5432`，**judge / anti-cheat / audit / ai / analytics 的默认值却是 `5433`**（两处不一致，见"已知限制"） |
 | `POSTGRES_DB` | 数据库名 | `lunar` |
 | `POSTGRES_USER` / `POSTGRES_PASSWORD` | 数据库凭据 | `lunar` / `change-me` |
 | `AUTH_JWT_PRIVATE_KEY` | RS256 私钥（PKCS#8 PEM）；留空则启动期临时生成开发密钥，重启令牌失效 | 未设置（临时生成） |
@@ -188,13 +206,13 @@ curl -s -i -H "X-Request-Id: test-123" http://localhost:8081/api/v1/auth/jwks | 
 | `MINIO_ENDPOINT` | MinIO 地址 | `http://localhost:9000` |
 | `MEDIA_SIGNALING_URL` | WebRTC 信令服务地址 | 未设置 |
 
-数据库连接变量当前由 6 个有库的服务消费：auth、contest、problem、submission、anti-cheat、audit（judge 与 media 无 DataSource）。
+数据库连接变量当前由 9 个有库的服务消费：auth、contest、problem、submission、judge、anti-cheat、audit、ai、analytics（只有 media 无 DataSource）。
 
-**多服务共库的 Flyway 约定**：每个服务使用独立的 schema 与独立的迁移历史表（`spring.flyway.schemas` + `spring.flyway.table`），避免版本号/checksum 冲突——auth-service 沿用默认 `public.flyway_schema_history`；contest / problem / submission / anti-cheat / audit 分别用 `contest_schema`+`contest_history`、`problem_schema`+`problem_history`、`submission_schema`+`submission_history`、`anti_cheat_schema`+`anti_cheat_history`、`audit_schema`+`audit_history`。**资源服务验签**：`AUTH_JWK_SET_URI` 指向 auth 的 JWKS（默认 `http://localhost:8081/api/v1/auth/jwks`），本地启动顺序上 auth 需先于其他资源服务可用。
+**多服务共库的 Flyway 约定**：每个服务使用独立的 schema 与独立的迁移历史表（`spring.flyway.schemas` + `spring.flyway.table`），避免版本号/checksum 冲突——auth-service 沿用默认 `public.flyway_schema_history`；contest / problem / submission / judge / anti-cheat / audit / ai / analytics 分别用 `contest_schema`+`contest_history`、`problem_schema`+`problem_history`、`submission_schema`+`submission_history`、**`judge_schema`+`judge_history`**（V1 只有 `outbox_events` 一张表，判决先落本地再异步投递）、`anti_cheat_schema`+`anti_cheat_history`、`audit_schema`+`audit_history`、**`ai_schema`+`ai_history`**（作业队列/结论/相似对/出题草稿/Outbox）、**`analytics_schema`+`analytics_history`**（V1 事实表 + 参照数据缓存 + 幂等闸门，V2 物化成绩表 + AI 结论事实表）。**资源服务验签**：`AUTH_JWK_SET_URI` 指向 auth 的 JWKS（默认 `http://localhost:8081/api/v1/auth/jwks`），本地启动顺序上 auth 需先于其他资源服务可用。
 
-**服务发现（Nacos）**：8 个服务启动时注册到 Nacos 的 `DEFAULT_GROUP`，网关路由用 `lb://<服务名>`、服务间客户端默认按服务名寻址（均可用 `*_SERVICE_URI` / `*_BASE_URL` 覆盖为固定地址排障）。因此**启动顺序上 auth 需先完成注册**，其他服务的 `lb://auth-service` 才能解析到实例；Nacos 本身未启动时服务仍可启动（`NACOS_FAIL_FAST=false`），只是发现链路不可用。JWKS 验签链路**不**走服务发现（`AUTH_JWK_SET_URI` 仍是固定地址，见 `docs/middleware.md`"Nacos"节）。
+**服务发现（Nacos）**：10 个服务启动时注册到 Nacos 的 `DEFAULT_GROUP`，网关路由用 `lb://<服务名>`、服务间客户端默认按服务名寻址（均可用 `*_SERVICE_URI` / `*_BASE_URL` 覆盖为固定地址排障）。因此**启动顺序上 auth 需先完成注册**，其他服务的 `lb://auth-service` 才能解析到实例；Nacos 本身未启动时服务仍可启动（`NACOS_FAIL_FAST=false`），只是发现链路不可用。JWKS 验签链路**不**走服务发现（`AUTH_JWK_SET_URI` 仍是固定地址，见 `docs/middleware.md`"Nacos"节）。
 
-**配置中心（Nacos）**：托管"运行时可变"的服务私有配置（dataId = `<服务名>.yml`，`public` + `DEFAULT_GROUP`），导入方式为 `spring.config.import=optional:nacos:…`——Nacos 不可达时用代码默认值启动。改值后 **auth 的登录限流阈值、contest 的心跳超时与 submission 的提交频率阈值无需重启即生效**，其余托管项（调度间隔）需重启；配置内容的 git 真源是 `docker/nacos/config/*.yml`，用 `bash docker/nacos/publish-configs.sh` 推送。具体清单、热更新边界与踩过的坑见 `docs/middleware.md`"配置中心"节。
+**配置中心（Nacos）**：托管"运行时可变"的服务私有配置（dataId = `<服务名>.yml`，`public` + `DEFAULT_GROUP`），导入方式为 `spring.config.import=optional:nacos:…`——Nacos 不可达时用代码默认值启动。改值后 **auth 的登录限流阈值、contest 的心跳超时、submission 的提交频率阈值与 ai 的 Provider 模型名/温度等无需重启即生效**，其余托管项（调度间隔、`outbox.publish-interval-ms`）需重启；配置内容的 git 真源是 `docker/nacos/config/*.yml`，用 `bash docker/nacos/publish-configs.sh` 推送。**`ai.provider.base-url` 是例外**：它仍是可热改的绑定键，但 git 真源里刻意不提供，地址必须由部署环境（`AI_PROVIDER_BASE_URL`）显式给出。具体清单、热更新边界与踩过的坑见 `docs/middleware.md`"配置中心"节。
 
 ## 生产要求
 
@@ -214,7 +232,7 @@ curl -s -i -H "X-Request-Id: test-123" http://localhost:8081/api/v1/auth/jwks | 
 - RocketMQ broker 广播地址固定为 `127.0.0.1`（Spring 服务跑在宿主机的前提）；服务容器化后需注释掉 `broker.conf` 中的 `brokerIP1`；开发期 `autoCreateTopicEnable=true`，生产必须改为 `false` 并显式建 Topic；
 - judge、media 两个服务没有完整端口配置：judge 有 `application.yml` 但未设 `server.port`（需 `SERVER_PORT`），media 无 `application.yml`；两者默认都是 8080、与 gateway 相同，本地同时启动必须显式区分；
 - **judge-service 的 HTTP 端点当前不可用**：`SecurityConfig` 要求 `authenticated()`，但既未配置 `oauth2ResourceServer`、`application.yml` 也没有 `jwk-set-uri`，任何请求都是 401；判题实际走 RocketMQ 消费链路，`POST /api/v1/judge/submissions` 需先补齐验签配置才能调用；
-- **`POSTGRES_PORT` 默认值不一致**：auth / contest / problem / submission 默认 `5432`，anti-cheat / audit 默认 `5433`；本地 Compose 映射在 5433，因此前 4 个服务启动时必须显式设 `POSTGRES_PORT=5433`；
+- **`POSTGRES_PORT` 默认值不一致**：auth / contest / problem / submission 默认 `5432`，judge / anti-cheat / audit / ai / analytics 默认 `5433`；本地 Compose 映射在 5433，因此前 4 个服务启动时必须显式设 `POSTGRES_PORT=5433`；
 - gateway 经 OpenResty 暴露后，`/api/v1/internal/**` 无路由不可达——服务间调用必须内网直连，不得绕行网关（按服务名寻址同样由调用方直连目标实例，不经过网关）；
 - 服务实例注册为临时实例（ephemeral，靠 gRPC 心跳续约）：进程正常退出或被强杀时实例会立即从注册表摘除，网络分区等 gRPC 连接不可判定的场景才依赖心跳超时；服务已提供 `/actuator/health`，但**负载均衡仍只按注册表轮询、不做主动探活**（默认 LoadBalancer 不查健康端点），Compose 也只为基础设施容器配置探测；
 - **开发期重启 auth-service 会让令牌在约 5 分钟内全部失效**（含重启后新签发的）：未注入 `AUTH_JWT_PRIVATE_KEY` 时启动会临时生成签名密钥，而 kid 固定为 `lunar-dev-1`，资源服务的 JWKS 缓存按 kid 命中旧公钥、不会触发重新拉取，于是新旧令牌都验签失败。开发期建议注入固定私钥（`AUTH_JWT_PRIVATE_KEY`）或重启 auth 后一并重启调用方；

@@ -109,13 +109,18 @@ Windows 客户端 -> OpenResty(80, 边缘反向代理) -> gateway-service
                     |-- auth-service       登录/RBAC
                     |-- contest-service        竞赛/会话/策略
                     |-- problem-service        题目/测试点/语言
-                    |-- submission-service     提交/成绩读模型
+                    |-- submission-service     提交/状态回写
                     |-- judge-service          调度/go-judge/状态机
                     |-- anti-cheat-service     风险/查重/审核
                     |-- media-service          WebRTC/截图/媒体审计
-                    `-- audit-service          管理与访问审计
+                    |-- audit-service          管理与访问审计
+                    |-- ai-service             AI 证据（代码评审/风险研判/查重/出题草稿）
+                    `-- analytics-service      分析读模型（成绩排名/学情/监考风险）
 
 submission-service -> RocketMQ -> judge-service -> GoJudgeAdapter -> go-judge
+ai-service -> submission/problem/contest/anti-cheat（取源码、题面、考试归属与风险证据，均用服务身份）
+analytics-service -> contest（考试快照：取考试归属做范围判断 + 刷新参照数据缓存，用服务身份）
+analytics-service -> RocketMQ（消费 judged / risk-event-created / risk-event-reviewed / ai-finding-created，只写自己的 schema）
 media-service -> WebRTC signaling -> 独立 SFU；媒体 RTP 不经过业务服务
 
 PostgreSQL | Redis | MinIO | Nacos | RocketMQ
@@ -141,7 +146,7 @@ PostgreSQL | Redis | MinIO | Nacos | RocketMQ
 
 ### submission-service
 
-负责接收代码、竞赛状态校验、幂等、提交状态和成绩读模型。不直接调用 go-judge；提交成功后发布 `submission.created`。
+负责接收代码、竞赛状态校验、幂等和提交状态。不直接调用 go-judge；提交成功后发布 `submission.created`。**成绩读模型不在这里**——contest-service 的排名更新仍未实现，成绩与排名由 analytics-service 消费同一 judged 事件独立投影。
 
 ### judge-service
 
@@ -159,6 +164,28 @@ PostgreSQL | Redis | MinIO | Nacos | RocketMQ
 
 负责管理员操作、权限变更、实时流查看、截图查看、人工审核和系统配置审计。普通业务接口不能删除审计记录。
 
+### ai-service
+
+负责 AI 能力的异步作业管道：代码评审、作弊风险辅助研判、语义查重与出题草稿，四类作业的产出统一落 `ai_schema.ai_findings`。LLM 调用是秒级到分钟级的慢操作，作业入队后立即返回作业号，由 worker 按数据库队列（`for update skip locked` + 租约）领取执行。
+
+**只产证据、不改事实**：不写成绩、不流转审核状态机、不含任何处罚建议；出题只落 `ai_schema.problem_drafts` **草稿表**，教师确认后才走 problem-service 既有的创建接口——`problem_schema` 的既有不变量（发布后版本不可变、发布前至少一个测试点）不为 AI 让路。结论里的 `severity`/`score` **只用于排序与展示**，任何自动处置都不允许读它做决策（仓库铁律：单一信号不能自动判定作弊）。
+
+**不负责**：不在 HTTP 请求线程里同步调模型（作业由 worker 异步执行，失败按 attempts + 指数退避重试）；不定义风险等级——`severity` 是 anti-cheat 规则表的语言，AI 的风险研判只给可疑度 `score` 与理由；不做权限裁决——资源范围由 contest-service 的考试归属（`ownerTeacherId`）判定，**越权与不存在返回同一个 404**（区分二者等于确认"这个考试存在"）。
+
+**数据归属与调用**：自有库 `ai_schema`（作业队列 `ai_jobs`、结论 `ai_findings`、相似对 `similarity_pairs`（表已建，当前相似对写在结论的 `detail` 里、尚未逐对落表）、出题草稿 `problem_drafts`、有用性反馈 `finding_feedback`、每日配额 `ai_quota_counters`、Outbox `outbox_events`）；取数经**服务身份**（客户端凭证）调 submission（提交详情/批量提交摘要，含源码）、problem（题面与版本）、contest（考试快照）、anti-cheat（风险事件），作业由 worker 执行因而没有用户令牌；成果事件与审计留痕走本地 Outbox 异步投递（`lunar-ai-finding-created` / `lunar-audit-recorded`）。
+
+### analytics-service
+
+负责把"同一场考试的多次提交、多条风险事件"投影成人能读的分析视图：成绩与排名、单个学生的学情、监考风险汇总。它是 **CQRS 的读侧（只读投影）**：4 个消费者把 `lunar-submission-judged`、`lunar-risk-event-created`、`lunar-risk-event-reviewed`、`lunar-ai-finding-created` 投影进 `analytics_schema`，对外只提供查询端点（外加一个显式重算的服务间端点）。
+
+**写路径不经过它，因此不影响任何业务不变量**：它不写提交状态、不流转审核状态机、不改成绩，服务不可用时只让分析查询不可用，交卷与判题照常；库里的数据全部可由 MQ 重放重建（事实表 + 参照缓存 + 幂等闸门都在自己的 schema 里）。事实表的收敛键是刻意选的：`submission_facts` 以 `submission_id` 为主键（judged 有两个生产者——judge 直发与 submission 内部回写——按提交收敛才能最终一致），`risk_event_facts` 以 `event_id` 为主键（风险事件不可变，审核流转事件带同一个 id，就地更新同一行）。排名必须**物化**（名次是全局序号，无法逐行算），由定时增量、读路径自愈与显式重建三条路径维护；学情与风险聚合则按需算、不物化（前者数据量小，后者的审核状态会被人工反复流转，物化就要跟着状态机同步失效）。
+
+**"跨 schema 不查库"这条禁令如何导致参照数据缓存的存在**：事实表只存 ID，而聚合结果要展示考试名、题目顺序与考生学号，而"考试归属/名单/锁定题目版本"都住在 `contest_schema`。分析服务因此经服务身份调 contest 的服务级快照端点（`GET /api/v1/internal/contests/{contestId}/snapshot`）把参照数据**缓存**进自己的 schema（`contest_refs` / `contest_problem_refs` / `contest_candidate_refs`），**HTTP 取数在事务外**；快照里的名单**原样保留 `REMOVED`**，过滤是读模型的口径。缓存允许在 `refreshed_at` 之前陈旧（考试改名等），由请求路径上的按需刷新与 `@Scheduled` 定时兜底（只刷活跃考试）两条路径收敛。
+
+**不负责**：不做跨服务的考试级授权——它只能按快照里的 `ownerTeacherId` 判"这场考试归谁"，**越权与不存在返回同一个 404**（风险证据类接口进一步收紧为仅 ADMIN，因为跨服务考试级授权尚未落地）；**AI 结论只作证据**——`ai_finding_facts` 是 `lunar-ai-finding-created` 的本地副本，模型给的可疑度**不进入风险排序权重**（输出可能被提示注入影响，与 ai-service "可疑度仅用于排序展示"是同一条底线）。
+
+**已知边界**：重算的单飞闸门是**进程内**的（多实例部署时两个实例仍可能同时重算同一场考试，跨实例互斥需数据库咨询锁或分布式锁）；榜单/题目/风险列表是 `limit … offset …` 深分页。
+
 ## 5. 基础设施和数据职责
 
 ### PostgreSQL
@@ -167,7 +194,8 @@ PostgreSQL | Redis | MinIO | Nacos | RocketMQ
 
 ```text
 auth_schema, contest_schema, problem_schema, submission_schema,
-judge_schema, anti_cheat_schema, media_schema, audit_schema
+judge_schema, anti_cheat_schema, media_schema, audit_schema, ai_schema,
+analytics_schema
 ```
 
 服务禁止跨 schema 直接查询；以后可以把高负载 schema 迁移到独立实例。
@@ -183,9 +211,11 @@ judge_schema, anti_cheat_schema, media_schema, audit_schema
 | Topic                        | 生产者            | 消费者                       | 语义         |
 | ---------------------------- | ----------------- | ---------------------------- | ------------ |
 | `lunar-submission-created`   | submission        | judge、anti-cheat            | 新提交已落库 |
-| `lunar-submission-judged`    | judge             | submission、contest、gateway | 评测结果可用 |
-| `lunar-risk-event-created`   | media/anti-cheat  | anti-cheat、gateway、audit   | 风险事件     |
-| `lunar-risk-event-reviewed`  | anti-cheat        | （规划）分析读模型            | 审核流转（OPEN→ACKNOWLEDGED→CONFIRMED/DISMISSED） |
+| `lunar-submission-judged`    | judge             | submission、analytics、contest、gateway | 评测结果可用 |
+| `lunar-risk-event-created`   | media/anti-cheat  | analytics、anti-cheat、gateway、audit   | 风险事件     |
+| `lunar-risk-event-reviewed`  | anti-cheat        | analytics                    | 审核流转（OPEN→ACKNOWLEDGED→CONFIRMED/DISMISSED） |
+| `lunar-audit-recorded`       | submission / anti-cheat / ai | audit               | 敏感动作留痕（BE-07：审计快照随事件走，不重放用户 Bearer） |
+| `lunar-ai-finding-created`   | ai                | analytics /（规划）anti-cheat | AI 结论已产出（只带引用与结论摘要，不带源码与题面） |
 | `lunar-screenshot-requested` | anti-cheat/media  | media                        | 请求截图     |
 | `lunar-screenshot-created`   | media             | anti-cheat、audit、gateway   | 截图已保存   |
 | `lunar-plagiarism-requested` | anti-cheat        | plagiarism-worker            | 异步查重     |
@@ -193,9 +223,11 @@ judge_schema, anti_cheat_schema, media_schema, audit_schema
 
 每条事件包含 `eventId`、`eventType`、`aggregateId`、`occurredAt`、`schemaVersion`、`traceId`；消费者必须幂等。
 
-**当前落地情况（与上表的差距）**：4 个 Topic 在代码中存在——`lunar-submission-created`（submission 经 Outbox 生产 → judge 消费）、`lunar-submission-judged`（judge 直接发送 + submission 经 Outbox 生产 → **只有 submission 消费**）、`lunar-risk-event-created`（anti-cheat 经 Outbox 生产 → **暂无消费者**）、`lunar-risk-event-reviewed`（anti-cheat 经 Outbox 生产，与审核状态更新同事务 → **暂无消费者**）。其余 Topic 未实现；contest / gateway / audit / media 作为消费者的角色也未实现（这些服务没有 RocketMQ 依赖）。
+**当前落地情况（与上表的差距）**：代码中实际存在 6 个事件类型——`lunar-submission-created`（submission 经 Outbox 生产 → judge 消费）、`lunar-submission-judged`（judge 经 Outbox 生产，submission 的内部回写端点也发同一类型 → **submission 与 analytics 消费**，contest 更新排名与 gateway 推送未实现）、`lunar-risk-event-created`（anti-cheat 经 Outbox 生产 → **analytics 消费**，anti-cheat / gateway / audit 未消费）、`lunar-risk-event-reviewed`（anti-cheat 经 Outbox 生产，与审核状态更新同事务 → **analytics 消费**）、`lunar-audit-recorded`（submission / anti-cheat / ai 经 Outbox 生产 → **audit 消费**，幂等靠账本唯一索引 `uk_audit_logs_event_id`）、`lunar-ai-finding-created`（ai 经 Outbox 生产 → **analytics 消费**，anti-cheat 未消费）。表格里的截图与查重四个 Topic 未实现；gateway / media 作为消费者的角色也未实现（这些服务没有 RocketMQ 依赖）。
 
-**事件信封已上线（消费端可真正按 `eventId` 幂等）**：消息体是完整信封（`eventId` / `eventType` / `aggregateId` / `occurredAt` / `schemaVersion` / `traceId` + 内层 `payload`）。去重落点：submission 用 `submission_schema.consumed_events`（与事实写入同一事务，`on conflict do nothing` 插入即判断）；judge 没有数据库，用 Redis 的 `ConsumedEventGuard`——**特意"先查、处理成功后再登记"**，若改成先 SETNX 占坑，评测中途失败后重投会因坑位已占而直接 ack，判决永久丢失。**灰度期兼容**：消费端同时接受"整条消息就是内层 payload"的旧格式（`lunar-common` 的 `EventMessages` 封装），旧格式没有 `eventId`，幂等退化为业务侧终态条件更新。详见 `docs/api.md`"事件信封"。
+**Outbox 的落地范围**：submission / judge / anti-cheat / ai 四个服务都有各自的 `<schema>.outbox_events`（含 `attempts`、指数退避与 `dead_lettered_at` 死信，超过投递上限不再自动重试）；**死信的人工重放接口目前只有 submission-service 提供**（`/api/v1/submissions/admin/dead-letters`），其余三个服务只能直接查表处理。judge 的库就是为这件事建的：判决先落本地再异步投递，broker 抖动不再丢判决。
+
+**事件信封已上线（消费端可真正按 `eventId` 幂等）**：消息体是完整信封（`eventId` / `eventType` / `aggregateId` / `occurredAt` / `schemaVersion` / `traceId` + 内层 `payload`）。去重落点：submission 与 analytics 用各自的 `<schema>.consumed_events`（与事实写入同一事务，`on conflict do nothing` 插入即判断）；judge 的库只有 `judge_schema.outbox_events` 一张表（没有可做闸门的业务表），用 Redis 的 `ConsumedEventGuard`——**特意"先查、处理成功后再登记"**，若改成先 SETNX 占坑，评测中途失败后重投会因坑位已占而直接 ack，判决永久丢失。**灰度期兼容**：消费端同时接受"整条消息就是内层 payload"的旧格式（`lunar-common` 的 `EventMessages` 封装），旧格式没有 `eventId`，幂等退化为业务侧终态条件更新。详见 `docs/api.md`"事件信封"。
 
 ### MinIO
 
@@ -274,12 +306,12 @@ audit-service：记录重置操作
    COMPILE_ERROR、TIME_LIMIT_EXCEEDED、MEMORY_LIMIT_EXCEEDED、
    RUNTIME_ERROR、OUTPUT_LIMIT_EXCEEDED 或 SYSTEM_ERROR。
 9. 本地事务更新任务和结果，发布 lunar-submission-judged。
-10. submission 更新成绩读模型，contest 更新排名，gateway 推送 WebSocket。
+10. submission 更新提交状态，analytics 投影成绩与排名，contest 更新排名，gateway 推送 WebSocket。
 ```
 
 评测服务不向 go-judge 发送数据库凭据、消息队列地址或宿主机路径。源代码和测试数据只在评测任务临时目录存在，任务结束后清理。
 
-**当前实现与上图的差距**：第 5 步的 `judge_task(status=DISPATCHING)` 不存在（judge-service 无 DataSource、无迁移，评测结果只存内存）；第 9 步 judge 是**直接发送** `lunar-submission-judged`（不经 Outbox、无信封）；第 10 步只有 submission 更新提交状态，**contest 更新排名与 gateway 推送未实现**；第 2 步的五项校验已实现 4 项（会话有效、竞赛进行中、语言允许、提交频率未超限），"题目属于竞赛"仍需随机分配表落地。**测试点已随事件传输**（submission 经 problem 的服务间接口取到后放进 `testFiles`），真实引擎可出真实 verdict 与按测试点比例的部分分。
+**当前实现与上图的差距**：第 5 步的 `judge_task(status=DISPATCHING)` 不存在（judge 的库只有 `judge_schema.outbox_events` 一张表，评测结果本身不落库）；第 9 步 judge 经**本地 Outbox** 投递 `lunar-submission-judged`（完整事件信封，broker 抖动不再丢判决）；第 10 步只有 submission 更新提交状态、**analytics 从同一事件独立投影出成绩与排名**（contest 自己更新排名与 gateway 推送仍未实现）；第 2 步的五项校验已实现 4 项（会话有效、竞赛进行中、语言允许、提交频率未超限），"题目属于竞赛"仍需随机分配表落地。**测试点已随事件传输**（submission 经 problem 的服务间接口取到后放进 `testFiles`），真实引擎可出真实 verdict 与按测试点比例的部分分。
 
 学生没有主动交卷接口，服务端在统一结束时间关闭进入和提交入口。已提交任务在最终结算策略确定前保持独立状态，不能因为客户端关闭而删除。
 
@@ -371,13 +403,13 @@ CREATED -> AUTHORIZED -> CONNECTING -> LIVE
 
 ## 13. 一致性、幂等和失败恢复
 
-- 业务事实和 Outbox 事件在同一个 PostgreSQL 本地事务提交（**已实现**：submission 的提交与判决回写、anti-cheat 的风险上报）；
-- HTTP 写操作使用 `Idempotency-Key`（**已实现**：以 DB 唯一约束为权威；并发同键未捕获唯一冲突，会以 500 `INTERNAL_ERROR` 收场而不是"返回首次结果"，属待办）；事件使用 `eventId` 去重（**未实现**，见第 5 节"当前落地情况"）；
+- 业务事实和 Outbox 事件在同一个 PostgreSQL 本地事务提交（**已实现**：submission 的提交与判决回写、anti-cheat 的风险上报、judge 的判决投递、ai 的作业收尾与审计留痕）；
+- HTTP 写操作使用 `Idempotency-Key`（**已实现**：以 DB 唯一约束为权威；并发同键未捕获唯一冲突，会以 500 `INTERNAL_ERROR` 收场而不是"返回首次结果"，属待办）；事件使用 `eventId` 去重（**已实现**：submission 与 analytics 用各自的 `consumed_events` 闸门、judge 用 Redis 去重、audit 用账本唯一索引，见第 5 节"事件信封"）；
 - 评测任务使用 `submissionId + judgeVersion` 唯一约束（**未实现**：没有 judge_task 表）；
 - go-judge 不可用时指数退避，超过次数转 `SYSTEM_ERROR` 并告警（**未实现**：只有连接/读取超时，失败交给 RocketMQ 默认重投）；
 - WebSocket 重连后先通过 REST 拉取未确认事件，再继续接收推送（**未实现**：无 WebSocket 端点）；
 - 媒体不保存，因此断线前画面不可回放（**未实现**：media-service 仅占位 POM）；
-- Outbox 发布失败进入死信表，支持管理员重放（**未实现**：失败仅告警并留待下一轮，无重试计数/退避/死信表）。
+- Outbox 发布失败进入死信表，支持管理员重放（**部分实现**：submission / judge / anti-cheat / ai 四个服务的发布器都有重试计数 + 指数退避 + `dead_lettered_at` 死信；**管理员重放接口只有 submission 提供**，其余三个服务需直接查表处理）。
 
 ## 14. 安全边界
 
@@ -403,11 +435,13 @@ CREATED -> AUTHORIZED -> CONNECTING -> LIVE
 - submission-service：提交（幂等 + 4 项校验 + 取测试点 + Outbox）、判决回写、Outbox 发布器、judged 消费者；
 - judge-service：`lunar-submission-created` 消费者、`GoJudgeAdapter`（设 `GO_JUDGE_BASE_URL` 激活）与 `MockJudgeEngine`（`mock` profile）、verdict 归一化；
 - anti-cheat-service：风险事件上报（服务端算 severity）/分页查询/人工审核状态机；
+- ai-service：异步作业管道（入队即扣配额 + `for update skip locked` 领取 + 租约/退避）、LangChain4j Provider 层（**云端** OpenAI 兼容协议，Provider 地址由 `AI_PROVIDER_BASE_URL` 显式配置、无默认值，按配置指纹构建模型以支持配置中心热切换）、四类作业（代码评审 / 风险研判 / 语义查重 / 出题草稿）、数据出境门禁（地址缺失/内网判定/只认环境变量授权 + 每次构建模型前复核）与 `ai_schema` 落库；成果事件与审计留痕走本地 Outbox；
 - audit-service：追加式账本写入与查询（**contest / auth / submission / anti-cheat 四个调用方已接入**，共用 lunar-common 的 `AuditServiceApi` + 尽力而为的 `AuditRecorder`）；
-- gateway-service：6 条路由前缀 + `X-Request-Id` 透传，`/api/v1/internal/**` 不暴露；
-- 基础设施：Compose（PostgreSQL / Redis / MinIO / Nacos / RocketMQ / OpenResty / go-judge）、Nacos 注册 + 配置中心（4 个服务托管热更新项）、Actuator 健康检查（8 个服务）。
+- analytics-service：分析读模型——4 个消费者（`lunar-submission-judged` / `lunar-risk-event-created` / `lunar-risk-event-reviewed` / `lunar-ai-finding-created`）投影进 `analytics_schema`，`consumed_events` 幂等闸门与事实写入同事务；三条读模型（成绩排名物化、学情与监考风险按需聚合）与 9 个端点（含仅 ADMIN 的风险接口、SERVICE/ADMIN 的显式重算端点）；参照数据经 contest 快照服务间接口缓存并双路径刷新；三层鉴权与 ai-service 同构（越权与不存在同为 404）；
+- gateway-service：8 条路由前缀（含 `/api/v1/ai/**`、`/api/v1/analytics/**`）+ `X-Request-Id` 透传，`/api/v1/internal/**` 不暴露；
+- 基础设施：Compose（PostgreSQL / Redis / MinIO / Nacos / RocketMQ / OpenResty / go-judge）、Nacos 注册 + 配置中心（5 个服务托管热更新项）、Actuator 健康检查（10 个服务）；**LLM 推理是外部云厂商 OpenAI 兼容 API，不由 Compose 提供**（本地推理栈已废弃，`docker/compose.ai.yml` 只剩一段说明性注释）。
 
-**尚未实现**（相对本文档其余章节的确认设计）：随机题目分配、成绩读模型（排名/最高分/成绩状态机/部分分）、考试预检 6 项与重复登录踢设备、指定题目公告、代码查重、媒体链路（监考令牌/WebRTC/截图）、WebSocket 推送、`judge_task` 异步评测状态机与退避/死信、事件信封上线与消费端 `eventId` 幂等、竞赛级授权范围（含 `INVIGILATOR` 权限）。
+**尚未实现**（相对本文档其余章节的确认设计）：随机题目分配、成绩状态机（排名/最高分/部分分已由 analytics-service 实现，但"成绩终审/发布"状态机没有）、考试预检 6 项与重复登录踢设备、指定题目公告、代码查重（**JPlag 未采用**：已由 ai-service 的 MinHash 通道落地，embedding 通道默认关闭；见 §4 的 ai-service 小节）、媒体链路（监考令牌/WebRTC/截图）、WebSocket 推送、`judge_task` 异步评测状态机（judge 的退避/死信只覆盖事件投递）、竞赛级授权范围（含 `INVIGILATOR` 权限）、AI 侧的两处收尾（结论有用性反馈与出题草稿的教师确认入口——`finding_feedback` / `problem_drafts.review_status` 已建表，接口未做）。
 
 后续顺序：
 

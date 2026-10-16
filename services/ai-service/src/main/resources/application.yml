@@ -1,0 +1,88 @@
+spring:
+  config:
+    # 只从 Nacos 读取"运行时可变"的服务私有配置（docs/middleware.md"配置中心"节）；
+    # optional: 保证 Nacos 不可达时用本地默认值启动，而不是启动失败
+    import: optional:nacos:${spring.application.name}.yml
+  cloud:
+    nacos:
+      config:
+        server-addr: ${NACOS_SERVER_ADDR:localhost:8848}
+      discovery:
+        server-addr: ${NACOS_SERVER_ADDR:localhost:8848}
+        # 注册 IP 固定 127.0.0.1：本机多网卡会被自动探测误选（与其它服务同一约定）
+        ip: ${NACOS_DISCOVERY_IP:127.0.0.1}
+        fail-fast: ${NACOS_FAIL_FAST:false}
+  application:
+    name: ai-service
+  datasource:
+    # stringtype=unspecified：让 String 参数可直接写入 uuid 列（MyBatis 无 uuid 类型处理器）
+    url: jdbc:postgresql://${POSTGRES_HOST:localhost}:${POSTGRES_PORT:5433}/${POSTGRES_DB:lunar}?stringtype=unspecified
+    username: ${POSTGRES_USER:lunar}
+    password: ${POSTGRES_PASSWORD:change-me}
+  flyway:
+    enabled: ${FLYWAY_ENABLED:false}
+    # 多服务共用一个库：独立 schema + 独立迁移历史表
+    schemas: ai_schema
+    table: ai_history
+  security:
+    oauth2:
+      resourceserver:
+        jwt:
+          jwk-set-uri: ${AUTH_JWK_SET_URI:http://localhost:8081/api/v1/auth/jwks}
+  http:
+    client:
+      # 服务间取数（submission/problem）的超时：Provider 调用不走这里，另有 120s 读超时
+      connect-timeout: 2s
+      read-timeout: 10s
+
+
+service:
+  identity:
+    # 服务间身份（客户端凭证）密钥：必须与 auth-service 的注册表一致；生产用环境变量注入，
+    # 开发默认值会被 prod profile 的生产配置门禁拒绝（lunar-common 的 ProductionConfigGuard）
+    client-secret: ${SERVICE_CLIENT_SECRET:change-me-ai}
+
+ai:
+  provider:
+    # 决定"数据发去哪"的两个参数只从环境变量来，不走配置中心：
+    # mode 决定语义、api-key 是密钥（密钥既不入库也不入配置中心，docs/middleware.md 的既有约定）
+    mode: ${AI_PROVIDER_MODE:CLOUD}
+    api-key: ${AI_PROVIDER_API_KEY:}
+    # base-url **刻意不在这里给默认值**（连 ${AI_PROVIDER_BASE_URL:} 这种空兜底也不写）：
+    # 本项目只接入云端 API 模型，端点必须由部署方显式声明；Spring Boot 的宽松绑定会让
+    # 环境变量 AI_PROVIDER_BASE_URL 自动绑到 ai.provider.base-url，无需在此中转。
+    # 未配置时 AiPrivacyGuard 直接抛 IllegalStateException（服务起不来），见其类注释。
+    # 超时启动期固化（建在 RestClient 上，改后需重启）
+    connect-timeout-seconds: 10
+    read-timeout-seconds: 120
+    # 数据出境授权**不在这里**：它只从环境变量 AI_EGRESS_APPROVED 读（见 AiPrivacyGuard）。
+    # 刻意不进配置文件也不进配置中心——安全开关一旦可被一次配置改动打开，它就形同不存在。
+    # 另外：base-url 指向非内网地址时，AiModelFactory 每次构建模型前都会复核该门禁，
+    # 因此"把 base-url 热切成公网地址"这条绕过路径也是堵住的。
+  worker:
+    # 线程池大小与轮询周期都是启动期固化（线程池无法热改、@Scheduled 启动期解析）
+    concurrency: 2
+    poll-interval-ms: 3000
+  limits:
+    # 开启向量检索需要 Provider 有 embedding 模型 + 数据库有 pgvector 扩展，属部署期开关
+    embedding-enabled: ${AI_EMBEDDING_ENABLED:false}
+  # 其余参数（模型名 / 温度 / 最大输出、worker.lease-seconds / max-attempts、
+  # limits.max-jobs-per-day / minhash-threshold / minhash-shingle-size）由 Nacos 托管，见
+  # docker/nacos/config/ai-service.yml；**provider.base-url 不在其中**——它的 git 真源里刻意不提供该键，
+  # 以免出现"某个 git 里的默认端点"被当成事实标准，地址只能来自部署环境（AI_PROVIDER_BASE_URL）。
+  # **不要再写回本地**：spring.config.import 导入的配置优先级低于本地 yml，本地写了会永远盖住配置中心的值；
+  # 离线兜底由各 @ConfigurationProperties 的字段默认值提供（但 base-url 例外：它没有默认值，缺了就失败）。
+
+server:
+  port: ${SERVER_PORT:8089}
+
+management:
+  endpoints:
+    web:
+      exposure:
+        # 只通过 HTTP 暴露 health（存活探测与运维排障够用），其余端点保持不可达
+        include: health
+  endpoint:
+    health:
+      # 只返回 UP/DOWN，不展示组件细节
+      show-details: never

@@ -56,6 +56,18 @@ HTTP 前缀统一为 `/api/v1`。各服务经 gateway 对外暴露；客户端�
 | `SUBMISSION_DUPLICATE` | 幂等键重复且请求内容不一致 | 409 |
 | `SUBMISSION_NOT_FOUND` | 提交不存在 | 404 |
 | `SUBMISSION_INVALID_TRANSITION` | 提交状态不允许该流转（如终态再回写判决） | 409 |
+| `AI_JOB_NOT_FOUND` | AI 作业不存在 | 404 |
+| `AI_FINDING_NOT_FOUND` | AI 结论不存在 | 404 |
+| `AI_RESOURCE_NOT_FOUND` | 目标资源不存在**或不在调用者的资源范围内**（两情形同码，避免泄露存在性） | 404 |
+| `AI_INVALID_REQUEST` | AI 请求不合法（未知作业类型、缺少必要引用、提交未评测完成等） | 400 |
+| `AI_QUOTA_EXCEEDED` | 当日 AI 作业额度已用尽（`ai.limits.max-jobs-per-day`） | 429 |
+| `AI_EMBEDDING_DISABLED` | 需要向量检索但 embedding 未启用（`ai.limits.embedding-enabled=false`） | 409 |
+| `AI_PROVIDER_UNAVAILABLE` | AI Provider 不可达或超时（云端网络不通，或自建内网 OpenAI 兼容网关未启动） | 503 |
+| `AI_PROVIDER_REJECTED` | AI Provider 返回非 2xx（模型名、密钥或额度需检查；含 Provider 侧限流） | 502 |
+| `AI_INVALID_MODEL_OUTPUT` | 模型输出不符合约定结构，**不得当成功结果使用** | 502 |
+| `ANALYTICS_RESOURCE_NOT_FOUND` | 分析目标资源不存在**或不在调用者的资源范围内**（两情形同码，避免泄露存在性；路径里的 id 不是合法 UUID 也走这里） | 404 |
+| `ANALYTICS_REBUILD_IN_PROGRESS` | 该考试的成绩重算正在进行中（单飞；重复触发会让两次整批替换互相覆盖） | 409 |
+| `ANALYTICS_INVALID_RANGE` | 分析查询的区间参数不合法（档宽越界、时间窗起止颠倒、时间格式不可解析） | 400 |
 | `INTERNAL_ERROR` | 未分类服务端错误（由全局兜底处理器产出，响应体不含异常细节） | 500 |
 
 **两处需要知悉的既有事实**：①`CONTEST_NOT_RUNNING` 仍被 submission-service 复用（`SubmissionException.ContestNotRunning`），且它同时覆盖"时间窗口外"与"竞赛状态不符"两种原因——contest 的服务间判定只回 `canSubmit`，提交链路无法区分；`CONTEST_NOT_ENROLLED` 目前只在 problem 服务调用失败时被复用（`NotSubmittable("题目不可用")`，语义偏弱）。精确化需要 contest 的服务间判定返回拒绝原因，属待办。**会话不存在/过期/终止已改用注册表里的 `SESSION_NOT_ACTIVE`（409）**，不再借用名单类错误码。②`AUTH_WEAK_PASSWORD`/`AUTH_USERNAME_EXISTS` 等 auth 码只在服务间学生账号接口产生。
@@ -111,7 +123,7 @@ HTTP 前缀统一为 `/api/v1`。各服务经 gateway 对外暴露；客户端�
 
 ## 端点总表
 
-下表与代码一致（共 47 个端点，分布在 17 个控制器）。"鉴权"列是 `@PreAuthorize` / `SecurityConfig` 的实际规则；"任意已认证"表示当前只要求有效令牌、**尚未做资源范围校验**（属待办，见 `BACKEND_IMPROVEMENT_PLAN.md` BE-01）。
+下表与代码一致：**代码实际有 76 个端点、24 个控制器**（`grep '@\(Get\|Post\|Put\|Delete\|Patch\)Mapping'` 与 `^@RestController$` 实测；`@RestControllerAdvice` 不计入）。本表目前列 69 行，差 7 个——4 个从未进表（`GET /api/v1/submissions/admin/dead-letters`、`POST /api/v1/submissions/admin/dead-letters/{eventId}/replay`、`GET /api/v1/internal/users/{userId}/tokens-valid-after`、`GET /api/v1/internal/monitor/events`），3 个被错放在下方"规划中（代码不存在）"表里但已实现（3 个 `assignments` 端点）；另有下方"规划中"表的表头为 4 列而数据行写了 5 个单元格。这属于待清理的文档债，尚未修正。"鉴权"列是 `@PreAuthorize` / `SecurityConfig` 的实际规则；"任意已认证"表示当前只要求有效令牌、**尚未做资源范围校验**（属待办，见 `BACKEND_IMPROVEMENT_PLAN.md` BE-01）。
 
 | 服务 | 方法 | 路径 | 鉴权 | 状态 |
 |---|---|---|---|---|
@@ -134,6 +146,8 @@ HTTP 前缀统一为 `/api/v1`。各服务经 gateway 对外暴露；客户端�
 | submission | POST | `/api/v1/submissions` | CANDIDATE | 已实现（幂等 + 会话/竞赛/**题目属于竞赛**/语言/频率五项校验 + Outbox；版本取自考试锁定值，见 BE-04） |
 | submission | GET | `/api/v1/submissions/{id}` | 任意已认证（本人；TEACHER/ADMIN 可查任意） | 已实现（权限在 Service 内判定，方法上无 `@PreAuthorize`） |
 | submission | POST | `/api/v1/internal/submissions/{id}/judged` | ADMIN | 已实现（判题回写过渡端点） |
+| submission | GET | `/api/v1/internal/submissions/{submissionId}` | **SERVICE** | 已实现（**含源码**的服务间详情：源码是学生作品，只认服务身份、不经网关；当前调用方是 ai-service 的代码评审作业） |
+| submission | GET | `/api/v1/internal/submissions` | **SERVICE** | 已实现（按 `contestId`+`problemId` 批量取提交摘要，**含源码**；`limit` 由服务端夹取到 ≤500，调用方无法把它变成全库导出；当前调用方是 ai-service 的语义查重） |
 | judge | POST | `/api/v1/judge/submissions` | **未接验签** | 代码存在，但**当前对所有调用者恒 401**（未配 `jwk-set-uri` / `oauth2ResourceServer`）；`requestId` 硬编码为 `"pending"`，测试点恒为空 |
 | contest | POST | `/api/v1/contests` | TEACHER/ADMIN | 已实现（创建草稿） |
 | contest | GET | `/api/v1/contests` | 任意已认证 | 已实现（分页 + status 过滤；**未做资源范围限制**） |
@@ -162,6 +176,26 @@ HTTP 前缀统一为 `/api/v1`。各服务经 gateway 对外暴露；客户端�
 | anti-cheat | POST | `/api/v1/monitor/events/{eventId}/review` | **ADMIN** | 已实现（OPEN→ACKNOWLEDGED→CONFIRMED/DISMISSED；写入走前态条件更新，**并发终审恰好一个成功、另一个 409**，终态不可再动；**终态必须填原因**，空白/超长 400 `MONITOR_REVIEW_REASON_INVALID`；角色同上一行，先收紧为管理员） |
 | audit | POST | `/api/v1/internal/audit/records` | 任意已认证 | 已实现（服务间写入；注意规则是 `isAuthenticated()`，未限制为 TEACHER/ADMIN。调用方：contest / auth / submission / anti-cheat，经 lunar-common 的 `AuditRecorder` 尽力而为写入。请求体可选字段缺省传 `null`——`contestId` 是 uuid 列，传空串会被 PostgreSQL 拒绝。SERVICE 令牌写入时 `sub` 落 `service_id`、`actor_id` 留空） |
 | audit | GET | `/api/v1/audit/records` | TEACHER/ADMIN | 已实现（追加式账本查询） |
+| ai | POST | `/api/v1/ai/jobs/code-review` | TEACHER（限归属）/ADMIN | 已实现（请求代码评审：立即返回作业号，评审在后台执行；必须给 `contestId` 以做资源范围判断） |
+| ai | GET | `/api/v1/ai/jobs/{jobId}` | TEACHER（限归属）/ADMIN | 已实现（作业状态与 `errorCode`；越权与不存在同样 404） |
+| ai | GET | `/api/v1/ai/jobs` | TEACHER（限归属）/ADMIN | 已实现（分页 + contestId/jobType/status 过滤；不给 contestId 时仅 ADMIN） |
+| ai | GET | `/api/v1/ai/findings` | TEACHER（限归属）/ADMIN | 已实现（分页 + contestId/submissionId/findingType 过滤；`score` 是可疑度，**仅用于排序展示，禁止据此自动处置**） |
+| ai | GET | `/api/v1/ai/findings/{findingId}` | TEACHER（限归属）/ADMIN | 已实现（结论详情，含结构化 `detailJson`） |
+| ai | GET | `/api/v1/ai/provider` | **ADMIN** | 已实现（Provider 运行态：mode/地址主机/模型/向量检索开关；**不回显 api-key**） |
+| ai | POST | `/api/v1/ai/jobs/problem-draft` | TEACHER（限归属）/ADMIN | 已实现（请求出题草稿：产物是**草稿**，落 `problem_drafts`，教师确认后才由 problem 既有接口落库；不给 `contestId` 时仅 ADMIN） |
+| ai | POST | `/api/v1/ai/jobs/similarity-scan` | TEACHER（限归属）/ADMIN | 已实现（语义查重：按考试+题目两两比对代码指纹，**不需要模型**，因此不受 Provider 可用性影响；结论里的可疑度仅用于排序） |
+| ai | POST | `/api/v1/ai/jobs/risk-assessment` | **ADMIN** | 已实现（作弊风险辅助研判：证据取自风险事件，产出可疑度+理由+反方证据+人工介入方向；**不写成绩、不流转审核状态机、不含处罚建议**；模型给出约定外的动作取值时降级为最保守的 `REVIEW_MANUALLY`） |
+| ai | GET | `/api/v1/ai/drafts` | TEACHER（限归属）/ADMIN | 已实现（出题草稿分页；不给 `contestId` 时仅 ADMIN） |
+| ai | GET | `/api/v1/ai/drafts/{draftId}` | TEACHER（限归属）/ADMIN | 已实现（草稿详情：题面/样例/建议测试点/知识点标签） |
+| analytics | GET | `/api/v1/analytics/contests/{contestId}/scoreboard` | TEACHER（限归属）/ADMIN | 已实现（成绩榜分页；名次由成绩读模型授予，排序口径可配 `analytics.ranking.tie-break`，默认 总分降序 → 先达到者在前 → 解出题数降序 → student_id 升序（**前三档待产品确认**，docs/exam-process.md §10）；读模型为空时顺带自愈重算一次） |
+| analytics | GET | `/api/v1/analytics/contests/{contestId}/scoreboard/me` | CANDIDATE | 已实现（考生只看自己那一行；身份取令牌 sub，**不接受 studentId 参数**；可见范围可配 `analytics.score-visibility`，默认 `OWN_ONLY`，放开策略待确认（docs/exam-process.md §10-6），不可见时返回 `visibility=HIDDEN` 而不是 404） |
+| analytics | GET | `/api/v1/analytics/contests/{contestId}/score-distribution` | TEACHER（限归属）/ADMIN | 已实现（总分直方图 + 人数/均分/最高分；`bucketSize` 取值 1..100，越界 400 `ANALYTICS_INVALID_RANGE`——不夹取，否则前端坐标轴会与数据错位） |
+| analytics | GET | `/api/v1/analytics/contests/{contestId}/problems` | TEACHER（限归属）/ADMIN | 已实现（题目维度分页：attempts/acceptedCount/distinctStudents/均分/平均耗时；以考试锁定的题目为驱动表，**无人提交的题目也列出**；排序按出题顺序 sort_order，末档 problemId 保证分页稳定） |
+| analytics | GET | `/api/v1/analytics/contests/{contestId}/problems/{problemId}/stats` | TEACHER（限归属）/ADMIN | 已实现（单题统计；题目不属于该考试时与"考试不存在"同码 404） |
+| analytics | GET | `/api/v1/analytics/contests/{contestId}/students/{studentId}/profile` | TEACHER（限归属）/ADMIN | 已实现（学情：名次/总分来自成绩读模型，verdict 与语言分布、逐题最佳分与最近结论、提交时间线按需聚合；`from`/`to`（ISO-8601）**只作用于时间线**，起止颠倒或格式非法 400 `ANALYTICS_INVALID_RANGE`） |
+| analytics | GET | `/api/v1/analytics/contests/{contestId}/risk/summary` | **ADMIN** | 已实现（风险汇总：总数/待审核/已确认/已驳回/涉事学生数 + 严重度·事件类型·审核状态分布 + 学生×时间窗热力图（只回**最近** N 格，桶宽与上限可配）；**先收紧为 ADMIN**——考试级授权落地前按最小权限开放，与 anti-cheat 的 `/monitor/events` 同一取舍） |
+| analytics | GET | `/api/v1/analytics/contests/{contestId}/risk/students` | **ADMIN** | 已实现（风险学生分页：按可疑度降序，权重可配 `analytics.risk.weight-*`，末档 student_id 保证深分页不漏行/不重行；每行并入最多 5 条 AI 结论作为**证据**——模型可疑度不进入排序权重、不触发任何自动处置） |
+| analytics | POST | `/api/v1/internal/analytics/rebuild` | **SERVICE / ADMIN** | 已实现（显式重算某场考试的成绩与排名；同考试重算中返回 409 `ANALYTICS_REBUILD_IN_PROGRESS`；**不经网关**；单飞闸门是**进程内**的，多实例并发重算未覆盖） |
 
 **规划中（代码不存在）**：
 
@@ -252,7 +286,7 @@ PROVISIONAL -> UNDER_REVIEW -> FINAL
 
 评测结果可以即时返回，最终成绩由考试规则决定是否在查重和风控审核后发布。当前未设计学生申诉接口，申诉能力暂不实现。
 
-**实现现状**：代码中不存在该状态机的枚举、字段或接口，也没有排名与"该题最高有效分"聚合；judge 侧固定 `ACCEPTED=100`、其余 0 分，且 `lunar-submission-judged` 事件不带 `passedCases`/`totalCases`，因此 `docs/exam-process.md` §7 确认的"按测试点通过比例给部分分"同样尚未落地。
+**实现现状**：代码中不存在该状态机的枚举、字段或接口，也没有排名与"该题最高有效分"聚合；judge 侧已按测试点通过比例给分（`passedCases`/`totalCases` 随 `lunar-submission-judged` 传输，通过全部为满分，见上文"评测"），但成绩读模型、排名与成绩状态机仍未落地。
 
 ## 实时监考
 
@@ -354,6 +388,75 @@ CSV 列顺序固定为 `studentNo,username,displayName,initialPassword`；首个
 `DELETE /api/v1/contests/{contestId}/students/{studentId}`
 
 该操作默认软删除报名关系并设置 `enrollmentStatus=REMOVED`，不删除学生账号、历史提交、评测结果或审计记录。
+
+## AI
+
+AI 能力由 ai-service 提供（`/api/v1/ai/**`，经网关可达）。端点与鉴权见上方端点总表，职责边界见 `docs/services.md` 的 ai-service 节。
+
+### 三层权限（缺一不可）
+
+| 层 | 判据 | 实现 |
+|---|---|---|
+| ① 角色 | 方法级 `@PreAuthorize`：**风险研判与 Provider 运行态仅 ADMIN**，其余 TEACHER/ADMIN——AI 是教师/管理员的工具，考生不该触发计费调用 | `AiController` |
+| ② 资源范围 | 带 `contestId` 的请求按考试归属判断（以服务身份取 contest 的快照，比对 `ownerTeacherId`）；**不带 `contestId` 的资源（作业/结论/草稿的列表与详情）只有 ADMIN 可用** | `AiScopeGuard` |
+| ③ 身份来源 | actor 与 role 只从**已验证令牌**取（`sub` 与 authorities），**绝不读请求体** | `AiController` |
+
+**越权与不存在返回同一个 404 `AI_RESOURCE_NOT_FOUND`**：区分二者等于确认"这个考试存在"，与 BE-01 隐藏存在性的要求一致。
+
+### 作业是异步的
+
+四类作业（`CODE_REVIEW` / `RISK_ASSESSMENT` / `SIMILARITY_SCAN` / `PROBLEM_DRAFT`）都是慢操作（模型调用秒级到分钟级），因此 `POST /api/v1/ai/jobs/*` **立即返回作业号**，实际执行在后台 worker（租约 + 指数退避重试，失败终态为 `FAILED`）。
+
+请求（代码评审；`risk-assessment` 传 `contestId`+`studentId`，`similarity-scan` 传 `contestId`+`problemId`，`problem-draft` 传 `requirement`（必填，≤4000 字）与可选的 `contestId`/`difficulty`/`languageHint`）：
+
+```json
+{"contestId":"c_123","submissionId":"sub_456"}
+```
+
+响应（`data`，只列关键字段；字段全集见端点总表与实现的读模型）：
+
+```json
+{
+  "jobId": "job_789",
+  "jobType": "CODE_REVIEW",
+  "status": "PENDING",
+  "contestId": "c_123",
+  "submissionId": "sub_456",
+  "requestedBy": "user_123",
+  "model": "gpt-4o-mini",
+  "promptVersion": "code-review-v2",
+  "errorCode": null,
+  "attempts": 0,
+  "createdAt": "2026-10-09T03:00:00Z"
+}
+```
+
+轮询 `GET /api/v1/ai/jobs/{jobId}`：`status` 为 `PENDING` → `RUNNING` → `SUCCEEDED` / `FAILED`；失败时 `errorCode` 取错误码注册表里的 AI 码，`statusDetail` 给运维看原因。`GET /api/v1/ai/jobs` 支持 `contestId` / `jobType` / `status` 过滤。**同一份输入**（同作业类型 + 同引用 + 同提示词版本）已有成功结论时，入队会**直接返回那条旧作业**而不新建——老师连点两次"生成评审"是最常见用法，不该产生两份作业与两次 Provider 调用（也因此入队不消耗额外的每日配额）。
+
+结论用 `GET /api/v1/ai/findings`（`contestId` / `submissionId` / `findingType` 过滤）与 `GET /api/v1/ai/findings/{findingId}` 读取，`detailJson` 是该作业类型的结构化产出；**一份作业至多产出一条结论**，`findingType` 就是作业类型。
+
+### `score` 的语义警告（必读）
+
+`score` 是**可疑度 0..100，仅用于排序与展示**：任何调用方都**不允许**用它驱动自动处置。仓库铁律是单一事件/单一信号不能自动判定作弊，AI 结论只是人工复核的线索（`ai_findings.score` 的列注释与 `AiFindingView` 的契约说明都写明了这一条）。
+
+- 只有 `RISK_ASSESSMENT` 与 `SIMILARITY_SCAN` 会产生 `score`；`CODE_REVIEW` 是教学反馈，`severity` 与 `score` 都为空——把两者混在一个字段里，风险列表会被"学生写错了循环"这类结论污染；
+- `severity` **不由 AI 定义**（那是 anti-cheat 规则表的语言）；风险研判另外给出理由、**反方证据**与人工介入方向（`recommendedAction` 只允许 `DISMISS` / `REVIEW_MANUALLY` / `ESCALATE`，模型给出约定外的取值时降级为最保守的 `REVIEW_MANUALLY`），**不含任何处罚建议**；
+- ai-service **不写成绩、不流转审核状态机**：审核流转仍走 `POST /api/v1/monitor/events/{eventId}/review`。
+
+### 出题草稿
+
+`POST /api/v1/ai/jobs/problem-draft` 的产物是**草稿**，用 `GET /api/v1/ai/drafts` / `GET /api/v1/ai/drafts/{draftId}` 读取（题面、样例、建议测试点、知识点标签、难度与语言提示），落在 `ai_schema.problem_drafts`，`reviewStatus` 当前恒为 `DRAFT`。**它不写 `problem_schema`**：教师确认后仍走 problem 既有的创建接口，"发布后版本不可变""发布前至少一个测试点"等既有不变量不为 AI 让路。教师确认入口尚未实现。
+
+### 数据出境门禁
+
+代码评审要把学生源码交给模型，因此"数据发去哪"是**默认可核对、默认关闭**的开关：
+
+- 判据是 Provider 的 **base-url 地址**（不是 `ai.provider.mode`）：回环、私有网段、`.local`/`.internal` 后缀、不含点的短名都算内网；**地址无法解析时按非内网处理**（fail closed）；
+- base-url 指向非内网地址时必须显式设置环境变量 `AI_EGRESS_APPROVED=true`，否则服务**启动失败**；并且**每次构建模型前都会复核**——把 base-url 热切成公网地址同样拦得住；
+- 授权值**只从环境变量读**，配置中心改不动它（详见 `docs/middleware.md`"LLM 推理服务"节）；
+- `GET /api/v1/ai/provider`（仅 ADMIN）回显当前 mode / 地址主机 / 模型名 / 向量检索开关，**不回显 api-key**。
+
+失败语义：Provider 不可达或超时 → 503 `AI_PROVIDER_UNAVAILABLE`（值得重试）；Provider 返回非 2xx（模型名/密钥/额度，含 Provider 侧限流）→ 502 `AI_PROVIDER_REJECTED`（重试无用，要改配置）；模型输出不符合约定结构 → 502 `AI_INVALID_MODEL_OUTPUT`（**不得当成功结果使用**）。这些码会记进作业的 `errorCode` 并按 attempts 退避重试；当日配额用尽 → 429 `AI_QUOTA_EXCEEDED`（`ai.limits.max-jobs-per-day`）；需要向量检索但未启用 → 409 `AI_EMBEDDING_DISABLED`。
 
 ## 截图规则（**规划：未实现**）
 

@@ -26,6 +26,8 @@
         <!-- Spring Cloud Alibaba BOM 版本（Nacos 服务发现）；必须与 spring-cloud 同代 -->
         <spring-cloud-alibaba.version>2025.0.0.0</spring-cloud-alibaba.version>
         <rocketmq-spring.version>2.3.0</rocketmq-spring.version>
+        <!-- LLM 框架：ai-service 的模型调用、结构化输出、AiServices 声明式接口都由它提供 -->
+        <langchain4j.version>1.22.0</langchain4j.version>
         <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
     </properties>
 
@@ -40,6 +42,8 @@
         <module>services/anti-cheat-service</module>
         <module>services/media-service</module>
         <module>services/audit-service</module>
+        <module>services/ai-service</module>
+        <module>services/analytics-service</module>
     </modules>
 
     <dependencyManagement>
@@ -88,6 +92,14 @@
                 <groupId>org.flywaydb</groupId>
                 <artifactId>flyway-core</artifactId>
                     <version>11.20.3</version>
+            </dependency>
+            <!-- LangChain4j：用 BOM 统一各模块版本，避免 langchain4j 与 langchain4j-open-ai 版本漂移 -->
+            <dependency>
+                <groupId>dev.langchain4j</groupId>
+                <artifactId>langchain4j-bom</artifactId>
+                <version>${langchain4j.version}</version>
+                <type>pom</type>
+                <scope>import</scope>
             </dependency>
         </dependencies>
     </dependencyManagement>

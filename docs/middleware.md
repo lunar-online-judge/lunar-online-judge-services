@@ -1,18 +1,19 @@
 # 中间件清单
 
-本文档列出项目依赖的全部中间件与外部服务，说明各自的用途、功能、接入状态和使用约束。版本与镜像以 `docker/compose.core.yml`、`docker/compose.platform.yml` 和根 POM 为准；端口与启动见 `docs/deployment.md`；数据流细节见 `docs/architecture.md`。
+本文档列出项目依赖的全部中间件与外部服务，说明各自的用途、功能、接入状态和使用约束。版本与镜像以 `docker/compose.core.yml`、`docker/compose.platform.yml` 和根 POM 为准（`docker/compose.ai.yml` 已废弃，只剩一段说明性注释，见"LLM 推理服务"节）；端口与启动见 `docs/deployment.md`；数据流细节见 `docs/architecture.md`。
 
 ## 总览
 
 | 中间件 | 镜像/版本 | 端口 | 用途 | 接入状态 |
 |---|---|---|---|---|
-| PostgreSQL | `postgres:16` | 5432（本地 Compose 映射 5433） | 唯一业务事实源，多 schema 隔离 | Compose 已提供；驱动 + Flyway 已在 6 个有库服务引入（auth / contest / problem / submission / anti-cheat / audit） |
+| PostgreSQL | `postgres:16` | 5432（本地 Compose 映射 5433） | 唯一业务事实源，多 schema 隔离 | Compose 已提供；驱动 + Flyway 已在 8 个有库服务引入（auth / contest / problem / submission / judge / anti-cheat / audit / ai） |
 | Redis | `redis:7-alpine` | 6379 | 短期状态：限流计数（令牌、幂等、心跳、锁**有意不迁**，见下）、事件消费去重 | Compose 已提供；已接入 auth-service（登录失败限流）与 judge-service（`lunar-submission-created` 消费去重） |
-| RocketMQ | `apache/rocketmq:5.3.1` | 9876 | 服务间异步事件总线（规划 7 个 Topic，当前落地 3 个） | 已接入：submission / anti-cheat 经 Outbox 生产，judge 消费 `lunar-submission-created`、submission 消费 `lunar-submission-judged`（全仓仅这 2 个消费者，rocketmq-spring 2.3.0） |
-| Nacos | `nacos/nacos-server:v3.0.3` | 8848 / 9848 / 8849（控制台） | 服务发现 + 配置中心 | 已接入：8 个服务均注册到 Nacos 并按服务名寻址，4 个服务有托管配置 |
+| RocketMQ | `apache/rocketmq:5.3.1` | 9876 | 服务间异步事件总线（规划 7 个 Topic；代码中已出现 6 个事件类型：`lunar-submission-created`、`lunar-submission-judged`、`lunar-risk-event-created`、`lunar-risk-event-reviewed`、`lunar-audit-recorded`、`lunar-ai-finding-created`） | 已接入：submission / judge / anti-cheat / ai 经 Outbox 生产，judge 消费 `lunar-submission-created`；submission 与 analytics 消费 `lunar-submission-judged`；analytics 消费 `lunar-risk-event-created` / `lunar-risk-event-reviewed` / `lunar-ai-finding-created`；audit 消费 `lunar-audit-recorded`（全仓 4 个消费者，rocketmq-spring 2.3.0） |
+| Nacos | `nacos/nacos-server:v3.0.3` | 8848 / 9848 / 8849（控制台） | 服务发现 + 配置中心 | 已接入：10 个服务均注册到 Nacos 并按服务名寻址，5 个服务有托管配置 |
 | MinIO | `minio/minio:latest` | 9000 / 9001 | 截图对象存储 | Compose 已提供；SDK 未接入 |
-| OpenResty | `openresty/openresty:1.29.2.4-0-alpine` | 80 | 边缘反向代理：唯一对外入口，转发 gateway | Compose 已提供；回源宿主机 gateway，gateway 的 6 条路由已实现 |
+| OpenResty | `openresty/openresty:1.29.2.4-0-alpine` | 80 | 边缘反向代理：唯一对外入口，转发 gateway | Compose 已提供；回源宿主机 gateway，gateway 的 8 条路由（含 `/api/v1/ai/**`、`/api/v1/analytics/**`）已实现 |
 | go-judge | `criyle/go-judge`（本仓库 Dockerfile 基于它构建，未固定 digest） | 5050 | 用户代码沙箱执行（唯一执行环境） | Compose 已提供；`GoJudgeAdapter` 已实现，C++ 编译/运行与五类 verdict 已真机实测（测试点传输仍缺，见"go-judge"节） |
+| LLM 推理（云厂商 OpenAI 兼容端点） | 外部服务：云厂商 OpenAI 兼容 API（无镜像、无本地容器） | 由 Provider 决定（`https://…`） | 大模型推理：代码评审、风险研判、出题草稿；语义查重默认走代码指纹、不需要模型 | **只接入云端 API 模型**：地址由 `AI_PROVIDER_BASE_URL` 显式给（无默认值，缺了服务起不来）；ai-service 以 LangChain4j 1.22.0 + `langchain4j-open-ai` 接入（见"LLM 推理服务"节）。本地推理栈已废弃 |
 | JPlag | 独立 worker 进程 | — | 代码查重引擎 | 未接入 Maven Reactor，集成前审查许可证 |
 | SFU（WebRTC） | 未选型 | — | 屏幕/摄像头实时流转发 | 未选型、未部署 |
 
@@ -22,8 +23,8 @@
 
 **功能**：
 
-- 单实例部署（首期不做主从高可用），单库多 schema 隔离：`auth_schema`、`contest_schema`、`problem_schema`、`submission_schema`、`judge_schema`、`anti_cheat_schema`、`media_schema`、`audit_schema`；
-- 承载用户账号与凭据哈希、竞赛与报名关系、题目与版本、提交与成绩读模型、评测任务、风险事件与审核、截图元数据、审计账本；
+- 单实例部署（首期不做主从高可用），单库多 schema 隔离：`auth_schema`、`contest_schema`、`problem_schema`、`submission_schema`、`judge_schema`、`anti_cheat_schema`、`media_schema`、`audit_schema`、`ai_schema`；
+- 承载用户账号与凭据哈希、竞赛与报名关系、题目与版本、提交与成绩读模型、评测任务、风险事件与审核、截图元数据、审计账本、AI 作业与结论（`ai_schema`）；
 - Outbox 事件表与业务事实在同一个本地事务提交，保证"落库成功则事件必达"；
 - 各服务表结构迁移统一用 Flyway 管理（`FLYWAY_ENABLED` 开关，默认关闭）。
 
@@ -36,7 +37,7 @@
 **功能**（括号内为当前状态）：
 
 - 限流计数：**登录失败锁定已迁到 Redis**（auth-service，键 `auth:login:fail:*` / `auth:login:lock:*`，TTL 即锁定时长）；接口频控未开发；
-- 事件消费去重：**judge-service 已接入**（键 `judge:consumed:*`，TTL 默认 24 小时，`judge.consumer.consumed-event-ttl-hours` 可托管调参）。judge 没有数据库，幂等只能落在短期状态层；**有意采用"先查、处理成功后再登记"而不是先 SETNX 占坑**——先占坑会在评测中途失败后让重投看到坑位已占而直接 ack，判决永久丢失（fail-open：Redis 不可用时不去重，仍然评测）；
+- 事件消费去重：**judge-service 已接入**（键 `judge:consumed:*`，TTL 默认 24 小时，`judge.consumer.consumed-event-ttl-hours` 可托管调参）。judge 的库只有 `judge_schema.outbox_events` 一张表（没有可做去重闸门的业务表），幂等只能落在短期状态层；**有意采用"先查、处理成功后再登记"而不是先 SETNX 占坑**——先占坑会在评测中途失败后让重投看到坑位已占而直接 ack，判决永久丢失（fail-open：Redis 不可用时不去重，仍然评测）；
 - 令牌失效状态（登出/踢下线）：未开发；
 - 写操作 `Idempotency-Key` 幂等键：**仍以 PostgreSQL 唯一约束为权威，不迁 Redis**（理由见下）；
 - 考生会话心跳与会话在线状态：**未迁**，`contest_schema.exam_sessions` 仍是权威（理由见下）；
@@ -44,7 +45,7 @@
 
 **约束**：Redis 不是成绩、审计或任何业务事实源——Redis 数据丢失不允许造成业务数据丢失。
 
-**接入状态**：`spring-boot-starter-data-redis` 目前只有 auth-service 引入（连接参数见 `docs/deployment.md` 的 `REDIS_HOST` / `REDIS_PORT` / `REDIS_TIMEOUT_MS`）。计数与锁定标记用 `StringRedisTemplate` + Lua 脚本**原子执行**——若拆成多次命令，"INCR 成功但没设上 TTL"会留下永不过期的计数键，导致锁到期后下一次失败立刻再次锁定（旧内存实现即有该缺陷）。**fail-open**：Redis 不可用时登录限流放行并打 warn 日志——限流属短期状态层，其不可用不应让全站无法登录。
+**接入状态**：`spring-boot-starter-data-redis` 目前由 auth-service（登录失败限流）与 judge-service（消费去重）引入（连接参数见 `docs/deployment.md` 的 `REDIS_HOST` / `REDIS_PORT` / `REDIS_TIMEOUT_MS`）。计数与锁定标记用 `StringRedisTemplate` + Lua 脚本**原子执行**——若拆成多次命令，"INCR 成功但没设上 TTL"会留下永不过期的计数键，导致锁到期后下一次失败立刻再次锁定（旧内存实现即有该缺陷）。**fail-open**：Redis 不可用时登录限流放行并打 warn 日志——限流属短期状态层，其不可用不应让全站无法登录。
 
 **有意不迁 Redis 的两项**（非遗漏，改动前须先推翻这里的理由）：
 
@@ -58,8 +59,9 @@
 **功能**：
 
 - 首期 7 个 Topic：`lunar-submission-created`、`lunar-submission-judged`、`lunar-risk-event-created`、`lunar-screenshot-requested`、`lunar-screenshot-created`、`lunar-plagiarism-requested`、`lunar-plagiarism-completed`（生产者/消费者矩阵见 `docs/architecture.md` 第 5 节）；
+- **代码中实际已出现 6 个事件类型**（以生产者为准）：上表 7 个里的 `lunar-submission-created`（submission）、`lunar-submission-judged`（judge，submission 的内部回写端点也发同一类型）、`lunar-risk-event-created`（anti-cheat / media），以及**不在首期 7 个之内**的 `lunar-risk-event-reviewed`（anti-cheat 审核流转）、`lunar-audit-recorded`（submission / anti-cheat / ai 的审计留痕）、`lunar-ai-finding-created`（ai 的结论事件）。消费者的落地情况只有 3 条：judge 消费 `lunar-submission-created`、submission 消费 `lunar-submission-judged`、audit 消费 `lunar-audit-recorded`；其余事件暂无消费者；
 - 事件统一信封：`eventId`、`eventType`、`aggregateId`、`occurredAt`、`schemaVersion`、`traceId`；
-- 与 PostgreSQL Outbox 配合实现可靠发布。**当前实现**：发布器按 `published_at is null` 扫描并投递，失败仅告警、留待下一轮重试；**死信表与管理员重放尚未实现**（也没有重试计数与退避）。
+- 与 PostgreSQL Outbox 配合实现可靠发布。**当前实现**：发布器按 `published_at is null` 扫描并投递，失败累计 `attempts` 并按指数退避重试，超过上限（默认 10 次）置 `dead_lettered_at` 转死信。submission / judge / anti-cheat / ai 四个服务都是这套模式（各自的 `<schema>.outbox_events`）；**死信的人工重放接口目前只有 submission-service 提供**（`/api/v1/submissions/admin/dead-letters`），其余三个服务只能直接查表处理。
 
 **约束**：消费者必须按 `eventId` 幂等；重复消息不能把提交状态从终态改回运行态。
 
@@ -67,13 +69,51 @@
 
 **本地部署**：Compose 已包含 NameServer + broker（同为 `apache/rocketmq:5.3.1`）。broker 配置在 `docker/rocketmq/broker.conf`：单主 `ASYNC_MASTER`、堆内存调到 512m、`brokerIP1=127.0.0.1`（Spring 服务跑在宿主机的前提——否则 broker 向 NameServer 注册容器内网 IP，宿主机客户端连不上；服务容器化后注释掉该行即可）、开发期 `autoCreateTopicEnable=true`（生产必须关闭并显式建 Topic）。
 
+## LLM 推理服务（云厂商 OpenAI 兼容端点）
+
+**用途**：ai-service 的大模型调用出口。代码评审、作弊风险辅助研判、出题草稿三类作业要调模型；语义查重默认只用纯 Java 的 MinHash 代码指纹，不依赖它。
+
+**本项目只接入云端 API 模型**（2026-10 起不再支持本地 Ollama 这类跑在本机的模型运行时）：
+
+- **Provider 地址必须显式配置**：base-url **没有默认值**（`AiProviderProperties` 的字段默认是空串），未配置 `AI_PROVIDER_BASE_URL`（或配置中心 `ai.provider.base-url`）时 `AiPrivacyGuard` 在启动期直接抛 `IllegalStateException`——服务起不来，而不是回落到某个"碰巧能通"的地址。此前的默认值 `http://localhost:11434/v1` 已删除：默认值意味着"不配置也能跑"，而"跑起来用的到底是哪个端点"恰恰是数据出境这件事上最不能猜的一项；
+- **换供应商只换 base-url**：各家云厂商都提供 OpenAI 兼容协议（`/chat/completions`、`/embeddings`），因此换 Provider 只是换 base-url（外加 api-key 与模型名）；
+- **不引任何厂商专属 SDK**：ai-service 只引 `langchain4j-open-ai`，刻意不引 `langchain4j-ollama`、也不引各家官方 SDK，避免形成多条会分叉的调用路径；
+- **模型名走配置，不绑死某一家**：`chat-model` / `embedding-model` 的默认值只是中性占位（`gpt-4o-mini` / `text-embedding-3-small`），**按所选厂商的模型名填**；
+- **模型构建与热更新**：`AiModelFactory` 按**配置指纹**（mode / base-url / 模型名 / 温度 / 最大输出 / 密钥哈希）缓存 `ChatModel` 与 `EmbeddingModel`，配置一变自然换新实例。**刻意不做成单例 Bean**：Provider 参数是配置中心托管的运行时可变项，"改完即生效"是本仓库对托管配置的承诺，启动期固化成静态 Bean 后配置中心就只剩"改完重启"的价值；
+- **重试归作业所有**：客户端 `maxRetries(0)`，重试由 `ai_jobs` 的 attempts + 指数退避负责。让框架在内部悄悄重试会让"尝试次数"失真，日志里的失败次数也就不可信；
+- **不记录请求/响应体**（`logRequests`/`logResponses` = false）：题面与源码会因此进日志，而仓库明确要求学生代码不落日志；
+- 连接/读超时在启动期固化（默认 10s / 120s，建在 RestClient 上），改后需重启。
+
+**为什么不用官方 Spring Boot starter**：`langchain4j-spring-boot-starter` 走 `-beta` 版本线（1.22.0-betaNN），与仓库的 1.22.0 正式版本线不一致；更关键的是那套 starter 产出**静态 Bean**，与上面"每轮作业按当前配置取模型"的热更新需求直接冲突。当前只用 BOM + `langchain4j`、`langchain4j-open-ai` 两个模块，依赖面最小。
+
+**已废弃的本地推理栈（`docker/compose.ai.yml`）**：
+
+- 该文件**只剩注释**（有意保留占位而不是删除：直接删会让照旧执行的人只看到"文件不存在"这种易误判的报错）；YAML 只有注释是合法的，而 compose 会拒绝它——**本机实测（2026-10）**：`docker compose -f docker/compose.ai.yml up -d` 与 `… config` 都以 `empty compose file` 退出（exit 1），既不建工程也不起容器。这正是我们要的效果：照旧文档执行的人会立刻停下，而不是在不知情的情况下又起一套本机推理；
+- 无 11434 端口、无 `ollama pull`、无 `lunar-ollama` 容器、无 `ollama-models` 命名卷；
+- **它没有被任何其它 compose 文件 `include`/`extends`**：`docker/compose.full.yml` 只收 `compose.core.yml` / `compose.platform.yml` / `compose.edge.yml` / `compose.judge.yml`，因此废弃它不影响组合启动；
+- 需要"数据不出境"的部署时，正确做法是自建**内网的 OpenAI 兼容网关**并把 base-url 指向它（此时地址判内网、不需要出境授权）——它仍是 API 模型，**不要**回到本机模型运行时。
+
+**数据边界（数据出境门禁）**：`AiPrivacyGuard` 的判据是 **base-url 的地址**，不是 `ai.provider.mode`——把 mode 写成 LOCAL 却填了公网地址，是最容易发生的数据出境方式。**这条逻辑本轮原样保留、不因"只接云端"而放宽**：自建内网网关同样属于"API 模型"，而且按地址判定是后面几项授权/复核机制的基础（没有地址判据，"出境"就无从定义）。
+
+- **地址缺失 → 失败**：base-url 为空/空白时直接抛 `IllegalStateException`，不看授权、不看密钥（"没配"不能靠一次授权兜过去）；
+- 出境授权**只从环境变量 `AI_EGRESS_APPROVED` 读**。此前它与其他 Provider 参数同属 `ai.provider.*`，于是配置中心的 `ai-service.yml` 里写一行 `egress-approved: true` 就能静默打开出境；安全开关绝不能和普通可调参数共用一个可被配置中心覆盖的绑定前缀（环境变量也无法经配置中心注入）；
+- **每次构建模型前复核**（`AiModelFactory` 构建前调 `verifyCurrentProvider`）。只在启动期检查是不够的：base-url 可热更新，把它改成公网地址根本不会重启，启动期检查就被绕过；
+- 内网判据：回环、私有网段（10. / 192.168. / 172.16-31. / 169.254.、IPv6 的 fc/fd/fe80）、`.local` 与 `.internal` 后缀、**不含点的短名**（如 compose 里的 `llm-gateway`）；地址无法解析时按"非内网"处理（fail closed）。不合规时抛 `IllegalStateException`：启动期让服务起不来，运行期让该次作业失败（记 `INTERNAL_ERROR`），两种情况都不会把数据发出去。指向非内网地址且已授权时还要求 api-key 非空。
+
+**配置中心：放什么、不放什么**（配置内容的真源是 `docker/nacos/config/ai-service.yml`）：
+
+- **放**（`@ConfigurationProperties` + 每次调用时读取，改完即生效）：`ai.provider.chat-model` / `embedding-model` / `max-tokens` / `temperature`、`ai.worker.lease-seconds` / `max-attempts`、`ai.limits.max-jobs-per-day` / `minhash-threshold` / `minhash-shingle-size`；
+- **`ai.provider.base-url` 是例外**：它仍是可绑定的配置键（配置中心显式加一行同样生效、且热更新），但 **git 真源 `docker/nacos/config/ai-service.yml` 里刻意不提供该键**——那里写死一个地址，等于让"某个碰巧能通的端点"变成仓库里的默认事实标准。地址由部署方通过 `AI_PROVIDER_BASE_URL` 显式声明（Spring Boot 宽松绑定，无需在 yml 里中转）；
+- **不放**：`ai.provider.api-key`（密钥只从环境变量注入，既不入库也不入配置中心）、`ai.provider.mode` 与出境授权（决定"数据是否出境"的安全开关，只从环境变量来，不该被一次配置中心改动静默打开）、`connect-timeout-seconds` / `read-timeout-seconds`（建在 RestClient 上，启动期固化）、`ai.worker.concurrency` / `poll-interval-ms`（线程池大小与 `@Scheduled` 周期，启动期固化）、`ai.limits.embedding-enabled`（需要 Provider 支持 embedding 模型 + 数据库有 pgvector 扩展，属部署期开关；**当前语义查重只用 MinHash，尚未调用向量化通道**）；
+- 运维核对入口：`GET /api/v1/ai/provider`（仅 ADMIN）回显 mode / 地址主机 / 模型名 / 向量检索开关，**不回显 api-key**——"把学生代码发出去之前必须能核对"的就是这几项（见 `docs/api.md`"AI"节）。
+
 ## Nacos
 
 **用途**：服务发现 + 配置中心（均已接入）。
 
 **功能**：
 
-- **服务注册与发现**：8 个服务启动时注册到 `DEFAULT_GROUP`，调用方按服务名寻址——gateway 的 6 条路由用 `lb://<服务名>`，服务间调用走 **Spring 原生声明式 HTTP 接口**（`@HttpExchange`：`AuthServiceApi` / `ContestServiceApi` / `ProblemServiceApi` / `ProblemInternalApi`，以及**多个服务共用的审计写入 `AuditServiceApi` 与服务身份令牌 `ServiceTokenApi`（定义在 lunar-common，因为契约完全相同）**，由各服务的 `ServiceClientConfig` 经 `HttpServiceClientFactory` 装配成 Bean），baseUrl 默认服务名、`*_BASE_URL` 可覆盖为固定地址排障，实例由 Nacos 注册表 + Spring Cloud LoadBalancer（`@LoadBalanced RestClient.Builder`）解析；
+- **服务注册与发现**：10 个服务启动时注册到 `DEFAULT_GROUP`，调用方按服务名寻址——gateway 的 8 条路由用 `lb://<服务名>`，服务间调用走 **Spring 原生声明式 HTTP 接口**（`@HttpExchange`：`AuthServiceApi` / `ContestServiceApi` / `ProblemServiceApi` / `ProblemInternalApi`、ai-service 取数用的 `SubmissionInternalApi` / `ContestInternalApi` / `AntiCheatInternalApi`，以及**多个服务共用的审计写入 `AuditServiceApi` 与服务身份令牌 `ServiceTokenApi`（定义在 lunar-common，因为契约完全相同）**，由各服务的 `ServiceClientConfig` 经 `HttpServiceClientFactory` 装配成 Bean），baseUrl 默认服务名、`*_BASE_URL` 可覆盖为固定地址排障，实例由 Nacos 注册表 + Spring Cloud LoadBalancer（`@LoadBalanced RestClient.Builder`）解析；
 - **配置中心**：托管"运行时可变"的服务私有配置，改值后无需重启即生效。
 
 ### 配置中心：放什么、不放什么
@@ -87,16 +127,22 @@ dataId = `<spring.application.name>.yml`，分组 `DEFAULT_GROUP`，命名空间
 | contest-service | `exam.status.sweep-interval-ms` | 否，重启生效 |
 | submission-service | `exam.submission.window-seconds`、`exam.submission.max-per-window`（提交频率限制，docs/exam-process.md §7） | **是** |
 | submission-service / anti-cheat-service | `outbox.publish-interval-ms` | 否，重启生效 |
+| ai-service | `ai.provider.chat-model`、`embedding-model`、`max-tokens`、`temperature` | **是** |
+| ai-service | `ai.provider.base-url`（**git 真源里刻意不提供该键**，需部署方显式给出；配置中心另行添加时同样热生效） | **是** |
+| ai-service | `ai.worker.lease-seconds`、`ai.worker.max-attempts`、`ai.limits.max-jobs-per-day`、`minhash-threshold`、`minhash-shingle-size` | **是** |
+
+ai-service **不放**的键与理由见下文"不放"清单与"LLM 推理服务"节。
 
 **不放**（有意为之）：
 
 - **自举参数**：Nacos 自身的连接信息（`server-addr` / `namespace`）必须留在本地 yml——"从哪里取配置"不可能从配置中心拿；`NACOS_SERVER_ADDR` 仍是环境变量。
 - **部署期配置**：端口、数据库连接串、服务地址（`*_BASE_URL` / `*_SERVICE_URI`）、judge 的 go-judge 超时——随版本发布走，留在 git，也确实是启动固化的。
-- **密钥**：`AUTH_JWT_PRIVATE_KEY` 等按 `docs/deployment.md` 从环境变量注入，既不入库也不入配置中心。
+- **密钥**：`AUTH_JWT_PRIVATE_KEY`、`AI_PROVIDER_API_KEY` 等按 `docs/deployment.md` 从环境变量注入，既不入库也不入配置中心；**安全开关同理**——AI 的数据出境授权 `AI_EGRESS_APPROVED` 只认环境变量，配置中心（乃至本地 yml）都改不动它。
+- **ai-service 的其余项**：`ai.provider.api-key` 与 `mode`、`ai.provider.connect-timeout-seconds` / `read-timeout-seconds`、`ai.worker.concurrency` / `poll-interval-ms`、`ai.limits.embedding-enabled` 一律不放配置中心，逐项理由见"LLM 推理服务"节；`ai.provider.base-url` 是另一种情况——它**可以**由配置中心给（仍是可绑定键、热生效），但 git 真源里刻意不写，地址只能来自部署环境。
 
 **热更新的边界**：只有 `@ConfigurationProperties`（可变 JavaBean）+ **每次调用时读取**才能热更新。`@Value` 不参与刷新；构造期读进字段等于固化（那样配置中心就只剩"改完重启"的价值）。`@Scheduled(fixedDelayString=…)` 与 HTTP 客户端超时都在启动时解析/固化，改后需重启——上表已逐项标注。
 
-**离线兜底**：`spring.config.import` 用 `optional:` 前缀，Nacos 不可达时服务仍以 `@ConfigurationProperties` 的字段默认值启动（与 `NACOS_FAIL_FAST=false` 一致）。**注意：导入的配置优先级低于本地 yml**——被托管的键不能再写在本地 yml，否则本地值会永远盖住 Nacos 的值（本项目已按此清理过 auth 的 `auth.login.*`）。环境变量优先级高于两者，仍可临时覆盖。
+**离线兜底**：`spring.config.import` 用 `optional:` 前缀，Nacos 不可达时服务仍以 `@ConfigurationProperties` 的字段默认值启动（与 `NACOS_FAIL_FAST=false` 一致）。**例外是 `ai.provider.base-url`**：它没有字段默认值，缺了就启动失败（`AiPrivacyGuard` 的 fail-closed 检查，见"LLM 推理服务"节）——地址不允许有"兜底值"。**注意：导入的配置优先级低于本地 yml**——被托管的键不能再写在本地 yml，否则本地值会永远盖住 Nacos 的值（本项目已按此清理过 auth 的 `auth.login.*`）。环境变量优先级高于两者，仍可临时覆盖。
 
 **配置内容的真源在 git**：`docker/nacos/config/<服务名>.yml` 是这些配置的版本化真源，用 `bash docker/nacos/publish-configs.sh` 推送到 Nacos（走官方 nacos-client，免鉴权、不受 HTTP API 版本差异影响）。推荐流程：改仓库里的 yml → 提交 → 跑脚本。控制台 UI 也能改（适合临时调参），但那样只有 Nacos 自己的变更历史，不在 git 里。
 
@@ -112,7 +158,7 @@ dataId = `<spring.application.name>.yml`，分组 `DEFAULT_GROUP`，命名空间
 
 ### 服务发现的约束
 
-- 依赖：根 POM 的 `spring-cloud-alibaba.version=2025.0.0.0`（Spring Cloud Alibaba BOM，须与 spring-cloud 同代，2025.0.3 对应它）；各服务引 `spring-cloud-starter-alibaba-nacos-discovery`，**按服务名发起调用或路由的服务（gateway / contest / submission / anti-cheat）另需 `spring-cloud-starter-loadbalancer`**——SCA 的 starter 不以非 optional 方式传递它，缺了会在 `lb://` 处直接抛 `NoLoadBalancerClientException`；服务间声明式调用**不需要额外依赖**：接口用 Spring Framework 自带的 `@HttpExchange`，寻址只靠上面这个 loadbalancer 提供的 `@LoadBalanced RestClient.Builder`。
+- 依赖：根 POM 的 `spring-cloud-alibaba.version=2025.0.0.0`（Spring Cloud Alibaba BOM，须与 spring-cloud 同代，2025.0.3 对应它）；各服务引 `spring-cloud-starter-alibaba-nacos-discovery`，**按服务名发起调用或路由的服务（gateway / auth / contest / submission / anti-cheat / ai）另需 `spring-cloud-starter-loadbalancer`**——SCA 的 starter 不以非 optional 方式传递它，缺了会在 `lb://` 处直接抛 `NoLoadBalancerClientException`；服务间声明式调用**不需要额外依赖**：接口用 Spring Framework 自带的 `@HttpExchange`，寻址只靠上面这个 loadbalancer 提供的 `@LoadBalanced RestClient.Builder`。
 - 注册 IP 固定 `127.0.0.1`（`spring.cloud.nacos.discovery.ip`）：本机多网卡（VMware VMnet / WSL 虚拟网卡）会被自动探测误选（实测选到 VMnet1 的 192.168.48.1），处理方式与 RocketMQ `brokerIP1=127.0.0.1` 一致；**服务容器化后须改为容器可达地址**。
 - `spring.cloud.nacos.discovery.fail-fast=false`：Nacos 不可达时服务照常启动（仅不注册），`NACOS_FAIL_FAST=true` 可切回严格模式。
 - 本地 Compose 以 standalone 模式运行（`nacos/nacos-server:v3.0.3`），映射 **8848 客户端/API + 9848 客户端 gRPC + 8849 控制台**（容器内控制台是 8080，宿主 8080 被网关占用故映射到 8849）。9848 必须映射：Nacos 客户端的注册/订阅/心跳走 gRPC，只开 8848 会报 `Server check fail, please check server xxx, port 9848 is available`。控制台地址 `http://localhost:8849/index.html`（首次访问初始化管理员密码）。

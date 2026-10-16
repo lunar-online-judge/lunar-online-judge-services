@@ -1,0 +1,37 @@
+# ai-service 的运行时可变配置（配置内容的 git 真源；用 docker/nacos/publish-configs.sh 推送）。
+#
+# 只放"改完即生效、且不改变安全边界"的项：模型名、退避与配额、相似度阈值。
+# 各键的离线兜底值是 Java 侧 @ConfigurationProperties 的字段默认值（Nacos 不可达时照常启动）。
+#
+# **不放**（有意为之，见 docs/middleware.md"配置中心：放什么、不放什么"）：
+#   - ai.provider.api-key：密钥只从环境变量注入，**既不入库也不入配置中心**（写进来就等于进了 git 历史）；
+#   - ai.provider.mode / egress-approved：决定"数据是否出境"的安全开关，只从环境变量来，
+#     不该被一次配置中心改动静默打开（漏配时 AiPrivacyGuard 会让服务起不来）；
+#   - ai.provider.connect-timeout-seconds / read-timeout-seconds：建在 RestClient 上，启动期固化；
+#   - ai.worker.concurrency / poll-interval-ms：线程池大小与 @Scheduled 周期，启动期固化；
+#   - ai.limits.embedding-enabled：依赖数据库 pgvector 扩展，属部署期开关。
+#
+# **base-url 现在放在这里**：本项目已确定只接入一家云端 API（DeepSeek），端点不再是"待部署方决定的未知量"。
+# 环境变量 AI_PROVIDER_BASE_URL 依然可以覆盖它（环境变量优先级高于配置中心），换厂商或换自建网关无需改本文件。
+# 但要注意：**端点可知 ≠ 数据可出境**——指向公网地址时 AiPrivacyGuard 仍要求环境变量
+# AI_EGRESS_APPROVED=true（该开关只认环境变量，配置中心打不开它），且必须有 AI_PROVIDER_API_KEY，否则服务起不来。
+ai:
+  provider:
+    base-url: https://api.deepseek.com/v1
+    # DeepSeek 的 OpenAI 兼容模型名：deepseek-chat（通用对话）/ deepseek-reasoner（推理增强）
+    chat-model: deepseek-chat
+    # DeepSeek **没有** embedding 端点，因此 ai.limits.embedding-enabled 必须保持关闭（默认就是关闭）：
+    # 语义查重走纯 Java MinHash，不依赖向量；这个键是给将来接入带向量能力的厂商预留的，在此配置也不会被调用。
+    embedding-model: text-embedding-3-small
+    max-tokens: 2048
+    temperature: 0.2
+  worker:
+    # 租约：作业被领取后超过该时长仍未完成，视为执行方已死，可被重新领取
+    lease-seconds: 300
+    max-attempts: 3
+  limits:
+    # 每调用者每日作业上限：防止一次误操作把 Provider 配额烧穿
+    max-jobs-per-day: 200
+    # 语义查重阈值（MinHash 的 Jaccard 估计值），超过即产出相似 finding
+    minhash-threshold: 0.6
+    minhash-shingle-size: 5
