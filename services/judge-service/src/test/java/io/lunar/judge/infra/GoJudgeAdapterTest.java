@@ -190,6 +190,53 @@ class GoJudgeAdapterTest {
         assertThat(runProcLimit).isNotNull().isPositive();
     }
 
+    @Test
+    void javascriptRunsSourceDirectlyWithoutCompileStep() {
+        StubTransport transport = transport(accepted(Map.of("stdout", "one"), null));
+        GoJudgeAdapter adapter = new GoJudgeAdapter(transport);
+
+        adapter.query(adapter.submit(command("js", ONE_CASE)).engineSubmissionId());
+
+        assertThat(transport.requests).hasSize(1);
+        GoJudgeModels.Cmd runCommand = transport.requests.get(0).cmd().get(0);
+        assertThat(runCommand.args()).containsExactly("node", "main.js");
+        assertThat(runCommand.copyIn()).containsKey("main.js");
+    }
+
+    @Test
+    void typescriptCompilesWithTscThenRunsNode() {
+        StubTransport transport = transport(
+                accepted(null, Map.of("main.js", "F1")),
+                accepted(Map.of("stdout", "one"), null));
+        GoJudgeAdapter adapter = new GoJudgeAdapter(transport);
+
+        adapter.query(adapter.submit(command("ts", ONE_CASE)).engineSubmissionId());
+
+        assertThat(transport.requests).hasSize(2);
+        GoJudgeModels.Cmd compileCommand = transport.requests.get(0).cmd().get(0);
+        assertThat(compileCommand.args()).startsWith("tsc");
+        assertThat(compileCommand.copyOutCached()).containsExactly("main.js");
+        assertThat(compileCommand.copyIn()).containsKey("main.ts");
+        GoJudgeModels.Cmd runCommand = transport.requests.get(1).cmd().get(0);
+        assertThat(runCommand.args()).containsExactly("node", "main.js");
+        assertThat(runCommand.copyIn()).containsKey("main.js");
+    }
+
+    @Test
+    void compileErrorFallsBackToStdoutDiagnostics() {
+        // tsc 把编译诊断写到 stdout：stderr 为空时不能把错误信息丢掉（真机实测）
+        StubTransport transport = transport(new GoJudgeModels.RunResult(
+                "Nonzero Exit Status", null, 1, 100L, 1000L, 200L,
+                Map.of("stderr", "", "stdout", "main.ts(1,7): error TS2322: Type 'string' is not assignable"),
+                null));
+        GoJudgeAdapter adapter = new GoJudgeAdapter(transport);
+
+        JudgeResult result = adapter.query(adapter.submit(command("ts", ONE_CASE)).engineSubmissionId());
+
+        assertThat(result.verdict()).isEqualTo("COMPILE_ERROR");
+        assertThat(result.message()).contains("TS2322");
+    }
+
     private static JudgeSubmissionCommand command(String language, Map<String, String> testFiles) {
         return new JudgeSubmissionCommand("sub_1", language, "int main() { return 0; }",
                 testFiles, 2000, 256000);

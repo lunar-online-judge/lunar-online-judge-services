@@ -73,6 +73,11 @@
 
 ### 新增
 
+- **判题语言扩到 JavaScript / TypeScript**（`docs/architecture.md` §9 早已确认"TypeScript 采用 `tsc` 生成 JavaScript 后由 Node.js 运行"）
+  - `LanguageTemplate` 新增 `JAVASCRIPT`（无编译步骤，`node main.js`）与 `TYPESCRIPT`（`tsc --target es2020 --module commonjs --typeRoots /usr/share/nodejs/@types main.ts` → `node main.js`），别名 `js`/`javascript`/`node` 与 `ts`/`typescript`；别名表超过 `Map.of` 的 10 项上限，改用 `Map.ofEntries`
+  - `docker/go-judge/Dockerfile` 增装 `nodejs` + `node-typescript`（后者同时提供 `tsc` 与 `/usr/share/nodejs/@types`，TS 模板的 `--typeRoots` 指向它，学生代码可直接用 `require`/`process` 而不必自己 `declare`）；JDK 从 `default-jdk-headless` 固定为 `openjdk-21-jdk-headless`——官方 `mount.yaml` 为 Java 预留的路径就是 `/etc/java-21-openjdk`
+  - **修掉一个真机暴露的问题**：`tsc` 把编译诊断写到 **stdout**（不是 stderr），适配器原先只看 stderr，TS 的编译错误信息会整条丢失；`compileStderr` 改为 stderr 为空时回落到 stdout、再回落 `error`
+  - 真机验证（同一个 go-judge 实例）：JS `node main.js` → `Accepted` 输出正确；TS `tsc` → `node main.js` → `Accepted` 输出正确；类型错误 → `COMPILE_ERROR` 且消息带 `TS2322`；适配器单测 13 → 16 个
 - **CSV 批量导入名单**（`docs/exam-process.md` §9 早已确认，此前只有逐个添加）
   - 新增 `POST /api/v1/contests/{contestId}/students/import`（老师/管理员，`multipart/form-data` 字段 `file`）：列顺序 `studentNo,username,displayName,initialPassword`，首个非空行是同名表头则跳过，空行跳过，字段支持双引号包裹（内部逗号、`""` 转义）
   - **逐行等价于一次"添加学生"**：复用同一套唯一性校验与审计；部分行失败不回滚已成功行，响应逐行返回 `status`（ENROLLED/FAILED）、`lineNumber`、稳定 `errorCode` 与可读原因；未分类失败（上游不可用）只记日志、原因不泄漏内部细节；竞赛不存在时整批 404

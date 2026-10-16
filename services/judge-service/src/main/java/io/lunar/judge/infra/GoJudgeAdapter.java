@@ -205,6 +205,10 @@ public class GoJudgeAdapter implements JudgeEngine {
     private String compileStderr(GoJudgeModels.RunResult runResult) {
         String stderr = runResult.files() == null ? null : runResult.files().get(FD_STDERR);
         if (stderr == null || stderr.isBlank()) {
+            // 部分编译器把诊断写到 stdout（实测 tsc 即如此），stderr 为空时回落到 stdout，否则错误信息会丢
+            stderr = runResult.files() == null ? null : runResult.files().get(FD_STDOUT);
+        }
+        if (stderr == null || stderr.isBlank()) {
             stderr = runResult.error() == null ? "" : runResult.error();
         }
         return "编译失败：" + stderr.strip();
