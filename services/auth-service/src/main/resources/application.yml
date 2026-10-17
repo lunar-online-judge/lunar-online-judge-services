@@ -32,6 +32,8 @@ spring:
       # 登录失败限流等短期状态（docs/middleware.md"Redis"节）：多实例共享、重启不清零、TTL 自动清理
       host: ${REDIS_HOST:localhost}
       port: ${REDIS_PORT:6379}
+      # Redis 已启用口令（docker/compose.core.yml）：不带上就连不上，限流/去重会静默 fail-open
+      password: ${REDIS_PASSWORD:change-me-redis}
       # 超时故意设短：Redis 异常时快速失败并按 fail-open 放行，而不是拖慢登录
       timeout: ${REDIS_TIMEOUT_MS:1000}ms
       connect-timeout: ${REDIS_CONNECT_TIMEOUT_MS:500}ms
@@ -58,6 +60,10 @@ auth:
       # clientId（服务名）→ 客户端密钥。部署期配置：默认值仅供本地联调，生产必须用环境变量注入
       contest-service: ${SERVICE_CLIENT_SECRET_CONTEST:change-me-contest}
       submission-service: ${SERVICE_CLIENT_SECRET_SUBMISSION:change-me-submission}
+      # ai-service 取数用（submission 源码、problem 题面、contest 快照）
+      ai-service: ${SERVICE_CLIENT_SECRET_AI:change-me-ai}
+      # analytics-service 取数用（contest 快照：参照数据刷新）
+      analytics-service: ${SERVICE_CLIENT_SECRET_ANALYTICS:change-me-analytics}
 
 management:
   endpoints:

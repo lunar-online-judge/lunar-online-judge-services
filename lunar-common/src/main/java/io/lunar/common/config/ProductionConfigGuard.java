@@ -47,6 +47,10 @@ public class ProductionConfigGuard {
                 .requireTrue("spring.flyway.enabled")
                 .requireNotPrefixed("spring.datasource.password", DEV_DEFAULT_PREFIX)
                 .requireNotPrefixed("service.identity.client-secret", DEV_DEFAULT_PREFIX)
+                // 用 Redis 的服务（auth 的登录限流、judge 的消费去重）必须带非默认口令：
+                // 无口令时任何能连 6379 的人都能读改计数与去重状态（绕过限流、伪造"已评测"）。
+                // 不用 Redis 的服务该属性缺失，按约定跳过。
+                .requireNotPrefixed("spring.data.redis.password", DEV_DEFAULT_PREFIX)
                 .requireTrue("spring.cloud.nacos.discovery.fail-fast");
     }
 

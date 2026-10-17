@@ -15,10 +15,22 @@ services:
     # 配置中心的数据必须持久化：此前无卷，容器重建会让写入 Nacos 的配置全部丢失。
     # 3.x 的 Derby 结构与 2.x 不兼容，故换用新卷（旧卷 docker_nacos-data 可删）
     volumes: ["nacos-data-v3:/home/nacos/data"]
+    healthcheck:
+      test: ["CMD-SHELL", "curl -fs http://localhost:8080/nacos/v3/console/health/readiness || exit 1"]
+      interval: 15s
+      timeout: 5s
+      retries: 10
+    restart: unless-stopped
   namesrv:
     image: apache/rocketmq:5.3.1
     command: sh mqnamesrv
     ports: ["9876:9876"]
+    healthcheck:
+      test: ["CMD-SHELL", "sh mqadmin clusterList -n localhost:9876 >/dev/null 2>&1 || exit 1"]
+      interval: 15s
+      timeout: 10s
+      retries: 5
+    restart: unless-stopped
   broker:
     image: apache/rocketmq:5.3.1
     command: sh mqbroker -n namesrv:9876 -c /home/rocketmq/broker.conf
@@ -30,6 +42,12 @@ services:
     ports: ["10909:10909", "10911:10911", "10912:10912", "8090:8082"]
     volumes:
       - ./rocketmq/broker.conf:/home/rocketmq/broker.conf
+    healthcheck:
+      test: ["CMD-SHELL", "sh mqadmin brokerStatus -n namesrv:9876 -b localhost:10911 >/dev/null 2>&1 || exit 1"]
+      interval: 15s
+      timeout: 10s
+      retries: 5
+    restart: unless-stopped
   # 开发专用管理面板（生产不部署）。与 broker 共享网络命名空间：broker 向 NameServer 注册的地址是
   # 127.0.0.1（宿主机客户端的前提），共享后面板的 127.0.0.1 即 broker 本机，全部页面可用；
   # Web 端口 8082 经 broker 的 8090 映射暴露到宿主机。broker 重启后面板需一起重启

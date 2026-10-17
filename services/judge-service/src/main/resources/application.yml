@@ -32,6 +32,8 @@ spring:
       # Redis 不可用时 fail-open——不去重、继续评测，判题链路的可用性优先
       host: ${REDIS_HOST:localhost}
       port: ${REDIS_PORT:6379}
+      # Redis 已启用口令（docker/compose.core.yml）：不带上就连不上，限流/去重会静默 fail-open
+      password: ${REDIS_PASSWORD:change-me-redis}
       timeout: ${REDIS_TIMEOUT_MS:1000}ms
       connect-timeout: ${REDIS_CONNECT_TIMEOUT_MS:500}ms
 
