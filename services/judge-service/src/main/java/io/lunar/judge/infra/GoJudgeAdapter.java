@@ -1,5 +1,7 @@
 package io.lunar.judge.infra;
 
+import org.springframework.web.client.RestClientException;
+import io.lunar.judge.domain.JudgeEngineUnavailableException;
 import io.lunar.common.judge.JudgeEngine;
 import io.lunar.common.judge.JudgeResult;
 import io.lunar.common.judge.JudgeSubmissionCommand;
@@ -112,8 +114,13 @@ public class GoJudgeAdapter implements JudgeEngine {
         }
         try {
             return runTestcases(engineId, template, command, testcases);
+        } catch (RestClientException exception) {
+            // 传输层失败（连不上 / 超时 / 5xx）是**瞬时**的：不能固化成 SYSTEM_ERROR——那是判题终态，
+            // submission 侧会用前态条件更新把它锁死，等于给考生判 0 分且无法改判。
+            // 抛出去，消费端会转成 RuntimeException 交给 RocketMQ 重投（消费端有 eventId 幂等闸门）。
+            throw new JudgeEngineUnavailableException("go-judge 不可用: " + exception.getMessage(), exception);
         } catch (Exception exception) {
-            // 整段调用边界的兜底：任何底层异常都归一化为 SYSTEM_ERROR，消息携带原始异常信息
+            // 其余异常是确定性的（协议不符、返回体异常等），归一化为 SYSTEM_ERROR 并带上原因
             return systemError(engineId, "go-judge 调用失败: " + exception.getMessage());
         }
     }

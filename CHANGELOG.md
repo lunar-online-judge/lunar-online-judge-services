@@ -1,5 +1,12 @@
 ### 变更
 
+- **第二批正确性：分页、源码上限、引擎瞬时故障**
+  - **problem-service 补 MyBatis-Plus 分页插件**（新建 `MybatisPlusConfig`）：此前 `selectPage` 生成的 SQL **没有 LIMIT**、`total` 恒为 0，且 `pageSize` 传负数时等于全表导出；现设单页硬上限 100 行
+  - **提交源码上限 64 KiB**（`@Size`）：源码随 created 事件进 RocketMQ，broker 拒收 >4MB 消息——没有上限时一条超大源码会让事件转死信、提交**永久卡 QUEUED**；现在入口直接 400
+  - **引擎瞬时故障不再固化为 SYSTEM_ERROR**：`GoJudgeAdapter` 把 `RestClientException`（连不上/超时/5xx）改抛 `JudgeEngineUnavailableException`，由消费端转成 RuntimeException 交给 RocketMQ 重投（消费端有 `eventId` 幂等闸门）。此前任何异常都被映射成 SYSTEM_ERROR = 判题终态，等于给考生判 0 分且无法改判
+  - 验证：problem 13 / submission 17 / judge 23 用例全绿；**分页与源码上限的真机验证待服务重启后补**
+### 变更
+
 - **风险上报的格式与频率校验（BE-03 剩余项，第 1 批）**
   - `eventType` 只校验**形式**（大写下划线、≤64），不设白名单——文档约定"未知类型按 MEDIUM 保守处理"，新增类型不该因枚举没更新而丢账；但任意文本（含换行）会被写进结构化字段、日志与 analytics 读模型，所以形式必须收口
   - **上报限流**：按学生做窗口计数（每 5 分钟 30 条，用事件表自身的 `reported_at` 计数，不引入新基础设施），超限 429 `MONITOR_REPORT_RATE_LIMITED`
