@@ -62,10 +62,27 @@ public class RiskEventService {
         this.outboxMapper = outboxMapper;
     }
 
+    /** 同一学生在一个窗口内最多上报多少条：防止一条循环把监考视图与风险读模型打满。 */
+    private static final int MAX_REPORTS_PER_WINDOW = 30;
+    private static final long REPORT_WINDOW_MINUTES = 5;
+
     /** 上报风险事件（考生客户端自动上报，studentId = JWT sub）。 */
     @Transactional
     public ReportedEvent report(String contestId, String studentId, String eventType,
                                 String detail, Instant occurredAt, String problemId, String traceId) {
+        // 格式校验（BE-03 剩余项）：只校验形式不校验白名单——文档约定"未知类型按 MEDIUM 保守处理"，
+        // 新增类型不该被枚举没更新挡住；但必须是大写下划线，避免任意文本（含换行）污染字段与日志。
+        if (eventType == null || !eventType.matches("^[A-Z][A-Z0-9_]{2,63}$")) {
+            throw new ReviewException.InvalidEventType();
+        }
+        // 上报限流（BE-03 剩余项）：按学生做窗口计数。用事件表自身的 reported_at 计数，
+        // 不引入新的基础设施（anti-cheat 没有 Redis）。
+        Long recentReports = riskEventMapper.selectCount(new LambdaQueryWrapper<RiskEventEntity>()
+                .eq(RiskEventEntity::getStudentId, studentId)
+                .ge(RiskEventEntity::getReportedAt, Instant.now().minusSeconds(REPORT_WINDOW_MINUTES * 60)));
+        if (recentReports != null && recentReports >= MAX_REPORTS_PER_WINDOW) {
+            throw new ReviewException.ReportRateLimited(MAX_REPORTS_PER_WINDOW, REPORT_WINDOW_MINUTES);
+        }
         RiskEventEntity riskEvent = new RiskEventEntity();
         riskEvent.setId(UUID.randomUUID().toString());
         riskEvent.setContestId(contestId);

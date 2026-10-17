@@ -1,3 +1,10 @@
+### 变更
+
+- **风险上报的格式与频率校验（BE-03 剩余项，第 1 批）**
+  - `eventType` 只校验**形式**（大写下划线、≤64），不设白名单——文档约定"未知类型按 MEDIUM 保守处理"，新增类型不该因枚举没更新而丢账；但任意文本（含换行）会被写进结构化字段、日志与 analytics 读模型，所以形式必须收口
+  - **上报限流**：按学生做窗口计数（每 5 分钟 30 条，用事件表自身的 `reported_at` 计数，不引入新基础设施），超限 429 `MONITOR_REPORT_RATE_LIMITED`
+  - 真机验收：非法 eventType → **400** `MONITOR_EVENT_TYPE_INVALID`；正常 → 200；连续上报 32 次 → **29×200 + 3×429**
+  - **仍未做**：上报时对 `contestId` 的**报名/会话**校验——anti-cheat 目前没有 contest 客户端（BE-07 时删掉了它的 `ServiceClientConfig`），需要重新引入一个转发考生令牌的内部调用；这是本条剩下的最后一块
 # Changelog
 
 本项目遵循 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/) 结构；版本号语义化。
