@@ -223,6 +223,16 @@ Body: { "username": "admin", "password": "admin123" }
 > 学生账号必须提供唯一 `studentNo`；非学生账号忽略该字段。账号名全局唯一。
 > 管理员不能禁用当前登录账号；重置密码或禁用都会写 `tokens_valid_after`，该账号需重新登录。
 
+### 3.14 平台公告（contest-service）
+| 方法 | 路径 | 角色 | 说明 |
+|---|---|---|---|
+| GET | `/api/v1/announcements?page=&pageSize=` | TEACHER / **ADMIN** | 平台公告分页；重要公告置顶，其余按发布时间倒序 |
+| POST | `/api/v1/announcements` | **ADMIN** | 发布 `{title, content, important}`，记录发布人与时间 |
+| DELETE | `/api/v1/announcements/{announcementId}` | **ADMIN** | 删除公告；不存在 404 `CONTEST_NOT_FOUND` |
+
+> 平台公告与考试公告（`/api/v1/contests/{contestId}/announcements`）相互独立。
+> 公告发布后不可编辑，纠错应再发一条；教师只读，不显示发布/删除入口。
+
 ---
 
 ## 4. 错误码速查（UI 分支用）

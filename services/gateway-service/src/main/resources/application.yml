@@ -32,6 +32,10 @@ spring:
           uri: ${CONTEST_SERVICE_URI:lb://contest-service}
           predicates:
             - Path=/api/v1/contests/**
+        - id: announcements
+          uri: ${CONTEST_SERVICE_URI:lb://contest-service}
+          predicates:
+            - Path=/api/v1/announcements/**
         - id: problems
           uri: ${PROBLEM_SERVICE_URI:lb://problem-service}
           predicates:

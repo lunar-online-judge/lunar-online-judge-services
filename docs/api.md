@@ -123,7 +123,7 @@ HTTP 前缀统一为 `/api/v1`。各服务经 gateway 对外暴露；客户端�
 
 ## 端点总表
 
-下表与代码一致：**代码实际有 80 个端点、25 个控制器**（`grep '@\(Get\|Post\|Put\|Delete\|Patch\)Mapping'` 与 `^@RestController$` 实测；`@RestControllerAdvice` 不计入；2026-10 新增管理端账号管理 4 个端点后已同步更新）。本表目前列 73 行，差 7 个——4 个从未进表（`GET /api/v1/submissions/admin/dead-letters`、`POST /api/v1/submissions/admin/dead-letters/{eventId}/replay`、`GET /api/v1/internal/users/{userId}/tokens-valid-after`、`GET /api/v1/internal/monitor/events`），3 个被错放在下方"规划中（代码不存在）"表里但已实现（3 个 `assignments` 端点）；另有下方"规划中"表的表头为 4 列而数据行写了 5 个单元格。这属于待清理的文档债，尚未修正。"鉴权"列是 `@PreAuthorize` / `SecurityConfig` 的实际规则；"任意已认证"表示当前只要求有效令牌、**尚未做资源范围校验**（属待办，见 `BACKEND_IMPROVEMENT_PLAN.md` BE-01）。
+下表与代码一致：**代码实际有 83 个端点、26 个控制器**（`grep '@\(Get\|Post\|Put\|Delete\|Patch\)Mapping'` 与 `^@RestController$` 实测；`@RestControllerAdvice` 不计入；2026-10 新增管理端账号管理 4 个、平台公告 3 个端点后已同步更新）。本表目前列 76 行，差 7 个——4 个从未进表（`GET /api/v1/submissions/admin/dead-letters`、`POST /api/v1/submissions/admin/dead-letters/{eventId}/replay`、`GET /api/v1/internal/users/{userId}/tokens-valid-after`、`GET /api/v1/internal/monitor/events`），3 个被错放在下方"规划中（代码不存在）"表里但已实现（3 个 `assignments` 端点）；另有下方"规划中"表的表头为 4 列而数据行写了 5 个单元格。这属于待清理的文档债，尚未修正。"鉴权"列是 `@PreAuthorize` / `SecurityConfig` 的实际规则；"任意已认证"表示当前只要求有效令牌、**尚未做资源范围校验**（属待办，见 `BACKEND_IMPROVEMENT_PLAN.md` BE-01）。
 
 | 服务 | 方法 | 路径 | 鉴权 | 状态 |
 |---|---|---|---|---|
@@ -171,6 +171,9 @@ HTTP 前缀统一为 `/api/v1`。各服务经 gateway 对外暴露；客户端�
 | contest | POST | `/api/v1/contests/{contestId}/announcements` | TEACHER/ADMIN | 已实现（全体公告；**指定题目公告未实现**） |
 | contest | GET | `/api/v1/contests/{contestId}/announcements` | 任意已认证（CANDIDATE 走考生视角） | 已实现（考生拉取即送达；管理员看全量） |
 | contest | POST | `/api/v1/contests/{contestId}/announcements/{announcementId}/confirm` | CANDIDATE | 已实现（幂等，保留首次确认时间） |
+| contest | GET | `/api/v1/announcements` | TEACHER/ADMIN | 已实现（平台公告分页，重要公告置顶） |
+| contest | POST | `/api/v1/announcements` | **ADMIN** | 已实现（发布平台公告，记录发布人/时间） |
+| contest | DELETE | `/api/v1/announcements/{announcementId}` | **ADMIN** | 已实现（删除平台公告，不存在 404） |
 | contest | POST | `/api/v1/contests/{contestId}/session` | CANDIDATE | 已实现（进入/恢复；校验名单 + 状态 + 时间窗口） |
 | contest | POST | `/api/v1/contests/{contestId}/session/heartbeat` | CANDIDATE | 已实现（心跳 + 剩余秒数） |
 | contest | GET | `/api/v1/internal/contests/{contestId}/session` | CANDIDATE（转发学生令牌） | 已实现（供 submission 判定 `canSubmit`） |
