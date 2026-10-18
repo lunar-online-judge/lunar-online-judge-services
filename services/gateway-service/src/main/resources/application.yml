@@ -32,10 +32,10 @@ spring:
           uri: ${CONTEST_SERVICE_URI:lb://contest-service}
           predicates:
             - Path=/api/v1/contests/**
-        - id: announcements
-          uri: ${CONTEST_SERVICE_URI:lb://contest-service}
-          predicates:
-            - Path=/api/v1/announcements/**
+          metadata:
+            # 公告 SSE 是长连接，不能被全局 30s response-timeout 截断
+            response-timeout: 7200000
+            connect-timeout: 2000
         - id: problems
           uri: ${PROBLEM_SERVICE_URI:lb://problem-service}
           predicates:

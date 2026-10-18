@@ -31,7 +31,8 @@ class AnnouncementServiceTest {
     private final AnnouncementConfirmMapper confirmMapper = mock(AnnouncementConfirmMapper.class);
     private final ContestMapper contestMapper = mock(ContestMapper.class);
     private final AnnouncementService service = new AnnouncementService(
-            announcementMapper, confirmMapper, new ContestService(contestMapper));
+            announcementMapper, confirmMapper, new ContestService(contestMapper),
+            new ContestAnnouncementStreamService());
 
     static {
         // LambdaQueryWrapper 依赖 MP 的实体元数据缓存；纯单测需手动初始化

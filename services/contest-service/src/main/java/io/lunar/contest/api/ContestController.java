@@ -41,6 +41,7 @@ import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 import org.springframework.web.multipart.MultipartFile;
+import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
 
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
@@ -254,6 +255,23 @@ public class ContestController {
                 ? announcementService.listForCandidate(requireEnrolled(contestId, authentication), authentication.getName())
                 : announcementService.listForOperator(ownedContestId(contestId, authentication));
         return ResponseEntity.ok(ApiResponse.success(requestId, views));
+    }
+
+    /**
+     * 公告实时推送（SSE）：新公告发布后立即推给该场考试的教师/管理员与已报名考生。
+     * 权限与列表接口一致：管理侧限考试归属，考生限已报名。
+     */
+    @GetMapping(value = "/{contestId}/announcements/stream", produces = MediaType.TEXT_EVENT_STREAM_VALUE)
+    @PreAuthorize("hasAnyRole('TEACHER', 'ADMIN', 'CANDIDATE')")
+    public SseEmitter streamAnnouncements(
+            @PathVariable String contestId,
+            Authentication authentication) {
+        if (isCandidateOnly(authentication)) {
+            requireEnrolled(contestId, authentication);
+        } else {
+            contestService.getOwned(contestId, AccessScope.of(authentication));
+        }
+        return announcementService.subscribe(contestId);
     }
 
     /** 考生确认公告（幂等：保留首次确认时间）。 */

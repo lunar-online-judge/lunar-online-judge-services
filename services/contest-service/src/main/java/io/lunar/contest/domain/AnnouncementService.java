@@ -11,6 +11,7 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.dao.DuplicateKeyException;
 import org.springframework.stereotype.Component;
+import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
 
 import java.time.Instant;
 import java.util.ArrayList;
@@ -34,13 +35,16 @@ public class AnnouncementService {
     private final AnnouncementMapper announcementMapper;
     private final AnnouncementConfirmMapper confirmMapper;
     private final ContestService contestService;
+    private final ContestAnnouncementStreamService streamService;
 
     public AnnouncementService(AnnouncementMapper announcementMapper,
                                AnnouncementConfirmMapper confirmMapper,
-                               ContestService contestService) {
+                               ContestService contestService,
+                               ContestAnnouncementStreamService streamService) {
         this.announcementMapper = announcementMapper;
         this.confirmMapper = confirmMapper;
         this.contestService = contestService;
+        this.streamService = streamService;
     }
 
     /** 发布公告：考试必须存在；任意生命周期状态均可发布（考前通知、考中提醒都合法）。 */
@@ -56,7 +60,14 @@ public class AnnouncementService {
         announcement.setCreatedBy(operatorId);
         announcement.setCreatedAt(Instant.now());
         announcementMapper.insert(announcement);
-        return toView(announcement, null, null);
+        AnnouncementView view = toView(announcement, null, null);
+        streamService.broadcast(contestId, view);
+        return view;
+    }
+
+    /** 订阅某场考试的公告 SSE；授权由调用方按角色完成。 */
+    public SseEmitter subscribe(String contestId) {
+        return streamService.subscribe(contestId);
     }
 
     /** 老师/管理员视角：全部公告，不含送达/确认信息。 */
