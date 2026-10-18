@@ -115,7 +115,7 @@ public class ProblemService {
                         testcase.getExpectedOutput());
             }
         }
-        return toView(created);
+        return toView(created, true);
     }
 
     /** 发布版本：DRAFT → PUBLISHED（不可逆），并把题目当前版本切到该版本。 */
@@ -137,16 +137,20 @@ public class ProblemService {
         problem.setCurrentVersionId(versionId);
         problem.setUpdatedAt(Instant.now());
         problemMapper.updateById(problem);
-        return toView(version);
+        return toView(version, true);
     }
 
-    /** 分页列表（管理端）：先叠加服务端范围（老师只看自己的），再套关键词筛选，total 同样在范围内。 */
+    /** 分页列表（管理端）：题库共享——老师可看到自己的全部题目 + 其他人已发布的题目。 */
     public ProblemPage list(String keyword, long page, long pageSize, AccessScope scope) {
         Page<ProblemEntity> pageRequest = new Page<>(page, pageSize);
         LambdaQueryWrapper<ProblemEntity> query = new LambdaQueryWrapper<ProblemEntity>()
                 .orderByDesc(ProblemEntity::getCreatedAt);
         if (!scope.global()) {
-            query.eq(ProblemEntity::getOwnerTeacherId, scope.ownerId());
+            String ownerId = scope.ownerId();
+            query.and(wrapper -> wrapper
+                    .eq(ProblemEntity::getOwnerTeacherId, ownerId)
+                    .or()
+                    .isNotNull(ProblemEntity::getCurrentVersionId));
         }
         if (keyword != null && !keyword.isBlank()) {
             query.like(ProblemEntity::getTitle, keyword.trim());
@@ -155,9 +159,40 @@ public class ProblemService {
         List<ProblemSummary> items = result.getRecords().stream()
                 .map(problem -> new ProblemSummary(problem.getId(), problem.getTitle(),
                         problem.getCurrentVersionId() == null ? "" : problem.getCurrentVersionId(),
-                        problem.getCreatedAt()))
+                        problem.getCreatedAt(), scope.allows(problem.getOwnerTeacherId())))
                 .toList();
         return new ProblemPage(items, result.getTotal(), result.getCurrent(), result.getSize());
+    }
+
+    /**
+     * 管理端详情：题库共享后，老师既能看自己的草稿，也能看其他人已发布的题目。
+     * 非归属者只返回当前发布版本（没有发布版本时按不存在处理）；归属者/管理员返回当前版本，
+     * 未发布时回退到最新草稿。
+     */
+    public VersionView getForManagement(String problemId, AccessScope scope) {
+        ProblemEntity problem = requireProblem(problemId);
+        boolean canEdit = scope.allows(problem.getOwnerTeacherId());
+        String currentVersionId = problem.getCurrentVersionId();
+
+        if (currentVersionId == null) {
+            if (!canEdit) {
+                throw new ProblemException.VersionNotFound();
+            }
+            ProblemVersionEntity latest = versionMapper.selectOne(new LambdaQueryWrapper<ProblemVersionEntity>()
+                    .eq(ProblemVersionEntity::getProblemId, problemId)
+                    .orderByDesc(ProblemVersionEntity::getVersionNo)
+                    .last("limit 1"));
+            if (latest == null) {
+                throw new ProblemException.VersionNotFound();
+            }
+            return toView(latest, true);
+        }
+
+        ProblemVersionEntity version = versionMapper.selectById(currentVersionId);
+        if (version == null) {
+            throw new ProblemException.VersionNotFound();
+        }
+        return toView(version, canEdit);
     }
 
     /**
@@ -172,7 +207,7 @@ public class ProblemService {
         if (version == null) {
             throw new ProblemException.VersionNotFound();
         }
-        return toView(version);
+        return toView(version, false);
     }
 
     /** 指定版本的详情（服务间，BE-04）：提交按考试锁定的版本校验语言与限制，而不是全局 current 版本。 */
@@ -182,16 +217,22 @@ public class ProblemService {
         if (version == null || !problemId.equals(version.getProblemId())) {
             throw new ProblemException.VersionNotFound();
         }
-        return toView(version);
+        return toView(version, false);
     }
 
-    /** 版本列表（老师/管理员管理视图）。 */
-    public List<VersionView> listVersions(String problemId) {
-        requireProblem(problemId);
-        return versionMapper.selectList(new LambdaQueryWrapper<ProblemVersionEntity>()
-                        .eq(ProblemVersionEntity::getProblemId, problemId)
-                        .orderByDesc(ProblemVersionEntity::getVersionNo))
-                .stream().map(this::toView).toList();
+    /** 版本列表（老师/管理员管理视图）：归属者看全部；共享题库的其他老师只看已发布版本。 */
+    public List<VersionView> listVersions(String problemId, AccessScope scope) {
+        ProblemEntity problem = requireProblem(problemId);
+        boolean canEdit = scope.allows(problem.getOwnerTeacherId());
+        LambdaQueryWrapper<ProblemVersionEntity> query = new LambdaQueryWrapper<ProblemVersionEntity>()
+                .eq(ProblemVersionEntity::getProblemId, problemId)
+                .orderByDesc(ProblemVersionEntity::getVersionNo);
+        if (!canEdit) {
+            query.eq(ProblemVersionEntity::getStatus, STATUS_PUBLISHED);
+        }
+        return versionMapper.selectList(query).stream()
+                .map(version -> toView(version, canEdit))
+                .toList();
     }
 
     /** 测试点（老师/管理员，或后续 judge-service 服务间）：仅判题与管理视图可见。 */
@@ -288,12 +329,16 @@ public class ProblemService {
     }
 
     private VersionView toView(ProblemVersionEntity version) {
+        return toView(version, false);
+    }
+
+    private VersionView toView(ProblemVersionEntity version, boolean canEdit) {
         List<String> languages = version.getAllowedLanguages() == null ? List.of()
                 : List.of(version.getAllowedLanguages().split(","));
         return new VersionView(version.getId(), version.getProblemId(), version.getVersionNo(), version.getTitle(),
                 version.getStatement(), version.getSampleInput(), version.getSampleOutput(),
                 version.getTimeLimitMs(), version.getMemoryLimitKb(), version.getOutputLimitKb(),
                 languages, version.getStatus(), version.getCreatedBy(), version.getCreatedAt(),
-                version.getPublishedAt());
+                version.getPublishedAt(), canEdit);
     }
 }

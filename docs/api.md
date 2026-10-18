@@ -138,12 +138,12 @@ HTTP 前缀统一为 `/api/v1`。各服务经 gateway 对外暴露；客户端�
 | auth | POST | `/api/v1/internal/students/{studentId}/password-reset` | TEACHER/ADMIN | 已实现（不返回密码材料） |
 | auth | POST | `/api/v1/internal/service-tokens` | **免认证**（凭证在请求体） | 已实现（服务间身份/客户端凭证：校验 clientId+clientSecret 后签发 `roles=["SERVICE"]` 的短 TTL 令牌，供定时任务与 MQ 消费者等无用户上下文的调用方使用；不经网关，只能内网直连） |
 | problem | POST | `/api/v1/problems` | TEACHER/ADMIN | 已实现（题目 + 首版本 + 测试点） |
-| problem | GET | `/api/v1/problems` | TEACHER/ADMIN | 已实现（分页 + keyword，管理端列表） |
-| problem | GET | `/api/v1/problems/{id}` | 任意已认证 | 已实现（考生视角：当前发布版本，不含测试点） |
-| problem | POST | `/api/v1/problems/{id}/versions` | TEACHER/ADMIN | 已实现（新版本：`baseVersionId` 缺省时基于题目当前版本，字段缺省沿用基线；无当前版本时 404） |
-| problem | GET | `/api/v1/problems/{id}/versions` | TEACHER/ADMIN | 已实现（版本列表） |
-| problem | POST | `/api/v1/problems/{id}/versions/{versionId}/publish` | TEACHER/ADMIN | 已实现（发布并切换 `current_version_id`，发布后版本不可变） |
-| problem | GET | `/api/v1/problems/{id}/versions/{versionId}/testcases` | TEACHER/ADMIN | 已实现（仅老师/管理员；判题链路走下面的内部端点） |
+| problem | GET | `/api/v1/problems` | TEACHER/ADMIN | 已实现（分页 + keyword；**题库共享**：老师可见自己全部 + 他人已发布，ADMIN 全部） |
+| problem | GET | `/api/v1/problems/{id}` | 任意已认证 | 已实现（老师/管理员可读全部已发布题，归属者/管理员另可读最新草稿；考生仅当前发布版本，不含测试点） |
+| problem | POST | `/api/v1/problems/{id}/versions` | TEACHER（限归属）/ADMIN | 已实现（新版本：`baseVersionId` 缺省时基于题目当前版本，字段缺省沿用基线；无当前版本时 404） |
+| problem | GET | `/api/v1/problems/{id}/versions` | TEACHER/ADMIN | 已实现（归属者/管理员看全部版本；其他老师只看已发布版本） |
+| problem | POST | `/api/v1/problems/{id}/versions/{versionId}/publish` | TEACHER（限归属）/ADMIN | 已实现（发布并切换 `current_version_id`，发布后版本不可变） |
+| problem | GET | `/api/v1/problems/{id}/versions/{versionId}/testcases` | TEACHER（限归属）/ADMIN | 已实现（测试点仅归属者/管理员可见；判题链路走下面的内部端点） |
 | problem | GET | `/api/v1/internal/problems/{problemId}/versions/{versionId}` | **SERVICE** | 已实现（BE-04：按考试锁定版本取判题限制，不受全局发布影响） |
 | contest | GET | `/api/v1/internal/contests/{contestId}/problems/{problemId}` | CANDIDATE | 已实现（BE-04：提交时查该考试给这道题锁定的版本；题目不在考试里返回 404 `CONTEST_PROBLEM_NOT_IN_CONTEST`） |
 | problem | GET | `/api/v1/internal/problems/{problemId}/versions/{versionId}/testcases` | **SERVICE**（服务身份令牌） | 已实现（**不经网关**，只能内网直连；**只认服务身份**——测试数据不能靠"内网 + 考生/教师令牌"取走，BE-01；submission 用自己的服务令牌取到后随 `lunar-submission-created` 事件送到评测引擎；超限 413 `PROBLEM_TESTDATA_TOO_LARGE`） |

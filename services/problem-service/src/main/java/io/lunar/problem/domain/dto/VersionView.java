@@ -7,4 +7,4 @@ import java.util.List;
 public record VersionView(String versionId, String problemId, int versionNo, String title, String statement,
                           String sampleInput, String sampleOutput, int timeLimitMs, int memoryLimitKb,
                           int outputLimitKb, List<String> allowedLanguages, String status,
-                          String createdBy, Instant createdAt, Instant publishedAt) {}
+                          String createdBy, Instant createdAt, Instant publishedAt, boolean canEdit) {}

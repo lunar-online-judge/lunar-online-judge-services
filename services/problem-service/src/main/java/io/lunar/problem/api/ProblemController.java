@@ -70,10 +70,10 @@ public class ProblemController {
     }
 
     /**
-     * 题目详情：**当前发布版本**的题面/样例/限制/语言（不含测试点）。
+     * 题目详情：题面/样例/限制/语言（不含测试点）。
      *
      * 授权分两层：
-     *   - TEACHER / ADMIN：必须是自己拥有的题目（越权与不存在同为 404，BE-01）；
+     *   - TEACHER / ADMIN：题库共享，可读全部已发布题目；归属者/管理员还能读到未发布的最新草稿；
      *   - CANDIDATE：只能读到**已发布**版本（草稿题面属于未公开内容，由 getCurrentPublished 保证）。
      *
      * 为什么考生不能按归属校验：题目的归属是"谁建的"，而考生该看到哪些题由**考试分配**决定，
@@ -86,10 +86,9 @@ public class ProblemController {
             @PathVariable String id,
             Authentication authentication,
             @RequestHeader(value = RequestIdFilter.HEADER, required = false) String requestId) {
-        VersionView view = problemService.getCurrentPublished(id);
-        if (isOperator(authentication)) {
-            problemService.requireOwned(id, AccessScope.of(authentication));
-        }
+        VersionView view = isOperator(authentication)
+                ? problemService.getForManagement(id, AccessScope.of(authentication))
+                : problemService.getCurrentPublished(id);
         return ResponseEntity.ok(ApiResponse.success(requestId, view));
     }
 
@@ -122,8 +121,8 @@ public class ProblemController {
             @PathVariable String id,
             Authentication authentication,
             @RequestHeader(value = RequestIdFilter.HEADER, required = false) String requestId) {
-        problemService.requireOwned(id, AccessScope.of(authentication));
-        return ResponseEntity.ok(ApiResponse.success(requestId, problemService.listVersions(id)));
+        return ResponseEntity.ok(ApiResponse.success(requestId,
+                problemService.listVersions(id, AccessScope.of(authentication))));
     }
 
     @PostMapping("/{id}/versions/{versionId}/publish")
