@@ -36,4 +36,11 @@ public class UserException extends ApiException {
             super("AUTH_WEAK_PASSWORD", 400, "密码强度不满足要求（至少 8 位）");
         }
     }
+
+    /** 400：跨字段约束不满足（如学生缺学号、禁用当前登录账号）。 */
+    public static final class ValidationFailed extends UserException {
+        public ValidationFailed(String message) {
+            super("VALIDATION_FAILED", 400, message);
+        }
+    }
 }

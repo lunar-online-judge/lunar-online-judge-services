@@ -123,12 +123,16 @@ HTTP 前缀统一为 `/api/v1`。各服务经 gateway 对外暴露；客户端�
 
 ## 端点总表
 
-下表与代码一致：**代码实际有 76 个端点、24 个控制器**（`grep '@\(Get\|Post\|Put\|Delete\|Patch\)Mapping'` 与 `^@RestController$` 实测；`@RestControllerAdvice` 不计入）。本表目前列 69 行，差 7 个——4 个从未进表（`GET /api/v1/submissions/admin/dead-letters`、`POST /api/v1/submissions/admin/dead-letters/{eventId}/replay`、`GET /api/v1/internal/users/{userId}/tokens-valid-after`、`GET /api/v1/internal/monitor/events`），3 个被错放在下方"规划中（代码不存在）"表里但已实现（3 个 `assignments` 端点）；另有下方"规划中"表的表头为 4 列而数据行写了 5 个单元格。这属于待清理的文档债，尚未修正。"鉴权"列是 `@PreAuthorize` / `SecurityConfig` 的实际规则；"任意已认证"表示当前只要求有效令牌、**尚未做资源范围校验**（属待办，见 `BACKEND_IMPROVEMENT_PLAN.md` BE-01）。
+下表与代码一致：**代码实际有 80 个端点、25 个控制器**（`grep '@\(Get\|Post\|Put\|Delete\|Patch\)Mapping'` 与 `^@RestController$` 实测；`@RestControllerAdvice` 不计入；2026-10 新增管理端账号管理 4 个端点后已同步更新）。本表目前列 73 行，差 7 个——4 个从未进表（`GET /api/v1/submissions/admin/dead-letters`、`POST /api/v1/submissions/admin/dead-letters/{eventId}/replay`、`GET /api/v1/internal/users/{userId}/tokens-valid-after`、`GET /api/v1/internal/monitor/events`），3 个被错放在下方"规划中（代码不存在）"表里但已实现（3 个 `assignments` 端点）；另有下方"规划中"表的表头为 4 列而数据行写了 5 个单元格。这属于待清理的文档债，尚未修正。"鉴权"列是 `@PreAuthorize` / `SecurityConfig` 的实际规则；"任意已认证"表示当前只要求有效令牌、**尚未做资源范围校验**（属待办，见 `BACKEND_IMPROVEMENT_PLAN.md` BE-01）。
 
 | 服务 | 方法 | 路径 | 鉴权 | 状态 |
 |---|---|---|---|---|
 | auth | POST | `/api/v1/auth/login` | 公开 | 已实现（BCrypt + RS256 JWT + Redis 失败限流） |
 | auth | GET | `/api/v1/auth/jwks` | 公开 | 已实现（裸 JWKSet，不套 ApiResponse） |
+| auth | GET | `/api/v1/auth/users` | **ADMIN** | 已实现（管理端账号分页：role/status/keyword 过滤，pageSize ≤ 100） |
+| auth | POST | `/api/v1/auth/users` | **ADMIN** | 已实现（创建 ADMIN/TEACHER/CANDIDATE；学生必须提供唯一学号；密码只存 BCrypt 哈希） |
+| auth | POST | `/api/v1/auth/users/{userId}/password-reset` | **ADMIN** | 已实现（重置任意账号密码，写 `tokens_valid_after` 使旧令牌立即失效） |
+| auth | POST | `/api/v1/auth/users/{userId}/status` | **ADMIN** | 已实现（启用/禁用；禁用吊销令牌；不能禁用当前登录账号） |
 | auth | GET | `/api/v1/internal/students` | TEACHER/ADMIN | 已实现（按学号或账户名查询，供 contest 判断账号复用） |
 | auth | POST | `/api/v1/internal/students` | TEACHER/ADMIN | 已实现（创建学生账号，固定 CANDIDATE 角色） |
 | auth | POST | `/api/v1/internal/students/{studentId}/password-reset` | TEACHER/ADMIN | 已实现（不返回密码材料） |
@@ -239,6 +243,26 @@ HTTP 前缀统一为 `/api/v1`。各服务经 gateway 对外暴露；客户端�
 ### JWKS
 
 `GET /api/v1/auth/jwks`：公开返回 RS256 公钥集。**本端点是 RFC 7517 标准协议端点，返回顶层 `{"keys":[...]}`，不套通用响应包装**——资源服务的 JwtDecoder 按标准格式解析。
+
+### 管理端账号管理
+
+管理端由管理员创建 **子管理员（ADMIN）/ 教师（TEACHER）/ 学生（CANDIDATE）**，并做分页查询、重置密码与启用禁用。四个端点全部要求 `hasRole('ADMIN')`：
+
+```http
+POST /api/v1/auth/users
+{"username":"teacher01","displayName":"张老师","role":"TEACHER","initialPassword":"Teacher!2026"}
+
+POST /api/v1/auth/users
+{"username":"student01","displayName":"李同学","role":"CANDIDATE","studentNo":"20260001","initialPassword":"Student!2026"}
+```
+
+约定：
+
+- `role` 只接受 `ADMIN` / `TEACHER` / `CANDIDATE`，其余值 400 `VALIDATION_FAILED`；"子管理员"即 `ADMIN`，平台不新增独立角色；
+- 学生账号必须给 `studentNo`（全局唯一，重复 409 `AUTH_STUDENT_NO_EXISTS`），非学生账号忽略该字段；
+- 账号名全局唯一（重复 409 `AUTH_USERNAME_EXISTS`），密码至少 8 位（400 `AUTH_WEAK_PASSWORD`），只保存 BCrypt 哈希，响应与审计均不回显；
+- 重置密码（`POST /{userId}/password-reset`）与禁用账号（`POST /{userId}/status`，`{"status":"DISABLED"}`）都会写 `tokens_valid_after`，让该账号已签发的 JWT 立即失效；管理员不能禁用当前登录账号（400 `VALIDATION_FAILED`）；
+- 分页 `page`/`pageSize` 与其他管理端接口一致，`pageSize` 上限 100。
 
 ## 评测
 

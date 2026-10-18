@@ -48,6 +48,14 @@ spring:
           uri: ${AUDIT_SERVICE_URI:lb://audit-service}
           predicates:
             - Path=/api/v1/audit/**
+        - id: ai
+          uri: ${AI_SERVICE_URI:lb://ai-service}
+          predicates:
+            - Path=/api/v1/ai/**
+        - id: analytics
+          uri: ${ANALYTICS_SERVICE_URI:lb://analytics-service}
+          predicates:
+            - Path=/api/v1/analytics/**
       # /api/v1/internal/** 与 /ws/v1/** 刻意不配置路由：
       # internal 仅限服务间内网直连；WebSocket 入口随会话推送特性落地
 

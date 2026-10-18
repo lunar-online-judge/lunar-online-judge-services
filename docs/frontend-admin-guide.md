@@ -212,6 +212,17 @@ Body: { "username": "admin", "password": "admin123" }
 | GET | `/api/v1/submissions/admin/dead-letters` | **ADMIN** | 列出投不出去的事件（死信） |
 | POST | `/api/v1/submissions/admin/dead-letters/{eventId}/replay` | **ADMIN** | 人工重放 |
 
+### 3.13 账号管理（auth-service）
+| 方法 | 路径 | 角色 | 说明 |
+|---|---|---|---|
+| GET | `/api/v1/auth/users?role=&status=&keyword=&page=&pageSize=` | **ADMIN** | 账号分页；keyword 匹配账号/姓名/学号 |
+| POST | `/api/v1/auth/users` | **ADMIN** | 创建子管理员（ADMIN）/教师（TEACHER）/学生（CANDIDATE） |
+| POST | `/api/v1/auth/users/{userId}/password-reset` | **ADMIN** | 重置密码 `{temporaryPassword}`；旧令牌立即失效 |
+| POST | `/api/v1/auth/users/{userId}/status` | **ADMIN** | 启用/禁用 `{status: ACTIVE\|DISABLED}`；禁用吊销令牌 |
+
+> 学生账号必须提供唯一 `studentNo`；非学生账号忽略该字段。账号名全局唯一。
+> 管理员不能禁用当前登录账号；重置密码或禁用都会写 `tokens_valid_after`，该账号需重新登录。
+
 ---
 
 ## 4. 错误码速查（UI 分支用）
