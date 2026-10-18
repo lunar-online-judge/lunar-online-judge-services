@@ -6,6 +6,7 @@ import io.lunar.common.security.AccessScope;
 import io.lunar.common.security.Role;
 import io.lunar.common.web.RequestIdFilter;
 import io.lunar.contest.api.dto.AddStudentRequest;
+import io.lunar.contest.api.dto.BatchEnrollRequest;
 import io.lunar.contest.api.dto.ContestListResponse;
 import io.lunar.contest.api.dto.ContestResponse;
 import io.lunar.contest.api.dto.CreateContestRequest;
@@ -19,6 +20,7 @@ import io.lunar.contest.domain.ContestService;
 import io.lunar.contest.domain.EnrollmentService;
 import io.lunar.contest.domain.ExamSessionService;
 import io.lunar.contest.domain.dto.AnnouncementView;
+import io.lunar.contest.domain.dto.BatchEnrollResult;
 import io.lunar.contest.domain.dto.CandidatePage;
 import io.lunar.contest.domain.dto.ContestPage;
 import io.lunar.contest.domain.dto.EnrollmentResult;
@@ -152,7 +154,22 @@ public class ContestController {
             @RequestHeader(value = RequestIdFilter.HEADER, required = false) String requestId,
             @RequestHeader(value = "Authorization", required = false) String authorization) {
         EnrollmentResult result = enrollmentService.add(ownedContestId(contestId, authentication), request.studentNo(),
-                request.username(), request.displayName(), request.initialPassword(),
+                request.username(), request.displayName(), request.className(), request.initialPassword(),
+                authorization, authentication.getName());
+        return ResponseEntity.ok(ApiResponse.success(requestId, result));
+    }
+
+    /** 从共享学生目录批量加入既有学生（不创建账号）；逐条返回加入/跳过/失败。 */
+    @PostMapping("/{contestId}/students/batch")
+    @PreAuthorize("hasAnyRole('TEACHER', 'ADMIN')")
+    public ResponseEntity<ApiResponse<BatchEnrollResult>> addStudentsBatch(
+            @PathVariable String contestId,
+            @Valid @RequestBody BatchEnrollRequest request,
+            Authentication authentication,
+            @RequestHeader(value = RequestIdFilter.HEADER, required = false) String requestId,
+            @RequestHeader(value = "Authorization", required = false) String authorization) {
+        BatchEnrollResult result = enrollmentService.enrollExisting(
+                ownedContestId(contestId, authentication), request.studentIds(),
                 authorization, authentication.getName());
         return ResponseEntity.ok(ApiResponse.success(requestId, result));
     }

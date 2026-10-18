@@ -54,12 +54,24 @@ public class StudentAccountService {
             return null;
         }
         return new CreatedStudent(user.getId(), user.getStudentNo(), user.getUsername(),
-                user.getDisplayName(), Boolean.TRUE.equals(user.getPasswordChangeRequired()));
+                user.getDisplayName(), user.getClassName(),
+                Boolean.TRUE.equals(user.getPasswordChangeRequired()));
+    }
+
+    /** 按用户 ID 查学生账号；非学生或不存在返回 null。 */
+    public CreatedStudent findStudentById(String studentId) {
+        UserEntity user = userMapper.selectById(studentId);
+        if (user == null || !Role.CANDIDATE.name().equals(user.getRole())) {
+            return null;
+        }
+        return new CreatedStudent(user.getId(), user.getStudentNo(), user.getUsername(),
+                user.getDisplayName(), user.getClassName(),
+                Boolean.TRUE.equals(user.getPasswordChangeRequired()));
     }
 
     public CreatedStudent createStudent(String studentNo, String username, String displayName,
-                                        String initialPassword, String operatorTeacherId,
-                                        String operatorToken) {
+                                        String className, String initialPassword,
+                                        String operatorTeacherId, String operatorToken) {
         if (initialPassword == null || initialPassword.length() < 8) {
             throw new UserException.WeakPassword();
         }
@@ -80,6 +92,7 @@ public class StudentAccountService {
         user.setRole(Role.CANDIDATE.name());
         user.setStatus("ACTIVE");
         user.setStudentNo(studentNo);
+        user.setClassName(className);
         user.setManagedByTeacherId(operatorTeacherId);
         user.setPasswordChangeRequired(true);
         user.setCreatedAt(Instant.now());
@@ -90,7 +103,7 @@ public class StudentAccountService {
                 user.getId(), studentNo, operatorTeacherId);
         auditRecorder.record("STUDENT_CREATED", "STUDENT_ACCOUNT", user.getId(), null,
                 "学号 " + studentNo, null, operatorToken);
-        return new CreatedStudent(user.getId(), studentNo, username, displayName, true);
+        return new CreatedStudent(user.getId(), studentNo, username, displayName, className, true);
     }
 
     /**

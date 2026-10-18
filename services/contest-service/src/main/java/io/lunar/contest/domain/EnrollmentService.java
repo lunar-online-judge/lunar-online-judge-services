@@ -2,6 +2,8 @@ package io.lunar.contest.domain;
 
 import io.lunar.common.api.ApiException;
 import io.lunar.common.audit.AuditRecorder;
+import io.lunar.contest.domain.dto.BatchEnrollItem;
+import io.lunar.contest.domain.dto.BatchEnrollResult;
 import io.lunar.contest.domain.dto.CandidatePage;
 import io.lunar.contest.domain.dto.CandidateView;
 import io.lunar.contest.domain.dto.EnrollmentResult;
@@ -54,7 +56,8 @@ public class EnrollmentService {
     /** 添加学生：账号不存在则经 auth 创建（或账号已存在则复用），再建立/激活报名关系。 */
     @SuppressWarnings("unchecked")
     public EnrollmentResult add(String contestId, String studentNo, String username, String displayName,
-                                String initialPassword, String operatorToken, String operatorId) {
+                                String className, String initialPassword,
+                                String operatorToken, String operatorId) {
         contestService.get(contestId); // 竞赛必须存在
 
         // 名单中该学号已有效报名 → 拒绝重复（同一 contestId+studentNo 只能有一条有效报名关系）
@@ -76,7 +79,7 @@ public class EnrollmentService {
             displayName = String.valueOf(account.get("displayName"));
         } else {
             Map<String, Object> created = authClient.createStudent(studentNo, username, displayName,
-                    initialPassword, operatorToken);
+                    className, initialPassword, operatorToken);
             studentId = String.valueOf(created.get("studentId"));
             // 是否需改密以 auth 的响应为准，不在本服务推断
             passwordChangeRequired = Boolean.TRUE.equals(created.get("passwordChangeRequired"));
@@ -125,6 +128,70 @@ public class EnrollmentService {
     }
 
     /**
+     * 从共享学生目录批量加入既有学生：按 auth 用户 ID 取快照，不创建账号。
+     * 已在名单中的学生跳过，已移出的复用原行重新激活；逐条返回结果。
+     */
+    public BatchEnrollResult enrollExisting(String contestId, List<String> studentIds,
+                                            String operatorToken, String operatorId) {
+        contestService.get(contestId);
+        int added = 0;
+        int skipped = 0;
+        int failed = 0;
+        List<BatchEnrollItem> items = new ArrayList<>();
+        for (String studentId : studentIds) {
+            Map<String, Object> account = authClient.findStudentById(studentId, operatorToken);
+            if (account == null) {
+                failed++;
+                items.add(new BatchEnrollItem(studentId, null, "FAILED", "学生账号不存在"));
+                continue;
+            }
+            String studentNo = String.valueOf(account.get("studentNo"));
+            String username = String.valueOf(account.get("username"));
+            String displayName = String.valueOf(account.get("displayName"));
+            CandidateEntity existing = candidateMapper.selectOne(new LambdaQueryWrapper<CandidateEntity>()
+                    .eq(CandidateEntity::getContestId, contestId)
+                    .eq(CandidateEntity::getStudentId, studentId)
+                    .last("limit 1"));
+            if (existing != null && "ENROLLED".equals(existing.getStatus())) {
+                skipped++;
+                items.add(new BatchEnrollItem(studentId, username, "SKIPPED", "已在名单中"));
+                continue;
+            }
+            if (existing != null) {
+                existing.setStatus("ENROLLED");
+                existing.setStudentNoSnapshot(studentNo);
+                existing.setUsernameSnapshot(username);
+                existing.setDisplayNameSnapshot(displayName);
+                existing.setAddedByTeacherId(operatorId);
+                existing.setEnrolledAt(Instant.now());
+                existing.setRemovedAt(null);
+                candidateMapper.updateById(existing);
+                added++;
+                items.add(new BatchEnrollItem(studentId, username, "ENROLLED", "重新加入"));
+            } else {
+                CandidateEntity candidate = new CandidateEntity();
+                candidate.setId(UUID.randomUUID().toString());
+                candidate.setContestId(contestId);
+                candidate.setStudentId(studentId);
+                candidate.setStudentNoSnapshot(studentNo);
+                candidate.setUsernameSnapshot(username);
+                candidate.setDisplayNameSnapshot(displayName);
+                candidate.setAddedByTeacherId(operatorId);
+                candidate.setStatus("ENROLLED");
+                candidate.setEnrolledAt(Instant.now());
+                candidateMapper.insert(candidate);
+                added++;
+                items.add(new BatchEnrollItem(studentId, username, "ENROLLED", "加入成功"));
+            }
+            log.info("AUDIT event=STUDENT_ENROLLED contestId={} studentId={} by={}",
+                    contestId, studentId, operatorId);
+            auditRecorder.record("STUDENT_ENROLLED", "ENROLLMENT", studentId, contestId,
+                    "从学生目录加入名单", null, operatorToken);
+        }
+        return new BatchEnrollResult(added, skipped, failed, items);
+    }
+
+    /**
      * CSV 批量导入名单（docs/exam-process.md §9）：逐行等价于一次"添加学生"，
      * 复用同一套唯一性校验与审计；部分行失败不回滚已成功行，逐行返回成功或失败原因。
      * 幂等：账号唯一性（学号/用户名）与名单唯一约束（竞赛+学生）保证重复导入不产生重复数据。
@@ -154,7 +221,8 @@ public class EnrollmentService {
         }
         try {
             EnrollmentResult enrolled = add(contestId, entry.studentNo(), entry.username(),
-                    entry.displayName(), entry.initialPassword(), operatorToken, operatorId);
+                    entry.displayName(), entry.className(), entry.initialPassword(),
+                    operatorToken, operatorId);
             return new RosterRowResult(entry.lineNumber(), entry.studentNo(), "ENROLLED",
                     enrolled.studentId(), null, null);
         } catch (ApiException exception) {
@@ -179,6 +247,9 @@ public class EnrollmentService {
         }
         if (entry.displayName() == null) {
             return "displayName";
+        }
+        if (entry.className() == null) {
+            return "className";
         }
         if (entry.initialPassword() == null) {
             return "initialPassword";

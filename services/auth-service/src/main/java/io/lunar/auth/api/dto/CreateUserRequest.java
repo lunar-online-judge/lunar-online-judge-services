@@ -18,5 +18,6 @@ public record CreateUserRequest(
         @NotBlank @Pattern(regexp = "ADMIN|TEACHER|CANDIDATE", message = "角色只能是 ADMIN、TEACHER 或 CANDIDATE")
         String role,
         @Size(max = 64) String studentNo,
+        @Size(max = 100) String className,
         @NotBlank @Size(min = 8, max = 64) String initialPassword) {
 }

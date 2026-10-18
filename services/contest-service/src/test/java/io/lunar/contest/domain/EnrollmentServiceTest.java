@@ -70,12 +70,14 @@ class EnrollmentServiceTest {
     void addCreatesAccountAndEnrolls() {
         when(candidateMapper.selectOne(any())).thenReturn(null);
         when(authClient.findStudent("20260001", "student_20260001", "tok")).thenReturn(null);
-        when(authClient.createStudent("20260001", "student_20260001", "张三", "init-pass-123", "tok"))
+        when(authClient.createStudent("20260001", "student_20260001", "张三", "2026级1班",
+                "init-pass-123", "tok"))
                 .thenReturn(Map.of("studentId", "stu_1", "username", "student_20260001",
                         "passwordChangeRequired", true));
 
         EnrollmentResult view =
-                service.add("c1", "20260001", "student_20260001", "张三", "init-pass-123", "tok", "teacher_1");
+                service.add("c1", "20260001", "student_20260001", "张三", "2026级1班",
+                        "init-pass-123", "tok", "teacher_1");
 
         assertThat(view.studentId()).isEqualTo("stu_1");
         assertThat(view.enrollmentStatus()).isEqualTo("ENROLLED");
@@ -97,12 +99,13 @@ class EnrollmentServiceTest {
                         "displayName", "老账号"));
 
         EnrollmentResult view =
-                service.add("c1", "20260001", "student_20260001", "张三", "init-pass-123", "tok", "teacher_1");
+                service.add("c1", "20260001", "student_20260001", "张三", "2026级1班",
+                        "init-pass-123", "tok", "teacher_1");
 
         assertThat(view.studentId()).isEqualTo("stu_exists");
         // 账号复用：本次没有下发任何密码，不应要求改密
         assertThat(view.passwordChangeRequired()).isFalse();
-        verify(authClient, never()).createStudent(any(), any(), any(), any(), any());
+        verify(authClient, never()).createStudent(any(), any(), any(), any(), any(), any());
     }
 
     @Test
@@ -110,7 +113,7 @@ class EnrollmentServiceTest {
         when(candidateMapper.selectOne(any())).thenReturn(candidate("stu_1", "20260001", "ENROLLED"));
 
         assertThatThrownBy(() -> service.add("c1", "20260001", "student_20260001", "张三",
-                "init-pass-123", "tok", "teacher_1"))
+                "2026级1班", "init-pass-123", "tok", "teacher_1"))
                 .isInstanceOf(ContestException.AlreadyEnrolled.class);
     }
 
@@ -123,7 +126,8 @@ class EnrollmentServiceTest {
                 .thenReturn(Map.of("studentId", "stu_1", "username", "student_20260001"));
 
         EnrollmentResult view =
-                service.add("c1", "20260001", "student_20260001", "张三", "init-pass-123", "tok", "teacher_1");
+                service.add("c1", "20260001", "student_20260001", "张三", "2026级1班",
+                        "init-pass-123", "tok", "teacher_1");
 
         assertThat(view.enrollmentStatus()).isEqualTo("ENROLLED");
         verify(candidateMapper).updateById(removed);
@@ -143,13 +147,13 @@ class EnrollmentServiceTest {
         CandidateEntity alreadyEnrolled = candidate("stu_existing", "20260002", "ENROLLED");
         when(candidateMapper.selectOne(any())).thenReturn(null, null, alreadyEnrolled);
         when(authClient.findStudent(any(), any(), any())).thenReturn(null);
-        when(authClient.createStudent(any(), any(), any(), any(), any()))
+        when(authClient.createStudent(any(), any(), any(), any(), any(), any()))
                 .thenReturn(Map.of("studentId", "stu_new", "passwordChangeRequired", true));
 
-        String csv = "studentNo,username,displayName,initialPassword\n"
-                + "20260001,student_a,学生A,init-pass-123\n"
-                + "20260002,student_b,学生B,init-pass-123\n"
-                + "20260003,,学生C,init-pass-123\n";
+        String csv = "studentNo,username,displayName,className,initialPassword\n"
+                + "20260001,student_a,学生A,2026级1班,init-pass-123\n"
+                + "20260002,student_b,学生B,2026级1班,init-pass-123\n"
+                + "20260003,,学生C,2026级1班,init-pass-123\n";
 
         RosterImportResult result = service.importRoster("c1", csv, "tok", "teacher_1");
 

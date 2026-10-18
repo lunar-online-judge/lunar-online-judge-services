@@ -41,7 +41,7 @@ public final class StudentRosterCsv {
                 }
             }
             entries.add(new RosterEntry(index + 1, columnAt(columns, 0), columnAt(columns, 1),
-                    columnAt(columns, 2), columnAt(columns, 3)));
+                    columnAt(columns, 2), columnAt(columns, 3), columnAt(columns, 4)));
         }
         return entries;
     }

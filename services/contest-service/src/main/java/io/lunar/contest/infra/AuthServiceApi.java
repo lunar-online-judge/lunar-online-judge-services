@@ -25,6 +25,10 @@ public interface AuthServiceApi {
                                                  @RequestParam("username") String username,
                                                  @RequestHeader("Authorization") String authorization);
 
+    @GetExchange("/{studentId}")
+    ApiResponse<Map<String, Object>> findStudentById(@PathVariable("studentId") String studentId,
+                                                     @RequestHeader("Authorization") String authorization);
+
     @PostExchange
     ApiResponse<Map<String, Object>> createStudent(@RequestHeader("Authorization") String authorization,
                                                    @RequestBody Map<String, Object> body);

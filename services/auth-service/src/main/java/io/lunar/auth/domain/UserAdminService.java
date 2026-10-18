@@ -47,19 +47,32 @@ public class UserAdminService {
         this.auditRecorder = auditRecorder;
     }
 
-    /** 分页查询：角色/状态精确过滤，keyword 模糊匹配账号、姓名与学号。 */
-    public UserPage list(String role, String status, String keyword, long page, long pageSize) {
+    /** 分页查询：角色/状态/班级精确过滤，keyword 模糊匹配账号、姓名与学号。 */
+    public UserPage list(String role, String status, String keyword, String className,
+                         long page, long pageSize) {
         long normalizedPage = Math.max(1, page);
         long normalizedPageSize = Math.min(MAX_PAGE_SIZE, Math.max(1, pageSize));
-        long total = userMapper.selectCount(filterQuery(role, status, keyword));
+        long total = userMapper.selectCount(filterQuery(role, status, keyword, className));
 
         long offset = (normalizedPage - 1) * normalizedPageSize;
         List<UserEntity> users = userMapper.selectList(
-                filterQuery(role, status, keyword)
+                filterQuery(role, status, keyword, className)
                         .orderByDesc(UserEntity::getCreatedAt)
                         .last("limit " + normalizedPageSize + " offset " + offset));
         List<UserView> items = users.stream().map(UserView::of).toList();
         return new UserPage(items, total, normalizedPage, normalizedPageSize);
+    }
+
+    /** 学生班级列表：去重、按名称排序，供教师筛选与按班操作。 */
+    public List<String> listClassNames() {
+        return userMapper.selectList(new LambdaQueryWrapper<UserEntity>()
+                        .eq(UserEntity::getRole, Role.CANDIDATE.name())
+                        .isNotNull(UserEntity::getClassName)
+                        .ne(UserEntity::getClassName, "")
+                        .select(UserEntity::getClassName)
+                        .groupBy(UserEntity::getClassName)
+                        .orderByAsc(UserEntity::getClassName))
+                .stream().map(UserEntity::getClassName).toList();
     }
 
     /** 创建账号：账号名全局唯一；学生额外要求学号唯一。 */
@@ -75,9 +88,13 @@ public class UserAdminService {
         }
 
         String studentNo = trimToNull(request.studentNo());
+        String className = trimToNull(request.className());
         if (role == Role.CANDIDATE) {
             if (studentNo == null) {
                 throw new UserException.ValidationFailed("学生账号必须填写学号");
+            }
+            if (className == null) {
+                throw new UserException.ValidationFailed("学生账号必须填写班级");
             }
             if (userMapper.selectCount(new LambdaQueryWrapper<UserEntity>()
                     .eq(UserEntity::getStudentNo, studentNo)) > 0) {
@@ -93,6 +110,7 @@ public class UserAdminService {
         user.setRole(role.name());
         user.setStatus(STATUS_ACTIVE);
         user.setStudentNo(role == Role.CANDIDATE ? studentNo : null);
+        user.setClassName(role == Role.CANDIDATE ? className : null);
         user.setManagedByTeacherId(operatorId);
         user.setPasswordChangeRequired(true);
         user.setCreatedAt(Instant.now());
@@ -151,13 +169,17 @@ public class UserAdminService {
         return UserView.of(user);
     }
 
-    private LambdaQueryWrapper<UserEntity> filterQuery(String role, String status, String keyword) {
+    private LambdaQueryWrapper<UserEntity> filterQuery(String role, String status, String keyword,
+                                                       String className) {
         LambdaQueryWrapper<UserEntity> query = new LambdaQueryWrapper<>();
         if (StringUtils.hasText(role)) {
             query.eq(UserEntity::getRole, role.trim());
         }
         if (StringUtils.hasText(status)) {
             query.eq(UserEntity::getStatus, status.trim());
+        }
+        if (StringUtils.hasText(className)) {
+            query.eq(UserEntity::getClassName, className.trim());
         }
         if (StringUtils.hasText(keyword)) {
             String trimmedKeyword = keyword.trim();

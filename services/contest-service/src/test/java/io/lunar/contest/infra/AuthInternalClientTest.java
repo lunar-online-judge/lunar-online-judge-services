@@ -46,13 +46,14 @@ class AuthInternalClientTest {
                 .thenReturn(ApiResponse.success("req-2", Map.of("studentId", "stu_new")));
 
         Map<String, Object> created = client.createStudent("20260001", "student_20260001", "张三",
-                "init-pass-123", "Bearer tok");
+                "2026级1班", "init-pass-123", "Bearer tok");
 
         assertThat(created).containsEntry("studentId", "stu_new");
         verify(authApi).createStudent("Bearer tok", Map.of(
                 "studentNo", "20260001",
                 "username", "student_20260001",
                 "displayName", "张三",
+                "className", "2026级1班",
                 "initialPassword", "init-pass-123"));
     }
 }

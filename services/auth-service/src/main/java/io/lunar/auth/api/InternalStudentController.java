@@ -61,8 +61,21 @@ public class InternalStudentController {
             @RequestHeader(value = "Authorization", required = false) String authorization) {
         CreatedStudent created = studentAccountService.createStudent(
                 request.studentNo(), request.username(), request.displayName(),
-                request.initialPassword(), authentication.getName(), authorization);
+                request.className(), request.initialPassword(), authentication.getName(), authorization);
         return ResponseEntity.ok(ApiResponse.success(requestId, StudentResponse.of(created)));
+    }
+
+    /** 按用户 ID 查学生：供考试名单批量加入既有学生时校验与取快照。 */
+    @GetMapping("/{studentId}")
+    @PreAuthorize("hasAnyRole('TEACHER', 'ADMIN')")
+    public ResponseEntity<ApiResponse<StudentResponse>> getById(
+            @PathVariable String studentId,
+            @RequestHeader(value = RequestIdFilter.HEADER, required = false) String requestId) {
+        CreatedStudent found = studentAccountService.findStudentById(studentId);
+        if (found == null) {
+            throw new UserException.NotFound();
+        }
+        return ResponseEntity.ok(ApiResponse.success(requestId, StudentResponse.of(found)));
     }
 
     @PostMapping("/{studentId}/password-reset")

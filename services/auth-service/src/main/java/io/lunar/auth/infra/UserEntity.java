@@ -27,6 +27,8 @@ public class UserEntity {
 
     private String studentNo;
 
+    private String className;
+
     private String managedByTeacherId;
 
     private Boolean passwordChangeRequired;
@@ -52,6 +54,8 @@ public class UserEntity {
     public void setStatus(String status) { this.status = status; }
     public String getStudentNo() { return studentNo; }
     public void setStudentNo(String studentNo) { this.studentNo = studentNo; }
+    public String getClassName() { return className; }
+    public void setClassName(String className) { this.className = className; }
     public String getManagedByTeacherId() { return managedByTeacherId; }
     public void setManagedByTeacherId(String managedByTeacherId) { this.managedByTeacherId = managedByTeacherId; }
     public Boolean getPasswordChangeRequired() { return passwordChangeRequired; }

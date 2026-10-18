@@ -39,18 +39,19 @@ public class UserAdminController {
         this.userAdminService = userAdminService;
     }
 
-    /** 账号分页：按角色/状态精确过滤，keyword 模糊匹配账号、姓名或学号。 */
+    /** 账号分页：按角色/状态/班级精确过滤，keyword 模糊匹配账号、姓名或学号。 */
     @GetMapping
     @PreAuthorize("hasRole('ADMIN')")
     public ResponseEntity<ApiResponse<UserPage>> list(
             @RequestParam(required = false) String role,
             @RequestParam(required = false) String status,
             @RequestParam(required = false) String keyword,
+            @RequestParam(required = false) String className,
             @RequestParam(defaultValue = Pagination.DEFAULT_PAGE) long page,
             @RequestParam(defaultValue = Pagination.DEFAULT_PAGE_SIZE) long pageSize,
             @RequestHeader(value = RequestIdFilter.HEADER, required = false) String requestId) {
         return ResponseEntity.ok(ApiResponse.success(requestId,
-                userAdminService.list(role, status, keyword, page, pageSize)));
+                userAdminService.list(role, status, keyword, className, page, pageSize)));
     }
 
     /** 创建账号：role 取 ADMIN（子管理员）/ TEACHER / CANDIDATE。 */

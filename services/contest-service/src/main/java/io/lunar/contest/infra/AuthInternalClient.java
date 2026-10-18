@@ -26,6 +26,15 @@ public class AuthInternalClient {
     }
 
     /** 按学号或账户名查学生账号；不存在（404）返回 null，账号可复用时不重复创建。 */
+    /** 按学生用户 ID 查询（批量加入既有学生时使用）；不存在返回 null。 */
+    public Map<String, Object> findStudentById(String studentId, String operatorToken) {
+        try {
+            return unwrap(authApi.findStudentById(studentId, bearer(operatorToken)));
+        } catch (HttpClientErrorException.NotFound exception) {
+            return null;
+        }
+    }
+
     public Map<String, Object> findStudent(String studentNo, String username, String operatorToken) {
         try {
             return unwrap(authApi.findStudent(blankToEmpty(studentNo), blankToEmpty(username),
@@ -37,11 +46,12 @@ public class AuthInternalClient {
 
     /** @return 新建学生账号的响应 data（studentId 等）；auth 端错误（409 用户名/学号冲突等）原样抛出，由调用方映射。 */
     public Map<String, Object> createStudent(String studentNo, String username, String displayName,
-                                             String initialPassword, String operatorToken) {
+                                             String className, String initialPassword, String operatorToken) {
         return unwrap(authApi.createStudent(bearer(operatorToken), Map.of(
                 "studentNo", studentNo,
                 "username", username,
                 "displayName", displayName,
+                "className", className,
                 "initialPassword", initialPassword)));
     }
 

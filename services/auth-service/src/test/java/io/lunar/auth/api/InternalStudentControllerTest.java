@@ -42,7 +42,7 @@ class InternalStudentControllerTest {
     @MockitoBean JwtDecoder jwtDecoder;
 
     private static final CreatedStudent CREATED =
-            new CreatedStudent("stu_1", "20260001", "student_20260001", "张三", true);
+            new CreatedStudent("stu_1", "20260001", "student_20260001", "张三", null, true);
 
     @BeforeEach
     void setUp() {
@@ -60,7 +60,7 @@ class InternalStudentControllerTest {
     @Test
     void teacherCreatesStudent() throws Exception {
         when(studentAccountService.createStudent(eq("20260001"), eq("student_20260001"),
-                eq("张三"), eq("initial-pass-123"), eq("teacher_1"), eq("Bearer token-value")))
+                eq("张三"), eq(null), eq("initial-pass-123"), eq("teacher_1"), eq("Bearer token-value")))
                 .thenReturn(CREATED);
 
         mockMvc.perform(post("/api/v1/internal/students")
@@ -88,7 +88,7 @@ class InternalStudentControllerTest {
 
     @Test
     void duplicateUsernameReturns409() throws Exception {
-        when(studentAccountService.createStudent(any(), any(), any(), any(), any(), any()))
+        when(studentAccountService.createStudent(any(), any(), any(), any(), any(), any(), any()))
                 .thenThrow(new UserException.UsernameExists());
 
         mockMvc.perform(post("/api/v1/internal/students")
@@ -102,7 +102,7 @@ class InternalStudentControllerTest {
 
     @Test
     void weakPasswordReturns400() throws Exception {
-        when(studentAccountService.createStudent(any(), any(), any(), any(), any(), any()))
+        when(studentAccountService.createStudent(any(), any(), any(), any(), any(), any(), any()))
                 .thenThrow(new UserException.WeakPassword());
 
         mockMvc.perform(post("/api/v1/internal/students")

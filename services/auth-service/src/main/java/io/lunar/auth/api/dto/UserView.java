@@ -14,13 +14,14 @@ public record UserView(String userId,
                        String role,
                        String status,
                        String studentNo,
+                       String className,
                        boolean passwordChangeRequired,
                        Instant createdAt,
                        Instant updatedAt) {
 
     public static UserView of(UserEntity user) {
         return new UserView(user.getId(), user.getUsername(), user.getDisplayName(), user.getRole(),
-                user.getStatus(), user.getStudentNo(),
+                user.getStatus(), user.getStudentNo(), user.getClassName(),
                 Boolean.TRUE.equals(user.getPasswordChangeRequired()),
                 user.getCreatedAt(), user.getUpdatedAt());
     }
