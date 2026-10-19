@@ -1,10 +1,13 @@
 package io.lunar.submission.api;
 
 import io.lunar.common.api.ApiResponse;
+import io.lunar.common.api.Pagination;
 import io.lunar.common.security.Role;
 import io.lunar.common.web.RequestIdFilter;
 import io.lunar.submission.api.dto.CreateSubmissionRequest;
 import io.lunar.submission.domain.SubmissionService;
+import io.lunar.submission.domain.dto.SubmissionPage;
+import io.lunar.submission.domain.dto.SubmissionSource;
 import io.lunar.submission.domain.dto.SubmissionView;
 import jakarta.validation.Valid;
 import org.springframework.http.ResponseEntity;
@@ -17,6 +20,7 @@ import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestHeader;
 import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
 /**
@@ -49,6 +53,28 @@ public class SubmissionController {
                 request.language(), request.sourceCode(), idempotencyKey, requestId, authentication.getName(),
                 authorization);
         return ResponseEntity.ok(ApiResponse.success(requestId, view));
+    }
+
+    @GetMapping
+    @PreAuthorize("hasAnyRole('TEACHER','ADMIN')")
+    public ResponseEntity<ApiResponse<SubmissionPage>> list(
+            @RequestParam(required = false) String contestId,
+            @RequestParam(required = false) String problemId,
+            @RequestParam(required = false) String studentId,
+            @RequestParam(required = false) String status,
+            @RequestParam(defaultValue = Pagination.DEFAULT_PAGE) long page,
+            @RequestParam(defaultValue = Pagination.DEFAULT_PAGE_SIZE) long pageSize,
+            @RequestHeader(value = RequestIdFilter.HEADER, required = false) String requestId) {
+        return ResponseEntity.ok(ApiResponse.success(requestId,
+                submissionService.list(contestId, problemId, studentId, status, page, pageSize)));
+    }
+
+    @GetMapping("/{id}/source")
+    @PreAuthorize("hasAnyRole('TEACHER','ADMIN')")
+    public ResponseEntity<ApiResponse<SubmissionSource>> source(
+            @PathVariable String id,
+            @RequestHeader(value = RequestIdFilter.HEADER, required = false) String requestId) {
+        return ResponseEntity.ok(ApiResponse.success(requestId, submissionService.source(id)));
     }
 
     @GetMapping("/{id}")

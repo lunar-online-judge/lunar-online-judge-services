@@ -4,6 +4,9 @@ import io.lunar.common.judge.JudgeVerdict;
 import io.lunar.submission.config.SubmissionLimitProperties;
 import io.lunar.submission.domain.dto.InternalSubmissionDetail;
 import io.lunar.submission.domain.dto.InternalSubmissionSummary;
+import io.lunar.submission.domain.dto.SubmissionPage;
+import io.lunar.submission.domain.dto.SubmissionSource;
+import io.lunar.submission.domain.dto.SubmissionSummary;
 import io.lunar.submission.domain.dto.SubmissionView;
 import io.lunar.submission.infra.ConsumedEventMapper;
 import io.lunar.submission.infra.OutboxEventEntity;
@@ -13,6 +16,7 @@ import io.lunar.submission.infra.SubmissionMapper;
 import io.lunar.submission.infra.UpstreamClient;
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.baomidou.mybatisplus.core.conditions.update.LambdaUpdateWrapper;
+import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.slf4j.Logger;
@@ -167,6 +171,44 @@ public class SubmissionService {
             throw new SubmissionException.NotFound();
         }
         return toView(submission);
+    }
+
+    /**
+     * 教师/管理员读取提交源码。学生详情接口刻意不含源码，这里单独开一个受角色保护的入口。
+     */
+    public SubmissionSource source(String submissionId) {
+        SubmissionEntity submission = submissionMapper.selectById(submissionId);
+        if (submission == null) {
+            throw new SubmissionException.NotFound();
+        }
+        return new SubmissionSource(submission.getLanguage(), submission.getSourceCode());
+    }
+
+    /**
+     * 教师/管理员分页查询提交记录：按考试、题目、学生、状态过滤，按创建时间倒序。
+     * 只返回摘要，不返回源码；查详情仍走 {@link #get}。
+     */
+    public SubmissionPage list(String contestId, String problemId, String studentId, String status,
+                               long page, long pageSize) {
+        Page<SubmissionEntity> pageRequest = new Page<>(Math.max(1, page), Math.min(100, Math.max(1, pageSize)));
+        LambdaQueryWrapper<SubmissionEntity> query = new LambdaQueryWrapper<>();
+        query.eq(hasText(contestId), SubmissionEntity::getContestId, contestId)
+                .eq(hasText(problemId), SubmissionEntity::getProblemId, problemId)
+                .eq(hasText(studentId), SubmissionEntity::getStudentId, studentId)
+                .eq(hasText(status), SubmissionEntity::getStatus, status)
+                .orderByDesc(SubmissionEntity::getCreatedAt);
+        Page<SubmissionEntity> result = submissionMapper.selectPage(pageRequest, query);
+        List<SubmissionSummary> items = result.getRecords().stream()
+                .map(submission -> new SubmissionSummary(submission.getId(), submission.getContestId(),
+                        submission.getProblemId(), submission.getStudentId(), submission.getLanguage(),
+                        submission.getStatus(), submission.getScore(), submission.getPassedCases(),
+                        submission.getTotalCases(), submission.getCreatedAt(), submission.getUpdatedAt()))
+                .toList();
+        return new SubmissionPage(items, result.getTotal(), result.getCurrent(), result.getSize());
+    }
+
+    private static boolean hasText(String value) {
+        return value != null && !value.isBlank();
     }
 
     /**
