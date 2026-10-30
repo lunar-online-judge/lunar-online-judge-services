@@ -208,9 +208,9 @@ HTTP 前缀统一为 `/api/v1`。各服务经 gateway 对外暴露；客户端�
 | contest | GET | `/api/v1/contests/{contestId}/assignments/{studentId}` | TEACHER（限归属）/ADMIN | 已实现（老师复盘某学生的分配，含 randomSeed 与分配版本） |
 | contest | POST | `/api/v1/contests/{contestId}/assignments/generate` | TEACHER（限归属）/ADMIN | 已实现（显式重算分配，幂等：已有分配的学生跳过） |
 | contest | GET | `/api/v1/contests/{contestId}/score` | 规划（成绩读模型/排名未实现） |
-| media | POST | `/api/v1/contests/{contestId}/sessions/{sessionId}/monitor-token` | 规划（media-service 仅占位 POM） |
+| media | POST | `/api/v1/contests/{contestId}/sessions/{sessionId}/monitor-token` | 规划（media-service 已从仓库移除，见 docs/architecture.md 的设计保留） |
 | media | POST | `/api/v1/monitor/screenshot` | 规划（同上） |
-| audit | GET | `/api/v1/audit/media-access` | 规划（随 media-service） |
+| audit | GET | `/api/v1/audit/media-access` | 规划（随 media-service，已移除） |
 
 **角色说明**：注册表里的 `INVIGILATOR`（监考员）目前**没有出现在任何授权规则中**——监考入口（`/api/v1/monitor/**`）要求 TEACHER 或 ADMIN，因此监考员角色登录后无法使用监考端点。这与 `docs/exam-process.md` §2、`docs/architecture.md` §2.1 的"监考员按考试授权查看实时监考信息并处理风险告警"不一致，属待办（同一处还需补"考试级授权"）。
 

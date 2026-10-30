@@ -188,7 +188,7 @@ Body: { "username": "admin", "password": "admin123" }
 审核状态机：`OPEN → ACKNOWLEDGED → CONFIRMED / DISMISSED`（后两者是终态，不可再改）。
 严重度由服务端按事件类型推导，前端**不要**自己算。
 
-### 3.11 AI 作业与结论（ai-service）
+### 3.11 AI 作业与结论（ai-service）——**当前默认不启用**
 | 方法 | 路径 | 角色 | 说明 |
 |---|---|---|---|
 | POST | `/api/v1/ai/jobs/code-review` | TEACHER(限归属)/ADMIN | 代码评审 `{contestId, submissionId}` → 返回 `jobId`（异步） |
@@ -201,7 +201,7 @@ Body: { "username": "admin", "password": "admin123" }
 | GET | `/api/v1/ai/drafts/{draftId}` | 同上 | 草稿详情 |
 | GET | `/api/v1/ai/provider` | **ADMIN** | Provider 运行态（`mode / baseUrlHost / chatModel`，**不回显 api-key**） |
 
-> **只有两类作业**：`CODE_REVIEW`、`PROBLEM_DRAFT`。风险研判与语义查重**已被删除**，不要做对应 UI。
+> **本节能力默认不启用**：ai-service 已在简化中从默认运行清单移除（代码保留在主分支）。若要启用，需先提供模型端点与密钥，并显式设 `AI_EGRESS_APPROVED=true`。` 默认 UI 可以先不做这一块。`r`n> **只有两类作业**：`CODE_REVIEW`、`PROBLEM_DRAFT`。风险研判与语义查重**已被删除**，不要做对应 UI。
 > 作业是**异步**的：UI 提交后拿 `jobId` 轮询（建议 3~5 秒一次，最多 2 分钟）。
 > `finding.score` 是**可疑度/参考分，仅用于排序展示**，不要当成成绩或自动处置依据。
 > 草稿的 `reviewStatus` 恒为 `DRAFT`——**教师确认入口尚未实现**，UI 只能展示，落库仍走题目创建接口。

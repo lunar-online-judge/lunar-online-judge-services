@@ -40,7 +40,6 @@
         <module>services/submission-service</module>
         <module>services/judge-service</module>
         <module>services/anti-cheat-service</module>
-        <module>services/media-service</module>
         <module>services/audit-service</module>
         <module>services/ai-service</module>
         <module>services/analytics-service</module>

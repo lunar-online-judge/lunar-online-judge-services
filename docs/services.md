@@ -13,7 +13,6 @@
 | submission-service | 8084 | 接收提交、幂等校验、提交状态 | `submission_schema`；幂等键以 DB 唯一约束为权威 | 提交/幂等/Outbox/判决回写已实现；五项校验实现 4 项，**成绩读模型（排名/最高分聚合）已由 analytics-service 承接**，submission 自身只维护提交状态 |
 | judge-service | 8080* | 评测调度：消费提交事件、适配 go-judge、verdict 归一化 | `judge_schema`（只一张 `outbox_events`：判决先落本地再异步投递） | 事件消费 + verdict 归一化 + go-judge 适配器 + **判决 Outbox（含退避/死信）**已实现；`judge_task` 异步状态机/超时补偿未实现 |
 | anti-cheat-service | 8086 | 风险事件、风险分数、查重任务、人工审核 | `anti_cheat_schema` | 风险事件上报/查询/审核已实现（2026-10-07）；查重与告警推送未实现 |
-| media-service | 8080* | 监考令牌、WebRTC 信令、截图策略与存取授权 | `media_schema`（未建） | 仅占位 POM，无代码 |
 | audit-service | 8087 | 管理操作与敏感访问审计 | `audit_schema` | 账本写入/查询已实现；**contest / auth / submission / anti-cheat 四个调用方已接入**（共用 lunar-common 的 `AuditRecorder`） |
 | ai-service | 8089 | AI 能力：代码评审、出题草稿（风险研判与语义查重已按简化决定删除），**只产证据不改事实** | `ai_schema`（作业队列、结论、草稿、相似对、Outbox） | 2 项作业能力已实现（LangChain4j Provider 层、异步作业管道含租约/退避/原子配额、BE-01 范围）；审计留痕改为结构化日志（Outbox 与隐私守卫已删） |
 | analytics-service | 8088 | 分析读模型：消费事件把事实投影进自己的 schema，提供成绩排名、学情与监考风险查询，**只读自己的 schema、不影响任何业务不变量** | `analytics_schema`（事实表、物化成绩表、参照数据缓存、幂等闸门，全部可由 MQ 重放重建） | 4 个消费者 + 三条读模型 + 9 个端点均已实现；模块内设计文档 `docs/analytics/read-model.md` |
@@ -138,16 +137,12 @@ submission/anti-cheat/ai ──(audit-recorded)──> audit（**已生产，aud
 - 审核流转事件（2026-10）：新增 `lunar-risk-event-reviewed`（`previousStatus`/`newStatus`/`reviewedBy`/`reviewedAt`，与审核状态更新**同一事务**）。此前风险事件只在**创建**时进 Outbox，只消费 `created` 的话分析侧的审核结论会永远停留在 `OPEN`；同时给 created 的 payload 补上 `problemId`。
 - 下一步：查重任务（JPlag，随 submission 聚合）；告警推送 gateway（WebSocket 阶段）；规则表可配置化；审核动作迁移 audit-service。
 
-## media-service
+## media-service（**已从仓库移除**）
 
-监考媒体的信令与授权层，媒体数据本身不经过业务服务。
-
-- 职责：签发监考令牌（sessionId、contestId、screenRequired、cameraAllowed、startAt、endAt、nonce）；WebRTC SDP/ICE 信令交换（对接独立 SFU，RTP 媒体流不经过本服务与 gateway）；实时流状态机（`CREATED → AUTHORIZED → CONNECTING → LIVE/EXPIRED/DEGRADED → CLOSED`）；截图策略与三种触发（风险事件/定时/手动，策略字段见 `docs/architecture.md` §2.2）；截图保存到 MinIO 并写元数据与过期时间；媒体与截图访问授权（校验竞赛授权 + 短期签名 URL）。
-- 不负责：不保存、不回放连续视频；不转发高带宽 RTP。
-- 数据与基础设施：`media_schema`；MinIO（截图对象，不可猜测键）；Redis 截图频率控制。
-- 对外接口：规划 `POST /api/v1/contests/{contestId}/sessions/{sessionId}/monitor-token`、`POST /api/v1/monitor/screenshot`（见 `docs/api.md`）；消费 `lunar-screenshot-requested`；生产 `lunar-screenshot-created`、`lunar-risk-event-created`（与 anti-cheat 共同）。
-- 当前实现：只有占位 POM。
-- 下一步：信令服务选型与 SFU 对接（实现顺序第 6 步）。
+> 原为占位 POM（无源码），已在简化中删除，根 pom 的 modules 同步移除。
+> 已确认的设计（监考令牌字段、实时流状态机、截图策略与三种触发、MinIO 对象与访问审计、
+> `lunar-screenshot-requested/created` 两个事件）保留在 `docs/architecture.md` 的 media-service 一节，
+> 将来落地时按此实现；当前仓库**没有**截图/WebRTC/媒体审计能力。
 
 ## audit-service
 
@@ -159,7 +154,6 @@ submission/anti-cheat/ai ──(audit-recorded)──> audit（**已生产，aud
 - 对外接口：`POST /api/v1/internal/audit/records`（服务间写入）与 `GET /api/v1/audit/records`（管理端查询）**均已实现**；规划 `GET /api/v1/audit/media-access`（媒体访问审计查询，见 `docs/api.md`）；**已消费 `lunar-audit-recorded`**（audit-service 引了 rocketmq-spring，`AuditRecordedConsumer` 按 `eventId` 幂等入账——actor 取事件里的审计快照，不重放用户 Bearer，因此令牌过期不会让补偿永远失败；生产者是 submission / anti-cheat / ai 的本地 Outbox），**消费 `lunar-risk-event-created`、`lunar-screenshot-created`、`lunar-plagiarism-completed` 等事件仍未实现**——auth / contest 目前的接入方式仍是经 HTTP 同步写入（lunar-common 的 `AuditServiceApi` + 尽力而为的 `AuditRecorder`，失败不阻断主流程）。
 - 当前实现（2026-10-08，2026-10 更新）：`audit_schema.audit_logs` 追加式账本（仅插入，无更新/删除接口；**V3 起 DB 触发器兜底**：任何 `UPDATE`/`DELETE` 一律被拒绝——用触发器而不是 `REVOKE`，因为所有服务共用同一个数据库角色（也是表 owner），对 owner 做 REVOKE 不生效）；服务间写入端点（转发操作者令牌，actor/role 自动记录）+ 管理端分页查询（动作/操作者/竞赛过滤）；**服务身份单独存 `service_id`**（V2 迁移加列：SERVICE 令牌的 `sub` 是服务名而非用户 uuid，塞进 `actor_id` 会被 PostgreSQL 拒绝；此时 `actor_id` 留空、`actor_role=SERVICE`）；动作清单约定（大写下划线自由字符串）：STUDENT_CREATED、STUDENT_PASSWORD_RESET、RISK_EVENT_REVIEWED、EXAM_STARTED、SUBMISSION_JUDGED 等，新增动作自然写入不因校验丢账。
 - 接入样本：anti-cheat 审核动作 + contest 名单变更/考试流转 + auth 学生账号 + submission 提交与判决，共 **10 个动作**已接入（`AuditRecorder` 尽力而为，审计服务暂不可用不阻断主流程，条目缺口由服务结构化日志兜底）；其中考试流转与判决回写没有用户令牌，用**服务身份令牌**（role=SERVICE）写入。**ai 的三个动作**（`AI_JOB_REQUESTED` / `AI_JOB_FAILED` / `AI_FINDING_CREATED`）在简化后**只写结构化日志**，不再入审计账本（原走本地 Outbox 的 `lunar-audit-recorded`）。
-- 下一步：**BE-07 的持久补偿已部分落地**——submission / anti-cheat / **ai** 的敏感动作改为与本地 audit outbox 同事务提交、异步投递，consumer 按 `eventId` 幂等、带重试退避与 dead-letter；**auth / contest 仍是同步 HTTP 尽力而为**（audit 不可用时会丢条目，只有结构化日志兜底）；媒体访问审计（随 media-service）；审计检索深化。
 
 ## ai-service
 

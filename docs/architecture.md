@@ -156,7 +156,10 @@ PostgreSQL | Redis | MinIO | Nacos | RocketMQ
 
 负责风险事件、风险分数、告警、JPlag 任务、相似度报告和人工审核。不能直接修改已发布成绩。
 
-### media-service
+### media-service（**已从仓库移除；本节保留为设计参考**）
+
+> 当前仓库没有 media-service（原为占位 POM，已在简化中删除），截图/WebRTC/媒体审计均未实现。
+> 本节保留是因为它记录了已确认的设计（令牌字段、状态机、截图策略、访问审计），将来落地时按此实现。
 
 负责监考令牌、WebRTC SDP/ICE 信令、实时流状态、截图策略、截图对象和媒体访问授权。Spring 服务不处理高带宽 RTP 数据。
 

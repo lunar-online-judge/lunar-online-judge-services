@@ -21,9 +21,8 @@
 | submission-service | 8084 | 有 | |
 | judge-service | 8080（Spring 默认；yml 未设 `server.port`） | 有 | 唯一启用 spring-boot-maven-plugin 的模块，打出可执行 jar；**尚未接入令牌验签**（无 `jwk-set-uri`，端点当前恒 401） |
 | anti-cheat-service | 8086 | 有 | 风险事件/审核（rocketmq + 分页已配） |
-| media-service | 8080（Spring 默认） | 无 | |
 | audit-service | 8087 | 有 | 审计账本 |
-| ai-service | 8089 | 有 | AI 能力（代码评审/出题草稿）；依赖 PostgreSQL（`ai_schema`）+ **云厂商 OpenAI 兼容 API 端点**（**外部服务**，地址由 `AI_PROVIDER_BASE_URL` 或 `ai.provider.base-url` 给；未配置时首次调用报错） |
+| ai-service | 8089 | 有 | AI 能力（代码评审/出题草稿）——**默认不启用**（简化中移出默认运行清单）；依赖 PostgreSQL（`ai_schema`）+ **云厂商 OpenAI 兼容 API 端点**（**外部服务**，地址由 `AI_PROVIDER_BASE_URL` 或 `ai.provider.base-url` 给；未配置时首次调用报错） |
 | analytics-service | 8088 | 有 | 分析读模型（成绩排名/学情/监考风险）；依赖 PostgreSQL（`analytics_schema`）+ RocketMQ（4 个消费组）；**不使用 Redis**；取考试快照走 contest 的服务间接口。（`docker/nacos/config/` 下暂无 `analytics-service.yml`，全部配置走 `application.yml` 默认值 + 环境变量） |
 
 **健康检查**：10 个服务均引入 Spring Boot Actuator，**只通过 HTTP 暴露 `health`**（`GET /actuator/health`，匿名可访问、只返回 `UP`/`DOWN`，不展示组件细节）。其余 actuator 端点不可用：有 Security 配置的服务上返回 401（安全过滤链先于路由拦截），网关上返回 404。
@@ -46,7 +45,6 @@
 |---|---|---|---|
 | PostgreSQL | 宿主机 5433（容器内 5432） | compose.core.yml | `lunar` / `change-me`，库 `lunar`；宿主 5432 被本机 postgres 服务占用，开发期映射 5433，服务启动需 `POSTGRES_PORT=5433` |
 | Redis | 6379 | compose.core.yml | 无密码（仅本地） |
-| MinIO | 9000（API）/ 9001（控制台） | compose.core.yml | `lunar` / `change-me-now` |
 | Nacos | 8848（API/客户端）+ 9848（客户端 gRPC）+ 8849（控制台，容器内 8080） | compose.platform.yml | standalone 模式，`nacos/nacos-server:v3.0.3`；**9848 必须映射**——服务注册与订阅走 gRPC，只开 8848 会报 `Server check fail ... 9848`。控制台首次访问需初始化管理员密码（3.x 取消默认 nacos/nacos） |
 | RocketMQ NameServer | 9876 | compose.platform.yml | — |
 | RocketMQ Broker | 10909 / 10911 / 10912 | compose.platform.yml | 配置见 `docker/rocketmq/broker.conf` |
@@ -203,8 +201,6 @@ curl -s -i -H "X-Request-Id: test-123" http://localhost:8081/api/v1/auth/jwks | 
 | `NACOS_FAIL_FAST` | Nacos 不可达时是否让服务启动失败；`false` 表示照常启动（仅不注册） | `false` |
 | `NACOS_CONFIG_NAMESPACE` | 配置中心命名空间；默认空 = `public`（与服务发现一致，3.x 下 public 正常可用） | 空（public） |
 | `ROCKETMQ_NAMESRV_ADDR` | RocketMQ NameServer | `localhost:9876` |
-| `MINIO_ENDPOINT` | MinIO 地址 | `http://localhost:9000` |
-| `MEDIA_SIGNALING_URL` | WebRTC 信令服务地址 | 未设置 |
 
 数据库连接变量当前由 9 个有库的服务消费：auth、contest、problem、submission、judge、anti-cheat、audit、ai、analytics（只有 media 无 DataSource）。
 
@@ -221,7 +217,6 @@ curl -s -i -H "X-Request-Id: test-123" http://localhost:8081/api/v1/auth/jwks | 
 - 评测网络默认关闭，只允许必要的镜像、日志和健康检查网络；
 - 对容器 capabilities、seccomp、cgroup、namespace、临时目录和输出大小做安全审计；
 - WebRTC 使用独立 SFU/媒体服务，Spring 服务只做鉴权、信令和审计；
-- MinIO 只保存截图，使用短期签名 URL；连续视频不保存；
 - 所有密钥从环境变量或密钥管理系统注入，不提交到仓库；
 - Compose 中的 `change-me` 类默认凭据只允许出现在本地环境。
 

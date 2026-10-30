@@ -30,22 +30,3 @@ services:
     environment:
       REDIS_PASSWORD: ${REDIS_PASSWORD:-change-me-redis}
     restart: unless-stopped
-  # 注意：MinIO 目前**没有使用方**——截图链路（media-service）尚未实现，仓库里也没有 MinIO SDK。
-  # 保留它是为了媒体链路落地时不必再改编排；生产部署前应删除或明确标注"未启用"。
-  minio:
-    image: minio/minio:latest
-    command: server /data --console-address ":9001"
-    environment:
-      MINIO_ROOT_USER: lunar
-      MINIO_ROOT_PASSWORD: change-me-now
-    ports: ["9000:9000", "9001:9001"]
-    volumes: ["minio-data:/data"]
-    healthcheck:
-      test: ["CMD-SHELL", "mc ready local || exit 1"]
-      interval: 15s
-      timeout: 5s
-      retries: 5
-    restart: unless-stopped
-volumes:
-  postgres-data:
-  minio-data:
