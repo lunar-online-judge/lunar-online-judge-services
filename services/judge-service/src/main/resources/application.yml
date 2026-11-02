@@ -1,3 +1,7 @@
+server:
+  # 端口与其他服务一样由 SERVER_PORT 覆盖；不给默认值时 Spring 用 8080，会和网关撞端口
+  port: ${SERVER_PORT:8085}
+
 spring:
   config:
     # 只从 Nacos 读取"运行时可变"的服务私有配置（docs/middleware.md"配置中心"节）；

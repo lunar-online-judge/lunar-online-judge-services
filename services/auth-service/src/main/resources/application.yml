@@ -19,7 +19,7 @@ spring:
         fail-fast: ${NACOS_FAIL_FAST:false}
   datasource:
     # stringtype=unspecified：让 String 参数可直接写入 uuid 列（MyBatis 无 uuid 类型处理器）
-    url: jdbc:postgresql://${POSTGRES_HOST:localhost}:${POSTGRES_PORT:5432}/${POSTGRES_DB:lunar}?stringtype=unspecified
+    url: jdbc:postgresql://${POSTGRES_HOST:localhost}:${POSTGRES_PORT:5433}/${POSTGRES_DB:lunar}?stringtype=unspecified
     username: ${POSTGRES_USER:lunar}
     password: ${POSTGRES_PASSWORD:change-me}
   flyway:
