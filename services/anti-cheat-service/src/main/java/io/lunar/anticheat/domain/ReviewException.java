@@ -47,6 +47,18 @@ public class ReviewException extends ApiException {
         }
     }
 
+    /**
+     * 403：考生未报名该竞赛（或没有有效会话）。
+     *
+     * 此前上报只校验"调用者是 CANDIDATE"，任何考生都能向任意竞赛刷事件、污染监考视图与
+     * analytics 的风险读模型。现在由 contest 作为唯一事实源判定报名关系。
+     */
+    public static final class NotEnrolled extends ReviewException {
+        public NotEnrolled() {
+            super("MONITOR_NOT_ENROLLED", 403, "未报名该竞赛，无法上报风险事件");
+        }
+    }
+
     /** 429：上报过于频繁（按学生做窗口计数，防一条循环打满监考视图与风险读模型）。 */
     public static final class ReportRateLimited extends ReviewException {
         public ReportRateLimited(int maxPerWindow, long windowMinutes) {

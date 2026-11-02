@@ -1,5 +1,7 @@
 package io.lunar.anticheat.api;
 
+import io.lunar.anticheat.domain.ReviewException;
+import io.lunar.anticheat.infra.ContestEnrollmentClient;
 import io.lunar.anticheat.api.dto.ReportEventRequest;
 import io.lunar.anticheat.api.dto.ReviewRequest;
 import io.lunar.anticheat.domain.RiskEventService;
@@ -35,9 +37,12 @@ import org.springframework.web.bind.annotation.RestController;
 public class MonitorController {
 
     private final RiskEventService riskEventService;
+    private final ContestEnrollmentClient contestEnrollmentClient;
 
-    public MonitorController(RiskEventService riskEventService) {
+    public MonitorController(RiskEventService riskEventService,
+                             ContestEnrollmentClient contestEnrollmentClient) {
         this.riskEventService = riskEventService;
+        this.contestEnrollmentClient = contestEnrollmentClient;
     }
 
     @PostMapping("/events")
@@ -45,7 +50,14 @@ public class MonitorController {
     public ResponseEntity<ApiResponse<ReportedEvent>> report(
             @Valid @RequestBody ReportEventRequest request,
             Authentication authentication,
+            @RequestHeader(value = "Authorization", required = false) String authorization,
             @RequestHeader(value = RequestIdFilter.HEADER, required = false) String requestId) {
+        // 报名校验（BE-03 剩余项）：考生只能向自己已报名的竞赛上报，contest 是唯一事实源
+        String bearerToken = authorization != null && authorization.startsWith("Bearer ")
+                ? authorization.substring("Bearer ".length()) : null;
+        if (!contestEnrollmentClient.isEnrolled(request.contestId(), bearerToken)) {
+            throw new ReviewException.NotEnrolled();
+        }
         ReportedEvent view = riskEventService.report(request.contestId(), authentication.getName(),
                 request.eventType(), request.detail(), request.occurredAt(), request.problemId(), requestId);
         return ResponseEntity.ok(ApiResponse.success(requestId, view));
