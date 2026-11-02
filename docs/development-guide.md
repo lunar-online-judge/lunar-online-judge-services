@@ -83,3 +83,36 @@
 | 成绩可见范围配置 | contest 成绩查询接口 |
 
 其余空缺（contest/problem/submission/judge 的表结构设计）按实现顺序在做每个服务时补充设计并落 Flyway 迁移，设计写进 `docs/architecture.md` 对应章节或 `docs/services.md`，不新开碎片文档。
+
+## 8. 构建与启动的两个硬坑（2026-11 补）
+
+```bash
+# -pl 不会自动安装父 POM 与兄弟模块，否则报 "Could not find artifact io.lunar:lunar-common"
+mvn -N install -DskipTests
+mvn install -DskipTests -pl lunar-common
+```
+
+- 端口与数据库端口**已有默认值**（各服务 8080–8089、`POSTGRES_PORT=5433`），只需注入密钥类配置：
+  `AUTH_JWT_PRIVATE_KEY`/`AUTH_JWT_KEY_ID`（auth）、`REDIS_PASSWORD`（auth/judge，默认 `change-me-redis`）、
+  `GO_JUDGE_BASE_URL`（judge）、`AI_PROVIDER_*` + `AI_EGRESS_APPROVED`（ai，默认不启用）。
+- **改完 `lunar-common` 必须 `mvn install` 并重启所有服务**，否则服务跑旧 jar（这个坑造成过三次假故障）。
+
+## 9. 加功能前必须满足（防止再次横向膨胀）
+
+2026-11 的审计结论是：**复杂度不是来自单个服务，而是横向铺得太宽**——两个后期加入的服务占了 37% 的代码、几乎零测试。因此加东西前先过这一遍：
+
+1. **新服务/新概念必须先有测试**；没有测试的服务不允许进入默认运行清单。
+2. **新事件类型必须同时给出消费者与幂等策略**（只生产不消费的事件等于往 broker 丢垃圾）。
+3. **新端点必须明确四件事**：所需角色、资源范围（越权是 404 还是 403）、失败码、是否写审计。
+4. **上线阻断项未清零前不加新能力**（清单见 `BACKEND_IMPROVEMENT_PLAN.md`）。
+5. **优先复用 lunar-common 的既有能力**（`AccessScope`、`ApiResponse`、`ProductionConfigGuard`、`EventEnvelope`），不要在服务里复制一份——Outbox 与 ScopeGuard 就曾各复制了 3~5 份。
+
+## 10. 已知的坑（都踩过，写下来避免重犯）
+
+- **`spring-boot-starter-web` 不传递 bean-validation**：用到 `@Valid`/`@Pattern`/`@Size` 的服务必须显式声明 `spring-boot-starter-validation`，否则校验**静默失效**（400 变 200、脏数据落库）。
+- **MyBatis-Plus 分页插件不注册时 `selectPage` 不带 LIMIT**，`total` 恒为 0；`pageSize` 传负数等于全表导出。
+- **JWT 的 `aud` 单元素会被解成 String**：用 `Jwt#getAudience()`，不要用泛型校验器强转（会 500）。
+- **`Start-Job` 的子进程随父进程退出**：后台起服务要用工具提供的后台作业。
+- **Windows 下 bash 脚本必须保持 ASCII**：Git Bash 里 curl 传中文会变成非法 JSON。
+- **`$pid` 在 PowerShell 里是只读自动变量**，不要赋值。
+- **PowerShell 里用正则做批量替换要当心回溯**：`(?:.*\r?\n)*?` 这类模式在大文件上会挂死，优先用逐行过滤或 `String.Replace`。
