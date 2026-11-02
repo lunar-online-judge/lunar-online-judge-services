@@ -111,12 +111,22 @@ public class StudentAccountService {
      * BE-01：只允许重置 CANDIDATE 账号（目标非学生按不存在处理，避免探测账号）；
      * **重置不改变账号归属**——`managedByTeacherId` 表达管理关系，不是"最近一次操作人"。
      */
-    public void resetStudentPassword(String studentId, String temporaryPassword, String operatorToken) {
+    public void resetStudentPassword(String studentId, String temporaryPassword, String operatorToken,
+                                     String actorId, String actorRole) {
         if (temporaryPassword == null || temporaryPassword.length() < 8) {
             throw new UserException.WeakPassword();
         }
         UserEntity user = userMapper.selectById(studentId);
         if (user == null || !Role.CANDIDATE.name().equals(user.getRole())) {
+            throw new UserException.NotFound();
+        }
+        // 归属校验（BE-01 剩余项）：老师只能重置自己名下学生的密码。
+        // ADMIN 与服务身份不受限——服务身份来自 contest，它已做过考试归属校验（信任边界在 contest）。
+        // 越权与"不存在"同码，不泄露账号存在性。
+        if (Role.TEACHER.name().equals(actorRole) && user.getManagedByTeacherId() != null
+                && !user.getManagedByTeacherId().equals(actorId)) {
+            log.info("AUDIT event=STUDENT_RESET_DENIED studentId={} actorId={} reason=not-owner",
+                    studentId, actorId);
             throw new UserException.NotFound();
         }
         user.setPasswordHash(passwordEncoder.encode(temporaryPassword));

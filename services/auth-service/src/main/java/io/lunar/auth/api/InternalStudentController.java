@@ -1,5 +1,7 @@
 package io.lunar.auth.api;
 
+import io.lunar.common.security.Role;
+import org.springframework.security.core.GrantedAuthority;
 import io.lunar.auth.api.dto.CreateStudentRequest;
 import io.lunar.auth.api.dto.PasswordResetResponse;
 import io.lunar.auth.api.dto.ResetPasswordRequest;
@@ -86,7 +88,12 @@ public class InternalStudentController {
             Authentication authentication,
             @RequestHeader(value = RequestIdFilter.HEADER, required = false) String requestId,
             @RequestHeader(value = "Authorization", required = false) String authorization) {
-        studentAccountService.resetStudentPassword(studentId, request.temporaryPassword(), authorization);
+        String actorRole = authentication.getAuthorities().stream()
+                .map(GrantedAuthority::getAuthority)
+                .map(authority -> authority.replace(Role.AUTHORITY_PREFIX, ""))
+                .findFirst().orElse(null);
+        studentAccountService.resetStudentPassword(studentId, request.temporaryPassword(), authorization,
+                authentication.getName(), actorRole);
         return ResponseEntity.ok(ApiResponse.success(requestId, new PasswordResetResponse(true)));
     }
 }
