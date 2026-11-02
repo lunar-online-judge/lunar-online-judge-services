@@ -16,6 +16,10 @@ import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.security.oauth2.jwt.JwtDecoder;
 import org.springframework.security.oauth2.jwt.JwtEncoder;
+import org.springframework.security.oauth2.core.DelegatingOAuth2TokenValidator;
+import org.springframework.security.oauth2.core.OAuth2Error;
+import org.springframework.security.oauth2.core.OAuth2TokenValidatorResult;
+import org.springframework.security.oauth2.jwt.JwtValidators;
 import org.springframework.security.oauth2.jwt.NimbusJwtDecoder;
 import org.springframework.security.oauth2.jwt.NimbusJwtEncoder;
 
@@ -88,13 +92,29 @@ public class AuthKeyConfig {
     /**
      * 验签自身签发的令牌（服务间接口 {@code /api/v1/internal/**} 的鉴权基础）。
      * 用完整公钥集合而不是单把公钥：轮换窗口内旧 token 在内部接口上同样有效。
+     *
+     * **必须同时校验 iss 与 aud**：只验签名的解码器会放行"同一把密钥签出的任意令牌"——
+     * 一旦将来出现第二个签发方（多环境共用 JWKS、临时脚本签发的排障令牌），就没有任何东西能挡住它。
+     * 规则与 lunar-common 的 {@code JwtValidationAutoConfiguration} 一致；auth 自建了这个 Bean，
+     * 会绕过那边的自动装配（{@code @ConditionalOnMissingBean}），所以必须在这里复述一遍。
      */
     @Bean
-    public JwtDecoder jwtDecoder(List<JWK> verificationKeys) {
+    public JwtDecoder jwtDecoder(List<JWK> verificationKeys,
+                                 @Value("${auth.jwt.issuer:auth-service}") String issuer,
+                                 @Value("${auth.jwt.audience:lunar-api}") String audience) {
         DefaultJWTProcessor<SecurityContext> processor = new DefaultJWTProcessor<>();
         processor.setJWSKeySelector(new JWSVerificationKeySelector<>(JWSAlgorithm.RS256,
                 new ImmutableJWKSet<>(new JWKSet(verificationKeys))));
-        return new NimbusJwtDecoder(processor);
+        NimbusJwtDecoder decoder = new NimbusJwtDecoder(processor);
+        decoder.setJwtValidator(new DelegatingOAuth2TokenValidator<>(
+                JwtValidators.createDefaultWithIssuer(issuer),
+                // 用 Jwt#getAudience()（已是 List<String>）：单元素 aud 会被 Nimbus 解成 String，
+                // 泛型校验器强转会抛 ClassCastException（实测会变成 500）
+                token -> token.getAudience() != null && token.getAudience().contains(audience)
+                        ? OAuth2TokenValidatorResult.success()
+                        : OAuth2TokenValidatorResult.failure(
+                                new OAuth2Error("invalid_token", "令牌受众不匹配", null))));
+        return decoder;
     }
 
     /** JWKS 端点内容：仅含公钥（当前 + 退役）。 */

@@ -57,7 +57,7 @@ class AuthKeyConfigTest {
         JwtKeyProperties keyProperties = new JwtKeyProperties();
         keyProperties.setRetiredPublicKeys(Map.of("kid-retired", publicKeyPem(retiredPair)));
         JwtDecoder decoder = authKeyConfig.jwtDecoder(
-                authKeyConfig.verificationKeys(keyMaterial, keyProperties));
+                authKeyConfig.verificationKeys(keyMaterial, keyProperties), "auth-service", "lunar-api");
 
         Jwt decoded = decoder.decode(tokenSignedBy(retiredPair, "kid-retired"));
 
@@ -69,7 +69,7 @@ class AuthKeyConfigTest {
         JwtKeyMaterial keyMaterial = authKeyConfig.keyMaterial(
                 privateKeyPem(generateKeyPair()), "kid-current");
         JwtDecoder decoder = authKeyConfig.jwtDecoder(
-                authKeyConfig.verificationKeys(keyMaterial, new JwtKeyProperties()));
+                authKeyConfig.verificationKeys(keyMaterial, new JwtKeyProperties()), "auth-service", "lunar-api");
 
         String foreignToken = tokenSignedBy(generateKeyPair(), "kid-foreign");
 
@@ -103,6 +103,7 @@ class AuthKeyConfigTest {
         Instant now = Instant.now();
         JwtClaimsSet claims = JwtClaimsSet.builder()
                 .issuer("auth-service")
+                .audience(java.util.List.of("lunar-api"))
                 .subject("teacher_1")
                 .issuedAt(now)
                 .expiresAt(now.plusSeconds(600))
