@@ -2,8 +2,6 @@ package io.lunar.submission.domain;
 
 import io.lunar.common.judge.JudgeVerdict;
 import io.lunar.submission.config.SubmissionLimitProperties;
-import io.lunar.submission.domain.dto.InternalSubmissionDetail;
-import io.lunar.submission.domain.dto.InternalSubmissionSummary;
 import io.lunar.submission.domain.dto.SubmissionPage;
 import io.lunar.submission.domain.dto.SubmissionSource;
 import io.lunar.submission.domain.dto.SubmissionSummary;
@@ -55,7 +53,6 @@ public class SubmissionService {
      * 服务间批量读取的硬上限。批量源码接口是最大的数据外泄面，上限必须由服务端写死——
      * 用用方传再大也只拿到这么多。
      */
-    private static final int MAX_INTERNAL_LIST_SIZE = 500;
 
     private final SubmissionMapper submissionMapper;
     private final OutboxEventMapper outboxMapper;
@@ -209,41 +206,6 @@ public class SubmissionService {
 
     private static boolean hasText(String value) {
         return value != null && !value.isBlank();
-    }
-
-    /**
-     * 服务间详情读取（**含源码**，只给服务身份用用方）。
-     *
-     * 与 {@link #get} 的区别是"不做学生/教师判定"：用用方是服务（当前是 ai-service 的代码评审作业），
-     * 授权由端点上的 {@code hasRole('SERVICE')} 完成，这里只负责取数据。
-     */
-    public InternalSubmissionDetail internalDetail(String submissionId) {
-        SubmissionEntity submission = submissionMapper.selectById(submissionId);
-        if (submission == null) {
-            throw new SubmissionException.NotFound();
-        }
-        return new InternalSubmissionDetail(submission.getId(), submission.getContestId(), submission.getProblemId(),
-                submission.getProblemVersionId(), submission.getStudentId(), submission.getLanguage(),
-                submission.getStatus(), submission.getScore(), submission.getPassedCases(),
-                submission.getTotalCases(), submission.getSourceCode());
-    }
-
-    /**
-     * 服务间批量读取（**含源码**，只给服务身份用用方）：供 ai-service 的语义查重取语料。
-     *
-     * {@code limit} 由服务端夹取到 {@value #MAX_INTERNAL_LIST_SIZE} 以内：批量接口是最大的数据外泄面，
-     * 上限不能由用用方决定。按提交时间升序，保证同一批数据两次拉取顺序一致（相似度结果才可比）。
-     */
-    public List<InternalSubmissionSummary> internalList(String contestId, String problemId, int limit) {
-        int effectiveLimit = Math.max(1, Math.min(limit, MAX_INTERNAL_LIST_SIZE));
-        return submissionMapper.selectList(new LambdaQueryWrapper<SubmissionEntity>()
-                        .eq(SubmissionEntity::getContestId, contestId)
-                        .eq(SubmissionEntity::getProblemId, problemId)
-                        .orderByAsc(SubmissionEntity::getCreatedAt)
-                        .last("limit " + effectiveLimit))
-                .stream()
-                .map(SubmissionService::toSummary)
-                .toList();
     }
 
     /**
@@ -457,12 +419,6 @@ public class SubmissionService {
         } catch (Exception exception) {
             throw new IllegalStateException("SHA-256 不可用", exception);
         }
-    }
-
-    private static InternalSubmissionSummary toSummary(SubmissionEntity submission) {
-        return new InternalSubmissionSummary(submission.getId(), submission.getStudentId(),
-                submission.getLanguage(), submission.getStatus(), submission.getSourceHash(),
-                submission.getSourceCode());
     }
 
     private static SubmissionView toView(SubmissionEntity submission) {        return new SubmissionView(submission.getId(), submission.getContestId(), submission.getProblemId(),
