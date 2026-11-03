@@ -155,8 +155,8 @@ check "  含 items"                "true" "$([ "$(jlen "$BODY" "data.items")" -g
 check "  含 pageSize"             "true" "$([ -n "$(jget "$BODY" "data.pageSize")" ] && echo true || echo false)"
 
 api GET "$PROBLEM/api/v1/problems/$PROB_ID" "$ADMIN_TOKEN" ""
-check "未发布版本读详情 → 404"    404 "$CODE"
-check "  PROBLEM_VERSION_NOT_FOUND" PROBLEM_VERSION_NOT_FOUND "$(jget "$BODY" "error.code")"
+check "管理员读草稿版本 → 200（操作者可预览）" 200 "$CODE"
+check "  返回的是 v1 版本" "true" "$([ -n "$(jget "$BODY" "data.versionId")" ] && echo true || echo false)"
 
 api POST "$PROBLEM/api/v1/problems/$PROB_ID/versions" "$ADMIN_TOKEN" "{\"baseVersionId\":\"$VER1\",\"title\":\"A+B v2 $TS\"}"
 check "基于 v1 创建新版本 → 200"  200 "$CODE"
@@ -216,7 +216,7 @@ check "  CONTEST_NOT_FOUND"       CONTEST_NOT_FOUND "$(jget "$BODY" "error.code"
 
 section "4. 学生名单（contest 编排 + auth 执行）"
 SNO="9$TS"
-api POST "$CONTEST/api/v1/contests/$CID/students" "$ADMIN_TOKEN" "{\"studentNo\":\"$SNO\",\"username\":\"student_$SNO\",\"displayName\":\"测试学生\",\"initialPassword\":\"init-pass-123\"}"
+api POST "$CONTEST/api/v1/contests/$CID/students" "$ADMIN_TOKEN" "{\"studentNo\":\"$SNO\",\"username\":\"student_$SNO\",\"displayName\":\"测试学生\",\"className\":\"测试班\",\"initialPassword\":\"init-pass-123\"}"
 check "添加学生（auth 建号 + 报名）→ 200" 200 "$CODE"
 SID=$(jget "$BODY" "data.studentId")
 require_id "$SID" "添加学生失败，SID 为空"
@@ -225,7 +225,7 @@ check "  studentNo 快照正确" "$SNO" "$(jget "$BODY" "data.studentNo")"
 # docs/api.md"添加学生" 的响应契约字段（本次修复点）
 check "  【契约】docs/api.md 声明的 data.passwordChangeRequired=true" true "$(jget "$BODY" "data.passwordChangeRequired")"
 
-api POST "$CONTEST/api/v1/contests/$CID/students" "$ADMIN_TOKEN" "{\"studentNo\":\"$SNO\",\"username\":\"student_$SNO\",\"displayName\":\"测试学生\",\"initialPassword\":\"init-pass-123\"}"
+api POST "$CONTEST/api/v1/contests/$CID/students" "$ADMIN_TOKEN" "{\"studentNo\":\"$SNO\",\"username\":\"student_$SNO\",\"displayName\":\"测试学生\",\"className\":\"测试班\",\"initialPassword\":\"init-pass-123\"}"
 check "重复添加同一学号 → 409"    409 "$CODE"
 check "  CONTEST_STUDENT_ALREADY_ENROLLED" CONTEST_STUDENT_ALREADY_ENROLLED "$(jget "$BODY" "error.code")"
 
