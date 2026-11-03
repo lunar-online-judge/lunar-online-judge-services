@@ -7,6 +7,7 @@ import io.lunar.contest.infra.AnnouncementEntity;
 import io.lunar.contest.infra.AnnouncementMapper;
 import io.lunar.contest.infra.ContestEntity;
 import io.lunar.contest.infra.ContestMapper;
+import io.lunar.contest.infra.ContestProblemMapper;
 import com.baomidou.mybatisplus.core.MybatisConfiguration;
 import com.baomidou.mybatisplus.core.metadata.TableInfoHelper;
 import org.apache.ibatis.builder.MapperBuilderAssistant;
@@ -30,8 +31,9 @@ class AnnouncementServiceTest {
     private final AnnouncementMapper announcementMapper = mock(AnnouncementMapper.class);
     private final AnnouncementConfirmMapper confirmMapper = mock(AnnouncementConfirmMapper.class);
     private final ContestMapper contestMapper = mock(ContestMapper.class);
+    private final ContestProblemMapper contestProblemMapper = mock(ContestProblemMapper.class);
     private final AnnouncementService service = new AnnouncementService(
-            announcementMapper, confirmMapper, new ContestService(contestMapper),
+            announcementMapper, confirmMapper, new ContestService(contestMapper, contestProblemMapper),
             new ContestAnnouncementStreamService());
 
     static {

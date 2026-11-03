@@ -8,6 +8,7 @@ import io.lunar.contest.infra.CandidateEntity;
 import io.lunar.contest.infra.CandidateMapper;
 import io.lunar.contest.infra.ContestEntity;
 import io.lunar.contest.infra.ContestMapper;
+import io.lunar.contest.infra.ContestProblemMapper;
 import com.baomidou.mybatisplus.core.MybatisConfiguration;
 import com.baomidou.mybatisplus.core.metadata.TableInfoHelper;
 import org.apache.ibatis.builder.MapperBuilderAssistant;
@@ -31,11 +32,12 @@ class EnrollmentServiceTest {
 
     private final CandidateMapper candidateMapper = mock(CandidateMapper.class);
     private final ContestMapper contestMapper = mock(ContestMapper.class);
+    private final ContestProblemMapper contestProblemMapper = mock(ContestProblemMapper.class);
     private final AuthInternalClient authClient = mock(AuthInternalClient.class);
     private final ExamSessionService examSessionService = mock(ExamSessionService.class);
     private final AuditRecorder auditRecorder = mock(AuditRecorder.class);
     private final EnrollmentService service = new EnrollmentService(candidateMapper,
-            new ContestService(contestMapper), authClient, examSessionService, auditRecorder);
+            new ContestService(contestMapper, contestProblemMapper), authClient, examSessionService, auditRecorder);
 
     @BeforeAll
     static void initMpMetadata() {

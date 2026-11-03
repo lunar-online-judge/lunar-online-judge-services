@@ -4,7 +4,10 @@ import io.lunar.common.security.AccessScope;
 import io.lunar.contest.domain.dto.ContestPage;
 import io.lunar.contest.infra.ContestEntity;
 import io.lunar.contest.infra.ContestMapper;
+import io.lunar.contest.infra.ContestProblemEntity;
+import io.lunar.contest.infra.ContestProblemMapper;
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
+import com.baomidou.mybatisplus.core.conditions.query.QueryWrapper;
 import com.baomidou.mybatisplus.core.conditions.update.LambdaUpdateWrapper;
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import org.springframework.stereotype.Component;
@@ -20,8 +23,10 @@ import java.util.UUID;
 public class ContestService {
 
     private final ContestMapper contestMapper;
+    private final ContestProblemMapper contestProblemMapper;
 
-    public ContestService(ContestMapper contestMapper) {
+    public ContestService(ContestMapper contestMapper, ContestProblemMapper contestProblemMapper) {
+        this.contestProblemMapper = contestProblemMapper;
         this.contestMapper = contestMapper;
     }
 
@@ -94,6 +99,13 @@ public class ContestService {
         }
         if (current.getStartAt() == null || current.getEndAt() == null) {
             throw new ContestException.PublishIncomplete("考试时间窗口");
+        }
+        // 发布前必须至少锁定一道题：发布后题目清单会被冻结（见 ContestProblemService），
+        // 允许发布空清单等于造出一场永远补不进题的考试。
+        Long lockedProblems = contestProblemMapper.selectCount(
+                new QueryWrapper<ContestProblemEntity>().eq("contest_id", id));
+        if (lockedProblems == null || lockedProblems == 0) {
+            throw new ContestException.PublishIncomplete("题目清单（至少锁定一道题）");
         }
         return doTransition(current, ContestStatus.PUBLISHED);
     }

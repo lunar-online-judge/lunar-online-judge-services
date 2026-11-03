@@ -194,6 +194,8 @@ api POST "$CONTEST/api/v1/contests/$CID/review" "$ADMIN_TOKEN" ""
 check "提交审核 → 200"            200 "$CODE"
 check "  状态 REVIEWING"          REVIEWING "$(jget "$BODY" "data.status")"
 
+# 发布前必须先锁题：发布后清单冻结，且分配按锁定题目生成
+api POST "$CONTEST/api/v1/contests/$CID/problems" "$ADMIN_TOKEN" "{\"problemId\":\"$PROB_ID\",\"problemVersionId\":\"$VER1\"}" >/dev/null
 api POST "$CONTEST/api/v1/contests/$CID/publish" "$ADMIN_TOKEN" ""
 check "管理员发布 → 200"          200 "$CODE"
 check "  状态 PUBLISHED"          PUBLISHED "$(jget "$BODY" "data.status")"
@@ -277,6 +279,7 @@ END_AT=$(date -u -d '+2 hours' +%Y-%m-%dT%H:%M:%SZ)
 api POST "$CONTEST/api/v1/contests" "$ADMIN_TOKEN" "{\"name\":\"进行中考试 $TS\",\"description\":\"会话与提交测试\",\"startAt\":\"$START_AT\",\"endAt\":\"$END_AT\"}"
 CID2=$(jget "$BODY" "data.id")
 api POST "$CONTEST/api/v1/contests/$CID2/review" "$ADMIN_TOKEN" "" >/dev/null
+api POST "$CONTEST/api/v1/contests/$CID2/problems" "$ADMIN_TOKEN" "{\"problemId\":\"$PROB_ID\",\"problemVersionId\":\"$VER1\"}" >/dev/null
 api POST "$CONTEST/api/v1/contests/$CID2/publish" "$ADMIN_TOKEN" "" >/dev/null
 check "创建窗口内考试并发布 → id 非空" "true" "$([ -n "$CID2" ] && echo true || echo false)"
 
@@ -306,7 +309,8 @@ check "未到开始时间进会话 → 409"  409 "$CODE"
 
 # BE-04 起：题目必须先加入考试并锁定版本，提交才会被接受（否则 404 SUBMISSION_PROBLEM_NOT_IN_CONTEST）
 api POST "$CONTEST/api/v1/contests/$CID2/problems" "$ADMIN_TOKEN" "{\"problemId\":\"$PROB_ID\",\"problemVersionId\":\"$VER1\"}"
-check "题目加入考试并锁定版本 → 200"  200 "$CODE"
+check "发布后再锁题 → 409（清单已冻结）"  409 "$CODE"
+check "  CONTEST_PROBLEMS_LOCKED"  CONTEST_PROBLEMS_LOCKED "$(jget "$BODY" "error.code")"
 section "7. submission-service (8084)"
 SUB_BODY="{\"contestId\":\"$CID2\",\"problemId\":\"$PROB_ID\",\"language\":\"cpp\",\"sourceCode\":\"#include <iostream>\nint main(){int a,b;std::cin>>a>>b;std::cout<<a+b;return 0;}\"}"
 api POST "$SUBMISSION/api/v1/submissions" "$CAND_TOKEN" "$SUB_BODY" "idem-$TS-1"

@@ -3,9 +3,11 @@ package io.lunar.contest.domain;
 import io.lunar.common.security.AccessScope;
 import io.lunar.contest.infra.ContestEntity;
 import io.lunar.contest.infra.ContestMapper;
+import io.lunar.contest.infra.ContestProblemMapper;
 import com.baomidou.mybatisplus.core.MybatisConfiguration;
 import com.baomidou.mybatisplus.core.metadata.TableInfoHelper;
 import org.apache.ibatis.builder.MapperBuilderAssistant;
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
 
@@ -22,13 +24,35 @@ import static org.mockito.Mockito.when;
 class ContestServiceTest {
 
     private final ContestMapper mapper = mock(ContestMapper.class);
-    private final ContestService service = new ContestService(mapper);
+    private final ContestProblemMapper contestProblemMapper = mock(ContestProblemMapper.class);
+    private final ContestService service = new ContestService(mapper, contestProblemMapper);
 
     static {
         // LambdaUpdateWrapper 依赖 MP 的实体元数据缓存；纯单测需手动初始化
         TableInfoHelper.initTableInfo(
                 new MapperBuilderAssistant(new MybatisConfiguration(), ""),
                 ContestEntity.class);
+    }
+
+    @BeforeEach
+    void stubLockedProblems() {
+        // 默认视为已锁定一道题：发布校验要求题目清单非空
+        when(contestProblemMapper.selectCount(any())).thenReturn(1L);
+    }
+    /**
+     * 发布必须至少锁定一道题。否则会造出一场**永远补不进题**的考试：
+     * 发布后题目清单被冻结（CONTEST_PROBLEMS_LOCKED），空清单的考试既不能考也不能修。
+     */
+    @Test
+    void publishRequiresAtLeastOneLockedProblem() {
+        ContestEntity contest = contest("c1", ContestStatus.REVIEWING,
+                Instant.now().minusSeconds(60), Instant.now().plusSeconds(3600));
+        when(mapper.selectById("c1")).thenReturn(contest);
+        when(contestProblemMapper.selectCount(any())).thenReturn(0L);
+
+        assertThatThrownBy(() -> service.publish("c1"))
+                .isInstanceOf(ContestException.PublishIncomplete.class)
+                .hasMessageContaining("题目清单");
     }
 
     private static ContestEntity contest(String id, ContestStatus status, Instant startAt, Instant endAt) {
