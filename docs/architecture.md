@@ -48,7 +48,6 @@
 2. auth-service 校验老师的竞赛授权和账号状态；
 3. 服务端立即计算密码哈希，明文只存在于当前请求生命周期；
 4. API 响应只返回账号名、学号、学生 ID 和 `passwordChangeRequired`，不返回密码或哈希；
-5. 创建、重置、禁用和移出名单全部写入 audit-service；
 6. 老师不能读取既有密码，只能发起重置。
 
 ### 2.1.2 学生账号与报名关系表设计
@@ -113,7 +112,6 @@ Windows 客户端 -> OpenResty(80, 边缘反向代理) -> gateway-service
                     |-- judge-service          调度/go-judge/状态机
                     |-- anti-cheat-service     风险/查重/审核
                     |-- media-service          WebRTC/截图/媒体审计
-                    |-- audit-service          管理与访问审计
 > **注（2026-11）**：ai-service 已从仓库删除（59 文件 / 3,484 行，含根 pom 模块、Nacos 配置、compose.ai.yml、ai-test.sh 与 auth 的服务客户端密钥）。下文涉及该服务的内容保留为**设计记录**，不代表现有能力。
 
                     |-- ai-service             AI 证据（代码评审/风险研判/查重/出题草稿）
@@ -165,10 +163,6 @@ PostgreSQL | Redis | MinIO | Nacos | RocketMQ
 
 负责监考令牌、WebRTC SDP/ICE 信令、实时流状态、截图策略、截图对象和媒体访问授权。Spring 服务不处理高带宽 RTP 数据。
 
-### audit-service
-
-负责管理员操作、权限变更、实时流查看、截图查看、人工审核和系统配置审计。普通业务接口不能删除审计记录。
-
 ### ai-service
 
 负责 AI 能力的异步作业管道：代码评审、作弊风险辅助研判、语义查重与出题草稿，四类作业的产出统一落 `ai_schema.ai_findings`。LLM 调用是秒级到分钟级的慢操作，作业入队后立即返回作业号，由 worker 按数据库队列（`for update skip locked` + 租约）领取执行。
@@ -199,7 +193,7 @@ PostgreSQL | Redis | MinIO | Nacos | RocketMQ
 
 ```text
 auth_schema, contest_schema, problem_schema, submission_schema,
-judge_schema, anti_cheat_schema, media_schema, audit_schema, ai_schema,
+judge_schema, anti_cheat_schema, media_schema, ai_schema,
 analytics_schema
 ```
 
@@ -217,14 +211,11 @@ analytics_schema
 | ---------------------------- | ----------------- | ---------------------------- | ------------ |
 | `lunar-submission-created`   | submission        | judge、anti-cheat            | 新提交已落库 |
 | `lunar-submission-judged`    | judge             | submission、analytics、contest、gateway | 评测结果可用 |
-| `lunar-risk-event-created`   | media/anti-cheat  | analytics、anti-cheat、gateway、audit   | 风险事件     |
+| `lunar-risk-event-created`   | media/anti-cheat  | analytics、anti-cheat、gateway  | 风险事件     |
 | `lunar-risk-event-reviewed`  | anti-cheat        | analytics                    | 审核流转（OPEN→ACKNOWLEDGED→CONFIRMED/DISMISSED） |
-| `lunar-audit-recorded`       | submission / anti-cheat / ai | audit               | 敏感动作留痕（BE-07：审计快照随事件走，不重放用户 Bearer） |
 | `lunar-ai-finding-created`   | ai                | analytics /（规划）anti-cheat | AI 结论已产出（只带引用与结论摘要，不带源码与题面） |
 | `lunar-screenshot-requested` | anti-cheat/media  | media                        | 请求截图     |
-| `lunar-screenshot-created`   | media             | anti-cheat、audit、gateway   | 截图已保存   |
 | `lunar-plagiarism-requested` | anti-cheat        | plagiarism-worker            | 异步查重     |
-| `lunar-plagiarism-completed` | plagiarism-worker | anti-cheat、audit            | 查重完成     |
 
 每条事件包含 `eventId`、`eventType`、`aggregateId`、`occurredAt`、`schemaVersion`、`traceId`；消费者必须幂等。
 
@@ -245,7 +236,6 @@ MinIO 首期只保存截图，不保存连续视频；对象使用不可猜测�
 contest-service -> problem-service：绑定题目版本和语言策略
 contest-service -> auth-service：绑定老师/监考员授权
 contest-service：保存监考策略、截图策略、时间窗口
-contest-service -> audit-service：记录创建和授权操作
 ```
 
 发布前校验：题目版本和测试点完整、语言有执行模板、时间窗口合法、截图保留策略有上限、监考人员已授权。发布后题目版本不原地修改。
@@ -259,7 +249,6 @@ contest-service -> audit-service：记录创建和授权操作
 4. auth-service 校验学号/账户名唯一性，哈希初始密码，创建 CANDIDATE 用户。
 5. auth-service 返回 studentId，不返回密码和 passwordHash。
 6. contest-service 在本地事务写入 contest_candidate(status=ENROLLED)。
-7. audit-service 记录操作者、竞赛、学生、操作类型和结果，不记录密码。
 8. 返回学生账号摘要；老师需要通过受控渠道把初始密码交给学生，学生首次登录必须修改。
 ```
 
@@ -272,7 +261,6 @@ contest-service -> audit-service：记录创建和授权操作
 contest-service：校验竞赛授权和学生报名关系
 contest-service -> auth-service：重置密码
 auth-service：更新 passwordHash、设置 passwordChangeRequired=true
-audit-service：记录重置操作
 ```
 
 老师不能读取旧密码；重置接口也不返回新密码。生产环境应通过一次性临时密码交付、管理员导入或受控线下渠道交给学生，不能把密码写入普通日志。
@@ -366,7 +354,6 @@ media-service -> 客户端：截图请求
 客户端 -> media-service：上传一次性图片
 media-service -> MinIO：保存对象
 media-service -> PostgreSQL：保存元数据和过期时间
-media-service -> audit-service：记录访问和创建审计
 media-service -> WebSocket：通知截图就绪
 ```
 
@@ -409,7 +396,7 @@ CREATED -> AUTHORIZED -> CONNECTING -> LIVE
 ## 13. 一致性、幂等和失败恢复
 
 - 业务事实和 Outbox 事件在同一个 PostgreSQL 本地事务提交（**已实现**：submission 的提交与判决回写、anti-cheat 的风险上报、judge 的判决投递、ai 的作业收尾与审计留痕）；
-- HTTP 写操作使用 `Idempotency-Key`（**已实现**：以 DB 唯一约束为权威；并发同键未捕获唯一冲突，会以 500 `INTERNAL_ERROR` 收场而不是"返回首次结果"，属待办）；事件使用 `eventId` 去重（**已实现**：submission 与 analytics 用各自的 `consumed_events` 闸门、judge 用 Redis 去重、audit 用账本唯一索引，见第 5 节"事件信封"）；
+- HTTP 写操作使用 `Idempotency-Key`（**已实现**：以 DB 唯一约束为权威；并发同键未捕获唯一冲突，会以 500 `INTERNAL_ERROR` 收场而不是"返回首次结果"，属待办）；事件使用 `eventId` 去重（**已实现**：submission 与 analytics 用各自的 `consumed_events` 闸门、judge 用 Redis 去重用账本唯一索引，见第 5 节"事件信封"）；
 - 评测任务使用 `submissionId + judgeVersion` 唯一约束（**未实现**：没有 judge_task 表）；
 - go-judge 不可用时指数退避，超过次数转 `SYSTEM_ERROR` 并告警（**未实现**：只有连接/读取超时，失败交给 RocketMQ 默认重投）；
 - WebSocket 重连后先通过 REST 拉取未确认事件，再继续接收推送（**未实现**：无 WebSocket 端点）；
@@ -441,7 +428,6 @@ CREATED -> AUTHORIZED -> CONNECTING -> LIVE
 - judge-service：`lunar-submission-created` 消费者、`GoJudgeAdapter`（设 `GO_JUDGE_BASE_URL` 激活）与 `MockJudgeEngine`（`mock` profile）、verdict 归一化；
 - anti-cheat-service：风险事件上报（服务端算 severity）/分页查询/人工审核状态机；
 - ai-service：异步作业管道（入队即扣配额 + `for update skip locked` 领取 + 租约/退避）、LangChain4j Provider 层（**云端** OpenAI 兼容协议，Provider 地址由 `AI_PROVIDER_BASE_URL` 显式配置、无默认值，按配置指纹构建模型以支持配置中心热切换）、四类作业（代码评审 / 风险研判 / 语义查重 / 出题草稿）、数据出境门禁（地址缺失/内网判定/只认环境变量授权 + 每次构建模型前复核）与 `ai_schema` 落库；成果事件与审计留痕走本地 Outbox；
-- audit-service：追加式账本写入与查询（**contest / auth / submission / anti-cheat 四个调用方已接入**，共用 lunar-common 的 `AuditServiceApi` + 尽力而为的 `AuditRecorder`）；
 - analytics-service：分析读模型——4 个消费者（`lunar-submission-judged` / `lunar-risk-event-created` / `lunar-risk-event-reviewed` / `lunar-ai-finding-created`）投影进 `analytics_schema`，`consumed_events` 幂等闸门与事实写入同事务；三条读模型（成绩排名物化、学情与监考风险按需聚合）与 9 个端点（含仅 ADMIN 的风险接口、SERVICE/ADMIN 的显式重算端点）；参照数据经 contest 快照服务间接口缓存并双路径刷新；三层鉴权与 ai-service 同构（越权与不存在同为 404）；
 - gateway-service：8 条路由前缀（含 `/api/v1/ai/**`、`/api/v1/analytics/**`）+ `X-Request-Id` 透传，`/api/v1/internal/**` 不暴露；
 - 基础设施：Compose（PostgreSQL / Redis / MinIO / Nacos / RocketMQ / OpenResty / go-judge）、Nacos 注册 + 配置中心（5 个服务托管热更新项）、Actuator 健康检查（10 个服务）；**LLM 推理是外部云厂商 OpenAI 兼容 API，不由 Compose 提供**（本地推理栈已废弃，`docker/compose.ai.yml` 只剩一段说明性注释）。
