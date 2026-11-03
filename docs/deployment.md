@@ -237,3 +237,9 @@ curl -s -i -H "X-Request-Id: test-123" http://localhost:8081/api/v1/auth/jwks | 
 - go-judge 在 Docker Desktop（WSL2）上嵌套 cgroup 的**内存限制**不可靠（生产 Linux 节点无此问题）；但**编译与运行本身可用**：2026-10 实测（本仓库 Dockerfile 构建的镜像 + 适配器为编译命令显式设置 `procLimit`）C++ 的编译/运行/五类 verdict 全部正常；
 - **评测镜像里的工具链必须在 go-judge 启动前就装好**：官方 `mount.yaml` 的绑定源若在启动时不存在会被**静默跳过**（实测：在运行中的容器里补装 JDK 后 Java 仍报 `Error loading java.security file`——沙箱内 `/etc` 只有 `alternatives` 与 `ld.so.cache`；重启容器即恢复）。改完 `docker/go-judge/Dockerfile` 后按 `docker compose -f docker/compose.judge.yml up -d --build` 重建并重启；
 - **评测镜像必须自带工具链**：`criyle/go-judge` 官方镜像内没有 gcc/g++/python3/javac，直接用会让所有真实评测在编译阶段失败（`execve: g++: executable file not found in $PATH`）；`docker/compose.judge.yml` 已改为构建 `docker/go-judge/Dockerfile`，首次 `up` 会多花几分钟构建镜像；
+
+### 改完配置必须重启
+
+修改任一服务的 `application.yml` 或 Nacos 配置后，**必须重启该服务**（以及依赖它的服务，见上一节 JWKS 说明）。
+踩过的坑：改了代码/配置但只重启了其中一个服务，另一个仍在跑旧字节码或旧配置，
+表现是"配置明明改了却不生效"或"健康检查返回 401"——先确认进程启动时间是不是在改动之后。

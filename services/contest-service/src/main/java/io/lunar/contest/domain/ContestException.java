@@ -66,6 +66,20 @@ public class ContestException extends ApiException {
     }
 
     /** 404：该题目不属于这场考试（或未锁定版本）。BE-04：提交校验"题目属于竞赛"的事实源。 */
+    /**
+     * 409：考试已发布，题目清单与锁定版本不可再改（BE-04 版本锁定闭环）。
+     *
+     * 为什么必须在发布后冻结：锁定版本的意义就是"这场考试用哪一版题面与测试数据"。
+     * 如果发布后还能改，就会出现"考生看到的是旧题面、判题用的是新测试点"，
+     * 或者"已移出的题仍能被提交"——成绩不可信且事后无法解释。
+     */
+    public static final class ProblemsLocked extends ContestException {
+        public ProblemsLocked(String status) {
+            super("CONTEST_PROBLEMS_LOCKED", 409,
+                    "考试已处于 " + status + " 状态，题目清单与锁定版本不可再修改");
+        }
+    }
+
     public static final class ProblemNotInContest extends ContestException {
         public ProblemNotInContest() {
             super("CONTEST_PROBLEM_NOT_IN_CONTEST", 404, "该题目不属于这场考试");

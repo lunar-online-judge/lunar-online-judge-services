@@ -131,7 +131,7 @@ Body: { "username": "admin", "password": "admin123" }
 | GET | `/api/v1/contests/{id}/assignments/{studentId}` | TEACHER(限归属)/ADMIN | 老师看某学生的分配（含 `randomSeed`，可复盘） |
 | POST | `/api/v1/contests/{id}/assignments/generate` | 同上 | 显式重算分配（**幂等**：已有分配的学生跳过） |
 
-> 分配在**发布考试时自动生成**；每人抽多少题由 `contests.problems_per_student` 决定（NULL/0 = 用全部锁定题目）。
+> **锁题必须在发布之前**：发布时会按锁定题目生成分配，而且发布后题目清单与锁定版本**冻结**（`CONTEST_PROBLEMS_LOCKED`）。`r`n> 分配在**发布考试时自动生成**；每人抽多少题由 `contests.problems_per_student` 决定（NULL/0 = 用全部锁定题目）。
 > ⚠️ 当前**没有**修改该字段的接口——UI 若需要"每人抽 N 题"，需要先加一个 PATCH 接口（或先按"全部题目"做）。
 
 ### 3.6 题目与版本 / 测试点
@@ -302,7 +302,7 @@ PID=$(curl -s -X POST http://localhost/api/v1/problems -H "Authorization: Bearer
 VID=$(curl -s http://localhost/api/v1/problems/$PID/versions -H "Authorization: Bearer $TOKEN" | jq -r '.data[0].versionId')
 curl -s -X POST http://localhost/api/v1/problems/$PID/versions/$VID/publish -H "Authorization: Bearer $TOKEN"
 
-# 3) 建考试 → 审核 → 发布
+# 3) 建考试 → 审核 → 锁定题目 → 发布（顺序不能反：发布时按锁定题目生成分配，且发布后清单冻结）
 CID=$(curl -s -X POST http://localhost/api/v1/contests -H "Authorization: Bearer $TOKEN" \
   -H 'Content-Type: application/json' \
   -d "{\"name\":\"演示考试\",\"startAt\":\"$(date -u -d '-5 min' +%Y-%m-%dT%H:%M:%SZ)\",\"endAt\":\"$(date -u -d '+2 hour' +%Y-%m-%dT%H:%M:%SZ)\"}" | jq -r .data.id)

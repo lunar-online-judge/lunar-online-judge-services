@@ -1,6 +1,7 @@
 package io.lunar.contest.domain;
 
 import io.lunar.common.security.AccessScope;
+import io.lunar.contest.infra.ContestEntity;
 import io.lunar.contest.infra.ContestProblemEntity;
 import io.lunar.contest.infra.ContestProblemMapper;
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
@@ -29,9 +30,14 @@ public class ContestProblemService {
         this.contestService = contestService;
     }
 
-    /** 加入题目并锁定版本；同一考试同一题目重复加入时覆盖版本（老师改主意不必先删）。 */
+    /**
+     * 加入题目并锁定版本；未发布时同一考试同一题目重复加入会覆盖版本（老师改主意不必先删）。
+     *
+     * **发布后冻结**（BE-04 版本锁定闭环）：考试一旦 PUBLISHED，题目清单与锁定版本不可再改。
+     * 否则会出现"考生看旧题面、判题用新测试点"，或者"已移出的题仍可提交且已分配记录还在"。
+     */
     public ContestProblemEntity lock(String contestId, String problemId, String problemVersionId, AccessScope scope) {
-        contestService.getOwned(contestId, scope);
+        requireEditable(contestService.getOwned(contestId, scope));
         ContestProblemEntity existing = find(contestId, problemId);
         if (existing != null) {
             existing.setProblemVersionId(problemVersionId);
@@ -57,8 +63,12 @@ public class ContestProblemService {
                 .orderByAsc(ContestProblemEntity::getCreatedAt));
     }
 
+    /**
+     * 移出题目。发布后同样冻结——移出会留下已生成的随机分配记录，导致"题目不在考试里、
+     * 但该考生仍被分配了这道题"的不一致状态。
+     */
     public void unlock(String contestId, String problemId, AccessScope scope) {
-        contestService.getOwned(contestId, scope);
+        requireEditable(contestService.getOwned(contestId, scope));
         ContestProblemEntity existing = find(contestId, problemId);
         if (existing == null) {
             throw new ContestException.NotFound();
@@ -76,6 +86,14 @@ public class ContestProblemService {
             throw new ContestException.ProblemNotInContest();
         }
         return locked;
+    }
+
+    /** 只有草稿与待审核阶段可以改题目清单；PUBLISHED 及之后一律拒绝。 */
+    private static void requireEditable(ContestEntity contest) {
+        String status = contest.getStatus();
+        if (!"DRAFT".equals(status) && !"REVIEWING".equals(status)) {
+            throw new ContestException.ProblemsLocked(status);
+        }
     }
 
     private ContestProblemEntity find(String contestId, String problemId) {

@@ -38,7 +38,7 @@ for N in 1 2; do
   ok "题目 $N 建好并发布" "$([ -n "$PID" ] && [ -n "$VID" ] && echo yes || echo no)" "yes"
 done
 
-step "3. 建考试 → 提交审核 → 管理员发布"
+step "3. 建考试 → 提交审核"
 START=$(date -u -d '-5 minutes' +%Y-%m-%dT%H:%M:%SZ)
 END=$(date -u -d '+2 hours' +%Y-%m-%dT%H:%M:%SZ)
 BODY=$(curl -s -X POST "$CONTEST/api/v1/contests" -H "Authorization: Bearer $ADMIN" -H 'Content-Type: application/json' \
@@ -46,8 +46,6 @@ BODY=$(curl -s -X POST "$CONTEST/api/v1/contests" -H "Authorization: Bearer $ADM
 CID=$(jget "$BODY" id)
 ok "考试创建（DRAFT）" "$([ -n "$CID" ] && echo yes || echo no)" "yes"
 curl -s -o /dev/null -X POST "$CONTEST/api/v1/contests/$CID/review" -H "Authorization: Bearer $ADMIN"
-CODE=$(curl -s -o /tmp/flow_pub.json -w '%{http_code}' -X POST "$CONTEST/api/v1/contests/$CID/publish" -H "Authorization: Bearer $ADMIN")
-ok "发布考试" "$CODE" "200"
 
 step "4. 锁定题目进考试（BE-04）"
 for I in 0 1; do
@@ -56,7 +54,11 @@ for I in 0 1; do
   ok "锁定题目 $((I+1))" "$CODE" "200"
 done
 
-step "5. 加两名学生（auth 建号 + 报名）"
+step "5. 管理员发布考试"
+CODE=$(curl -s -o /tmp/flow_pub.json -w '%{http_code}' -X POST "$CONTEST/api/v1/contests/$CID/publish" -H "Authorization: Bearer $ADMIN")
+ok "发布考试" "$CODE" "200"
+
+step "6. 加两名学生（auth 建号 + 报名）"
 STU_TOKENS=(); STU_NAMES=()
 for N in 1 2; do
   U="flowstu${N}_$TS"
@@ -68,12 +70,12 @@ for N in 1 2; do
   ok "学生 $N 登录" "$([ -n "$(jget "$BODY" accessToken)" ] && echo yes || echo no)" "yes"
 done
 
-step "6. 学生进入考试会话"
+step "7. 学生进入考试会话"
 CODE=$(curl -s -o /tmp/flow_sess.json -w '%{http_code}' -X POST "$CONTEST/api/v1/contests/$CID/session" -H "Authorization: Bearer ${STU_TOKENS[0]}")
 ok "进入会话" "$CODE" "200"
 ok "  会话状态 ACTIVE" "$(jget "$(cat /tmp/flow_sess.json)" status)" "ACTIVE"
 
-step "7. 公告：发布(需确认) → 学生拉取(送达) → 确认"
+step "8. 公告：发布(需确认) → 学生拉取(送达) → 确认"
 BODY=$(curl -s -X POST "$CONTEST/api/v1/contests/$CID/announcements" -H "Authorization: Bearer $ADMIN" -H 'Content-Type: application/json' \
   -d '{"content":"please confirm you have read the exam notice","important":true,"requireConfirmation":true}')
 AID=$(jget "$BODY" announcementId)
@@ -85,7 +87,7 @@ ok "学生确认公告" "$CODE" "200"
 BODY=$(curl -s "$CONTEST/api/v1/contests/$CID/announcements" -H "Authorization: Bearer ${STU_TOKENS[0]}")
 ok "确认时间已记录" "$([ -n "$(jget "$BODY" confirmedAt)" ] && echo true || echo false)" "true"
 
-step "8. 随机题目分配（每人 1 题）"
+step "9. 随机题目分配（每人 1 题）"
 docker exec docker-postgres-1 psql -U lunar -d lunar -c "update contest_schema.contests set problems_per_student = 1 where id = '$CID';" >/dev/null 2>&1
 BODY=$(curl -s -X POST "$CONTEST/api/v1/contests/$CID/assignments/generate" -H "Authorization: Bearer $ADMIN")
 ok "生成分配（2 名学生各 1 题）" "$(jnum "$BODY" created)" "2"
@@ -95,7 +97,7 @@ ok "学生看到自己的分配" "$([ -n "$ASSIGNED" ] && echo yes || echo no)" 
 OTHER=""
 for P in "${PROB_IDS[@]}"; do [ "$P" != "$ASSIGNED" ] && OTHER="$P"; done
 
-step "9. 提交：分配的题 → 真实判题；未分配的题 → 404"
+step "10. 提交：分配的题 → 真实判题；未分配的题 → 404"
 CODE=$(curl -s -o /tmp/flow_sub.json -w '%{http_code}' -X POST "$SUBMISSION/api/v1/submissions" -H "Authorization: Bearer ${STU_TOKENS[0]}" \
   -H 'Content-Type: application/json' -H "X-Idempotency-Key: flow-$TS-1" \
   -d "{\"contestId\":\"$CID\",\"problemId\":\"$ASSIGNED\",\"language\":\"cpp\",\"sourceCode\":\"#include <iostream>\nint main(){int a,b;std::cin>>a>>b;std::cout<<a+b;return 0;}\"}")
@@ -107,7 +109,7 @@ CODE=$(curl -s -o /tmp/flow_sub2.json -w '%{http_code}' -X POST "$SUBMISSION/api
 ok "提交未分配的题被拒" "$CODE" "404"
 ok "  错误码" "$(jget "$(cat /tmp/flow_sub2.json)" code)" "SUBMISSION_PROBLEM_NOT_IN_CONTEST"
 
-step "10. 等待真实判题（go-judge）"
+step "11. 等待真实判题（go-judge）"
 for I in $(seq 1 20); do
   BODY=$(curl -s "$SUBMISSION/api/v1/submissions/$SUB" -H "Authorization: Bearer ${STU_TOKENS[0]}")
   ST=$(jget "$BODY" status)
@@ -117,7 +119,7 @@ done
 ok "判题出终态（ACCEPTED）" "$ST" "ACCEPTED"
 ok "  得分为满分" "$(jnum "$BODY" score)" "100"
 
-step "11. 会话终止（监考动作）"
+step "12. 会话终止（监考动作）"
 CODE=$(curl -s -o /dev/null -w '%{http_code}' -X POST "$CONTEST/api/v1/contests/$CID/students/$(jget "$(cat /tmp/flow_sess.json)" studentId)/session/terminate" -H "Authorization: Bearer $ADMIN")
 echo "  （终止会话接口返回 $CODE；若路径不同则以 api-full-test 覆盖为准）"
 

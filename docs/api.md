@@ -210,9 +210,6 @@ HTTP 前缀统一为 `/api/v1`。各服务经 gateway 对外暴露；客户端�
 | contest | GET | `/api/v1/contests/{contestId}/assignments/{studentId}` | TEACHER（限归属）/ADMIN | 已实现（老师复盘某学生的分配，含 randomSeed 与分配版本） |
 | contest | POST | `/api/v1/contests/{contestId}/assignments/generate` | TEACHER（限归属）/ADMIN | 已实现（显式重算分配，幂等：已有分配的学生跳过） |
 | contest | GET | `/api/v1/contests/{contestId}/score` | 规划（成绩读模型/排名未实现） |
-| media | POST | `/api/v1/contests/{contestId}/sessions/{sessionId}/monitor-token` | 规划（media-service 已从仓库移除，见 docs/architecture.md 的设计保留） |
-| media | POST | `/api/v1/monitor/screenshot` | 规划（同上） |
-| audit | GET | `/api/v1/audit/media-access` | 规划（随 media-service，已移除） |
 
 **角色说明**：注册表里的 `INVIGILATOR`（监考员）目前**没有出现在任何授权规则中**——监考入口（`/api/v1/monitor/**`）要求 TEACHER 或 ADMIN，因此监考员角色登录后无法使用监考端点。这与 `docs/exam-process.md` §2、`docs/architecture.md` §2.1 的"监考员按考试授权查看实时监考信息并处理风险告警"不一致，属待办（同一处还需补"考试级授权"）。
 
@@ -317,11 +314,8 @@ PROVISIONAL -> UNDER_REVIEW -> FINAL
 
 风险事件（2026-10-06 已实现）：`POST /api/v1/monitor/events` 由考生客户端自动上报（studentId = JWT sub），severity 由服务端规则表计算（不采信上报值）；v1 规则：HIGH=DEBUGGER_DETECTED/INJECTION_ATTEMPT/UNAUTHORIZED_MODULE，MEDIUM=SUSPICIOUS_PROCESS/MEDIA_STREAM_LOST/JUDGE_LIMIT_VIOLATION，LOW=FOCUS_LOST/CAMERA_MISSING/CLIPBOARD_ACCESS，未知类型保守 MEDIUM；事件入库即写 `lunar-risk-event-created` Outbox（gateway WebSocket 告警的未来消费方）。查询与审核（2026-10-06 已实现）：分页过滤 + 审核状态机 OPEN→ACKNOWLEDGED→CONFIRMED/DISMISSED（**写入是"前态条件更新"（CAS）：并发终审最多一个成功，终态不可再动**）；单一事件不能自动判定作弊，处置必须人工审核并留痕（审核人/时间/备注，已接入 audit-service，尽力而为、失败不阻断）。
 
-- `POST /api/v1/contests/{contestId}/sessions/{sessionId}/monitor-token`：签发带竞赛、会话、屏幕/摄像头策略和时间窗口的 WebRTC 信令令牌；
-- `POST /api/v1/monitor/screenshot`：风险/定时/手动截图请求；
 - `GET /api/v1/monitor/events`：分页查询风险事件；
 - `POST /api/v1/monitor/events/{eventId}/review`：人工审核风险事件；
-- `GET /api/v1/audit/media-access`：查询实时流和截图访问审计。
 
 预检与断流处理规则见 `docs/exam-process.md` §5-6；截图完整流程见 `docs/architecture.md` §11.2。
 
@@ -483,6 +477,7 @@ AI 能力由 ai-service 提供（`/api/v1/ai/**`，经网关可达）。端点�
 
 失败语义：Provider 不可达或超时 → 503 `AI_PROVIDER_UNAVAILABLE`（值得重试）；Provider 返回非 2xx（模型名/密钥/额度，含 Provider 侧限流）→ 502 `AI_PROVIDER_REJECTED`（重试无用，要改配置）；模型输出不符合约定结构 → 502 `AI_INVALID_MODEL_OUTPUT`（**不得当成功结果使用**）。这些码会记进作业的 `errorCode` 并按 attempts 退避重试；当日配额用尽 → 429 `AI_QUOTA_EXCEEDED`（`ai.limits.max-jobs-per-day`）；需要向量检索但未启用 → 409 `AI_EMBEDDING_DISABLED`。
 
-## 截图规则（**规划：未实现**）
+## 截图规则（**已移除**）
 
-截图来源为 `RISK_EVENT`、`SCHEDULED` 或 `MANUAL`；保存 MinIO 对象键、SHA-256、来源、会话、创建时间和过期时间。截图访问必须经过竞赛授权并写审计日志。当前 media-service 只有占位 POM（无 `src/`），仓库未引入 MinIO SDK，也没有截图相关端点或表。
+> media-service 已从仓库删除，截图、实时屏幕/摄像头（WebRTC）、媒体访问审计均**未实现**。
+> 已确认的设计（监考令牌字段、实时流状态机、截图策略与触发方式、MinIO 对象与访问审计）保留在 `docs/architecture.md` 的 media-service 一节，将来落地时按此实现。
