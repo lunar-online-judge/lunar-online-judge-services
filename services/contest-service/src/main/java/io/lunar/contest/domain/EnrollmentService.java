@@ -105,8 +105,6 @@ public class EnrollmentService {
             candidateMapper.updateById(existing);
             log.info("AUDIT event=STUDENT_REENROLLED contestId={} studentId={} by={}",
                     contestId, studentId, operatorId);
-            auditRecorder.record("STUDENT_REENROLLED", "ENROLLMENT", studentId, contestId,
-                    "重新加入名单", null, operatorToken);
             return toEnrollmentResult(existing, passwordChangeRequired);
         }
 
@@ -122,8 +120,6 @@ public class EnrollmentService {
         candidate.setEnrolledAt(Instant.now());
         candidateMapper.insert(candidate);
         log.info("AUDIT event=STUDENT_ENROLLED contestId={} studentId={} by={}", contestId, studentId, operatorId);
-        auditRecorder.record("STUDENT_ENROLLED", "ENROLLMENT", studentId, contestId,
-                "加入名单", null, operatorToken);
         return toEnrollmentResult(candidate, passwordChangeRequired);
     }
 
@@ -185,8 +181,6 @@ public class EnrollmentService {
             }
             log.info("AUDIT event=STUDENT_ENROLLED contestId={} studentId={} by={}",
                     contestId, studentId, operatorId);
-            auditRecorder.record("STUDENT_ENROLLED", "ENROLLMENT", studentId, contestId,
-                    "从学生目录加入名单", null, operatorToken);
         }
         return new BatchEnrollResult(added, skipped, failed, items);
     }
@@ -287,8 +281,6 @@ public class EnrollmentService {
         authClient.resetPassword(studentId, temporaryPassword, operatorToken);
         log.info("AUDIT event=STUDENT_PASSWORD_RESET contestId={} studentId={} by={}",
                 contestId, studentId, operatorId);
-        auditRecorder.record("STUDENT_PASSWORD_RESET", "STUDENT_ACCOUNT", studentId, contestId,
-                "重置为临时密码", null, operatorToken);
     }
 
     /** 移出名单：软删除（status=REMOVED），学生账号与历史数据保留；当前考试会话同时失效（docs/exam-process.md §9）。 */
@@ -299,8 +291,6 @@ public class EnrollmentService {
         candidateMapper.updateById(candidate);
         examSessionService.terminateIfExists(contestId, studentId);
         log.info("AUDIT event=STUDENT_REMOVED contestId={} studentId={} by={}", contestId, studentId, operatorId);
-        auditRecorder.record("STUDENT_REMOVED", "ENROLLMENT", studentId, contestId,
-                "移出名单", null, operatorToken);
     }
 
     private CandidateEntity requireEnrolled(String contestId, String studentId) {

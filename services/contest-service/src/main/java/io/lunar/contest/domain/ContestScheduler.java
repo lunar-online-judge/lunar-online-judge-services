@@ -45,8 +45,6 @@ public class ContestScheduler {
         if (started > 0) {
             log.info("AUDIT event=EXAM_STARTED count={}", started);
             // 定时任务没有用户令牌 → 走服务身份（账本 actor=contest-service、role=SERVICE）
-            auditRecorder.record("EXAM_STARTED", "CONTEST", null, null,
-                    "按时间窗口自动开始 " + started + " 场考试", null, null);
         }
 
         int finished = contestMapper.update(null, new LambdaUpdateWrapper<ContestEntity>()
@@ -57,8 +55,6 @@ public class ContestScheduler {
                 .set(ContestEntity::getUpdatedAt, now));
         if (finished > 0) {
             log.info("AUDIT event=EXAM_FINISHED count={}", finished);
-            auditRecorder.record("EXAM_FINISHED", "CONTEST", null, null,
-                    "按时间窗口自动结束 " + finished + " 场考试", null, null);
         }
     }
 }

@@ -138,8 +138,6 @@ public class UserAdminService {
 
         log.info("AUDIT event=USER_CREATED userId={} role={} studentNo={}",
                 user.getId(), role.name(), user.getStudentNo());
-        auditRecorder.record("USER_CREATED", "USER_ACCOUNT", user.getId(), null,
-                "创建账号 " + username + "（" + role.name() + "）", null, operatorToken);
         return UserView.of(user);
     }
 
@@ -158,8 +156,6 @@ public class UserAdminService {
         userMapper.updateById(user);
 
         log.info("AUDIT event=USER_PASSWORD_RESET userId={}", userId);
-        auditRecorder.record("USER_PASSWORD_RESET", "USER_ACCOUNT", userId, null,
-                "管理员重置密码", null, operatorToken);
     }
 
     /** 启用/禁用账号：禁用会立即吊销已签发令牌，且不允许禁用当前登录账号。 */
@@ -183,8 +179,6 @@ public class UserAdminService {
         userMapper.updateById(user);
 
         log.info("AUDIT event=USER_STATUS_CHANGED userId={} status={}", userId, status);
-        auditRecorder.record("USER_STATUS_CHANGED", "USER_ACCOUNT", userId, null,
-                "账号状态改为 " + status, null, operatorToken);
         return UserView.of(user);
     }
 

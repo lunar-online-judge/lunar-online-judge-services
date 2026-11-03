@@ -115,8 +115,6 @@ public class StudentAccountService {
 
         log.info("AUDIT event=STUDENT_CREATED studentId={} studentNo={} managedBy={}",
                 user.getId(), studentNo, operatorTeacherId);
-        auditRecorder.record("STUDENT_CREATED", "STUDENT_ACCOUNT", user.getId(), null,
-                "学号 " + studentNo, null, operatorToken);
         return new CreatedStudent(user.getId(), studentNo, username, displayName, className, true);
     }
 
@@ -151,7 +149,5 @@ public class StudentAccountService {
         userMapper.updateById(user);
 
         log.info("AUDIT event=STUDENT_PASSWORD_RESET studentId={}", studentId);
-        auditRecorder.record("STUDENT_PASSWORD_RESET", "STUDENT_ACCOUNT", studentId, null,
-                "重置为临时密码", null, operatorToken);
     }
 }

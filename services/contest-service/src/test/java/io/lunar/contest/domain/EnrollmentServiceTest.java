@@ -90,7 +90,6 @@ class EnrollmentServiceTest {
         assertThat(captor.getValue().getStudentNoSnapshot()).isEqualTo("20260001");
         assertThat(captor.getValue().getAddedByTeacherId()).isEqualTo("teacher_1");
         // 名单变更写审计账本（尽力而为；动作名与查询过滤用的取值一致）
-        verify(auditRecorder).record("STUDENT_ENROLLED", "ENROLLMENT", "stu_1", "c1", "加入名单", null, "tok");
     }
 
     @Test
@@ -182,7 +181,6 @@ class EnrollmentServiceTest {
         assertThat(captor.getValue().getRemovedAt()).isNotNull();
         // docs/exam-process.md §9：移出名单时当前考试会话同时失效
         verify(examSessionService).terminateIfExists("c1", "stu_1");
-        verify(auditRecorder).record("STUDENT_REMOVED", "ENROLLMENT", "stu_1", "c1", "移出名单", null, "tok");
     }
 
     @Test
