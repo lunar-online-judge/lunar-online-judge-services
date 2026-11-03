@@ -52,10 +52,7 @@ spring:
           uri: ${AUDIT_SERVICE_URI:lb://audit-service}
           predicates:
             - Path=/api/v1/audit/**
-        - id: ai
-          uri: ${AI_SERVICE_URI:lb://ai-service}
-          predicates:
-            - Path=/api/v1/ai/**
+        # ai-service 已从仓库删除，对应路由一并移除
         - id: analytics
           uri: ${ANALYTICS_SERVICE_URI:lb://analytics-service}
           predicates:

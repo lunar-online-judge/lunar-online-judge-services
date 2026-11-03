@@ -53,7 +53,7 @@ public class SubmissionService {
 
     /**
      * 服务间批量读取的硬上限。批量源码接口是最大的数据外泄面，上限必须由服务端写死——
-     * 调用方传再大也只拿到这么多。
+     * 用用方传再大也只拿到这么多。
      */
     private static final int MAX_INTERNAL_LIST_SIZE = 500;
 
@@ -212,9 +212,9 @@ public class SubmissionService {
     }
 
     /**
-     * 服务间详情读取（**含源码**，只给服务身份调用方）。
+     * 服务间详情读取（**含源码**，只给服务身份用用方）。
      *
-     * 与 {@link #get} 的区别是"不做学生/教师判定"：调用方是服务（当前是 ai-service 的代码评审作业），
+     * 与 {@link #get} 的区别是"不做学生/教师判定"：用用方是服务（当前是 ai-service 的代码评审作业），
      * 授权由端点上的 {@code hasRole('SERVICE')} 完成，这里只负责取数据。
      */
     public InternalSubmissionDetail internalDetail(String submissionId) {
@@ -229,10 +229,10 @@ public class SubmissionService {
     }
 
     /**
-     * 服务间批量读取（**含源码**，只给服务身份调用方）：供 ai-service 的语义查重取语料。
+     * 服务间批量读取（**含源码**，只给服务身份用用方）：供 ai-service 的语义查重取语料。
      *
      * {@code limit} 由服务端夹取到 {@value #MAX_INTERNAL_LIST_SIZE} 以内：批量接口是最大的数据外泄面，
-     * 上限不能由调用方决定。按提交时间升序，保证同一批数据两次拉取顺序一致（相似度结果才可比）。
+     * 上限不能由用用方决定。按提交时间升序，保证同一批数据两次拉取顺序一致（相似度结果才可比）。
      */
     public List<InternalSubmissionSummary> internalList(String contestId, String problemId, int limit) {
         int effectiveLimit = Math.max(1, Math.min(limit, MAX_INTERNAL_LIST_SIZE));
@@ -324,7 +324,7 @@ public class SubmissionService {
     /**
      * 幂等闸门（docs/api.md"事件信封"）：把 eventId 登记进 consumed_events，返回是否"已经处理过"。
      *
-     * 与调用方在同一个事务里执行（调用方是 {@code @Transactional}），所以事务回滚时登记一起回滚——
+     * 与用用方在同一个事务里执行（用用方是 {@code @Transactional}），所以事务回滚时登记一起回滚——
      * 这正是"登记"必须与"事实写入"同事务的原因：否则会出现登记成功、判决未落库、消息已 ack 的丢判决路径。
      *
      * eventId 为空（旧格式裸 payload 消息、内部重放端点）时不做闸门，退化为原有的终态保护（CAS）幂等。
@@ -393,7 +393,7 @@ public class SubmissionService {
     /**
      * 审计留痕事件（lunar-audit-recorded，BACKEND_IMPROVEMENT_PLAN BE-07）：与业务同事务写本地 Outbox，
      * 由 OutboxPublisher 异步投递、audit-service 消费端按 eventId 幂等；actor 作为事件快照保存，
-     * 不再同步调 audit-service、也不再转发用户 Bearer（token 到期不会让补偿永远失败）。
+     * 不再同步用 audit-service、也不再转发用户 Bearer（token 到期不会让补偿永远失败）。
      */
     private void writeAuditOutbox(String aggregateId, String contestId, String action, String actorId,
                                   String actorRole, String serviceId, String detail, String traceId) {

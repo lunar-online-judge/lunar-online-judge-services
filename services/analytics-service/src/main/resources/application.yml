@@ -76,12 +76,6 @@ analytics:
       - last_effective_at:asc
       - solved_count:desc
       - student_id:asc
-  recompute:
-    # 成绩读模型的定时增量重算：只算"读模型落后于事实"的考试（computed_at < judged_at）
-    interval-ms: ${ANALYTICS_RECOMPUTE_INTERVAL_MS:600000}
-    # 只看这个窗口内有过判决的考试
-    window: ${ANALYTICS_RECOMPUTE_WINDOW:30m}
-    max-contests-per-run: ${ANALYTICS_RECOMPUTE_MAX_CONTESTS:50}
   # 成绩可见范围（docs/exam-process.md §10-6 未确认）：OWN_ONLY = 考生只看自己那一行
   score-visibility: ${ANALYTICS_SCORE_VISIBILITY:OWN_ONLY}
   risk:

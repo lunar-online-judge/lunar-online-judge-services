@@ -22,7 +22,7 @@ import java.util.List;
  * 只认服务身份 `roles=["SERVICE"]`，不经网关（gateway 无 `/api/v1/internal/**` 路由）：
  * 源码是学生作品，不能让"内网 + 任意已认证令牌"取走（与 problem 测试点接口同一收紧原则，BE-01）。
  *
- * 当前调用方：ai-service 的代码评审作业（后台 worker 用自身服务身份调用）。
+ * 当前无调用方（原为 ai-service 代码评审作业），保留接口以备将来；含源码，仅服务身份可调。
  */
 @RestController
 @RequestMapping("/api/v1/internal/submissions")
@@ -47,7 +47,7 @@ public class InternalSubmissionController {
     }
 
     /**
-     * 批量摘要（**含源码**）：供 ai-service 的语义查重取"同一场考试同一道题"的语料。
+     * 批量摘要（**含源码**）：原为 ai-service 语义查重提供语料，该能力已下线。
      *
      * {@code limit} 由服务端夹取（默认 200、上限 500），调用方无法把这个接口变成全库导出。
      */
