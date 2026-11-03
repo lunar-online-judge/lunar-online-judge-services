@@ -33,7 +33,7 @@ echo "        auth-service 实例：$(echo "$INSTANCE" | head -c 160)"
 
 step "0.4 健康检查（8 个服务）"
 UP=0
-for P in 8080 8081 8082 8083 8084 8085 8086 8087; do
+for P in 8080 8081 8082 8083 8084 8085 8086; do
   H=$(curl -s -m 5 "http://localhost:$P/actuator/health")
   if echo "$H" | grep -q '"status":"UP"'; then UP=$((UP+1)); else echo "        $P -> $H"; fi
 done

@@ -60,7 +60,6 @@ auth:
       # clientId（服务名）→ 客户端密钥。部署期配置：默认值仅供本地联调，生产必须用环境变量注入
       contest-service: ${SERVICE_CLIENT_SECRET_CONTEST:change-me-contest}
       submission-service: ${SERVICE_CLIENT_SECRET_SUBMISSION:change-me-submission}
-      # ai-service 取数用（submission 源码、problem 题面、contest 快照）
       # analytics-service 取数用（contest 快照：参照数据刷新）
       analytics-service: ${SERVICE_CLIENT_SECRET_ANALYTICS:change-me-analytics}
 
