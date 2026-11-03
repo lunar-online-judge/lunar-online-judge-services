@@ -46,8 +46,14 @@ public class InternalStudentController {
     public ResponseEntity<ApiResponse<StudentResponse>> find(
             @RequestParam(required = false) String studentNo,
             @RequestParam(required = false) String username,
+            Authentication authentication,
             @RequestHeader(value = RequestIdFilter.HEADER, required = false) String requestId) {
-        CreatedStudent found = studentAccountService.findStudent(studentNo, username);
+        String actorRole = authentication.getAuthorities().stream()
+                .map(GrantedAuthority::getAuthority)
+                .map(authority -> authority.replace(Role.AUTHORITY_PREFIX, ""))
+                .findFirst().orElse(null);
+        CreatedStudent found = studentAccountService.findStudent(studentNo, username,
+                authentication.getName(), actorRole);
         if (found == null) {
             throw new UserException.NotFound();
         }

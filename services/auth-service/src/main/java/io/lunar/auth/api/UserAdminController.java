@@ -3,6 +3,7 @@ package io.lunar.auth.api;
 import io.lunar.auth.api.dto.CreateUserRequest;
 import io.lunar.auth.api.dto.ResetPasswordRequest;
 import io.lunar.auth.api.dto.UpdateUserStatusRequest;
+import io.lunar.auth.api.dto.UserNameView;
 import io.lunar.auth.api.dto.UserPage;
 import io.lunar.auth.api.dto.UserView;
 import io.lunar.auth.domain.UserAdminService;
@@ -21,6 +22,8 @@ import org.springframework.web.bind.annotation.RequestHeader;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
+
+import java.util.List;
 
 /**
  * 管理端账号管理入口（仅 ADMIN）。
@@ -52,6 +55,18 @@ public class UserAdminController {
             @RequestHeader(value = RequestIdFilter.HEADER, required = false) String requestId) {
         return ResponseEntity.ok(ApiResponse.success(requestId,
                 userAdminService.list(role, status, keyword, className, page, pageSize)));
+    }
+
+    /**
+     * 批量解析用户显示名：教师/管理员都可用，用于列表把创建人、操作者、学生 ID 展示成人名。
+     * 只返回 ID、账号、显示名，不暴露角色、状态等账号信息。
+     */
+    @GetMapping("/names")
+    @PreAuthorize("hasAnyRole('TEACHER','ADMIN')")
+    public ResponseEntity<ApiResponse<List<UserNameView>>> names(
+            @RequestParam List<String> ids,
+            @RequestHeader(value = RequestIdFilter.HEADER, required = false) String requestId) {
+        return ResponseEntity.ok(ApiResponse.success(requestId, userAdminService.names(ids)));
     }
 
     /** 创建账号：role 取 ADMIN（子管理员）/ TEACHER / CANDIDATE。 */

@@ -1,6 +1,7 @@
 package io.lunar.auth.domain;
 
 import io.lunar.auth.api.dto.CreateUserRequest;
+import io.lunar.auth.api.dto.UserNameView;
 import io.lunar.auth.api.dto.UserPage;
 import io.lunar.auth.api.dto.UserView;
 import io.lunar.auth.infra.UserEntity;
@@ -61,6 +62,24 @@ public class UserAdminService {
                         .last("limit " + normalizedPageSize + " offset " + offset));
         List<UserView> items = users.stream().map(UserView::of).toList();
         return new UserPage(items, total, normalizedPage, normalizedPageSize);
+    }
+
+    /** 批量把用户 ID 解析为显示名：供考试/审计/公告等列表避免直接展示 UUID。 */
+    public List<UserNameView> names(List<String> ids) {
+        if (ids == null || ids.isEmpty()) {
+            return List.of();
+        }
+        List<String> distinctIds = ids.stream()
+                .filter(StringUtils::hasText)
+                .distinct()
+                .limit(200)
+                .toList();
+        if (distinctIds.isEmpty()) {
+            return List.of();
+        }
+        return userMapper.selectBatchIds(distinctIds).stream()
+                .map(user -> new UserNameView(user.getId(), user.getUsername(), user.getDisplayName()))
+                .toList();
     }
 
     /** 学生班级列表：去重、按名称排序，供教师筛选与按班操作。 */

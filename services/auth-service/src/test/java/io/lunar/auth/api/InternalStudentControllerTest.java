@@ -24,6 +24,7 @@ import java.util.Map;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.ArgumentMatchers.isNull;
 import static org.mockito.Mockito.when;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
@@ -116,7 +117,7 @@ class InternalStudentControllerTest {
 
     @Test
     void findStudentByStudentNo() throws Exception {
-        when(studentAccountService.findStudent("20260001", null)).thenReturn(CREATED);
+        when(studentAccountService.findStudent(eq("20260001"), isNull(), any(), any())).thenReturn(CREATED);
 
         mockMvc.perform(get("/api/v1/internal/students").param("studentNo", "20260001")
                         .header("Authorization", "Bearer token-value"))
@@ -126,7 +127,7 @@ class InternalStudentControllerTest {
 
     @Test
     void findMissingStudentReturns404() throws Exception {
-        when(studentAccountService.findStudent("99999999", null)).thenReturn(null);
+        when(studentAccountService.findStudent(eq("99999999"), isNull(), any(), any())).thenReturn(null);
 
         mockMvc.perform(get("/api/v1/internal/students").param("studentNo", "99999999")
                         .header("Authorization", "Bearer token-value"))

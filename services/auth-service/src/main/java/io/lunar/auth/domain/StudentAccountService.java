@@ -38,7 +38,17 @@ public class StudentAccountService {
     }
 
     /** 按学号或账户名查学生账号；两个条件至少传一个，都不匹配返回 null。 */
-    public CreatedStudent findStudent(String studentNo, String username) {
+    /**
+     * 按学号或账户名查学生账号。
+     *
+     * **归属过滤**：老师只能查到自己名下的学生——否则任意老师都能按学号逐个试探，
+     * 把全平台的学生（学号 + 姓名 + 班级）枚举出来。ADMIN 与服务身份不受限：
+     * 服务身份来自 contest，它已做过考试归属校验。
+     *
+     * 代价（已知且接受）：学生由老师 A 建、老师 B 想加进自己的考试时，B 查不到该账号，
+     * 会走到"新建账号"分支并被唯一约束拒绝——这种跨老师复用需要管理员操作。
+     */
+    public CreatedStudent findStudent(String studentNo, String username, String actorId, String actorRole) {
         if ((studentNo == null || studentNo.isBlank()) && (username == null || username.isBlank())) {
             throw new UserException.NotFound();
         }
@@ -48,6 +58,10 @@ public class StudentAccountService {
         }
         if (username != null && !username.isBlank()) {
             query.eq(UserEntity::getUsername, username);
+        }
+        // 归属过滤：老师只能查到自己名下的学生，否则可逐个学号试探、枚举全平台学生
+        if (Role.TEACHER.name().equals(actorRole) && actorId != null) {
+            query.eq(UserEntity::getManagedByTeacherId, actorId);
         }
         UserEntity user = userMapper.selectOne(query.last("limit 1"));
         if (user == null || !Role.CANDIDATE.name().equals(user.getRole())) {

@@ -101,7 +101,7 @@ Body: { "username": "admin", "password": "admin123" }
 | POST | `/api/v1/contests/{id}/students/{studentId}/password-reset` | 同上 | 重置密码 `{temporaryPassword}` |
 | DELETE | `/api/v1/contests/{id}/students/{studentId}` | 同上 | 移出名单（同时使该学生会话失效） |
 
-> ⚠️ 已知缺陷：任何 TEACHER 都能重置/查询**任意**学生账号（归属校验未实现）。UI 不要因此暴露"跨班搜索学生"的功能。
+> 老师**只能查到自己名下的学生**（按学号查别人班的学生会返回 404）；重置密码同样限本人名下。管理员与服务身份不受限。
 
 ### 3.3 考生会话与监考
 | 方法 | 路径 | 角色 | 说明 |
