@@ -75,7 +75,10 @@ public class TokenRevocationValidator implements OAuth2TokenValidator<Jwt> {
         try {
             Map<?, ?> body = restClient.get().uri(uriTemplate, userId).retrieve().body(Map.class);
             Instant validAfter = extract(body);
-            valueCache.put(userId, validAfter);
+            // ConcurrentHashMap 不接受 null 值：绝大多数用户从没重置过密码，这个响应就是 null，
+            // 直接 put 会抛 NPE——结果是缓存永远写不进去，每个请求都回源一次并打一条 NPE 告警。
+            // 用 EPOCH 表示"没有失效点"：任何令牌的签发时间都晚于它，语义等价。
+            valueCache.put(userId, validAfter == null ? Instant.EPOCH : validAfter);
             expiryCache.put(userId, Instant.now().plus(cacheTtl));
             return validAfter;
         } catch (RuntimeException exception) {

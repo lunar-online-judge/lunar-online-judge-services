@@ -1,7 +1,10 @@
 package io.lunar.analytics.api;
 
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+import java.time.Instant;
 import io.lunar.analytics.api.dto.RebuildRequest;
-import io.lunar.analytics.domain.AnalyticsRebuildService;
+import io.lunar.analytics.domain.ContestRefRefreshService;
 import io.lunar.analytics.domain.Identifiers;
 import io.lunar.analytics.domain.dto.RebuildResult;
 import io.lunar.common.api.ApiResponse;
@@ -28,22 +31,30 @@ import org.springframework.web.bind.annotation.RestController;
 @RequestMapping("/api/v1/internal/analytics")
 public class InternalAnalyticsController {
 
-    private final AnalyticsRebuildService analyticsRebuildService;
+    private static final Logger log = LoggerFactory.getLogger(InternalAnalyticsController.class);
 
-    public InternalAnalyticsController(AnalyticsRebuildService analyticsRebuildService) {
-        this.analyticsRebuildService = analyticsRebuildService;
+    private final ContestRefRefreshService contestRefRefreshService;
+
+    public InternalAnalyticsController(ContestRefRefreshService contestRefRefreshService) {
+        this.contestRefRefreshService = contestRefRefreshService;
     }
 
     /**
-     * 重算指定考试的成绩与排名。同一考试正在重算时返回 409（{@code ANALYTICS_REBUILD_IN_PROGRESS}），
-     * 而不是排队——调用方需要知道"你要的事已经在做"，否则会不停重试并叠加负载。
+     * 刷新指定考试的**参照数据**（学号/姓名、题目清单、在册考生）。
+     *
+     * 简化说明：成绩与名次已改为**实时聚合**（见 ScoreboardService），不再有"重算成绩"这件事——
+     * 所以这个端点现在只负责把 contest 的快照拉进来。入参 `studentCount` 恒为 0，保留字段是为了
+     * 不破坏既有调用方的响应契约。
      */
     @PostMapping("/rebuild")
     @PreAuthorize("hasAnyRole('SERVICE', 'ADMIN')")
-    public ResponseEntity<ApiResponse<RebuildResult>> rebuild(
+    public ResponseEntity<ApiResponse<RebuildResult>> refreshReferences(
             @Valid @RequestBody RebuildRequest request,
             @RequestHeader(value = RequestIdFilter.HEADER, required = false) String requestId) {
         String contestId = Identifiers.requireUuid(request.contestId());
-        return ResponseEntity.ok(ApiResponse.success(requestId, analyticsRebuildService.rebuild(contestId)));
+        boolean refreshed = contestRefRefreshService.refresh(contestId);
+        log.info("参照数据刷新完成：contestId={} refreshed={}", contestId, refreshed);
+        return ResponseEntity.ok(ApiResponse.success(requestId,
+                new RebuildResult(contestId, 0, Instant.now())));
     }
 }
