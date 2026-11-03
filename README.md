@@ -66,6 +66,9 @@ Compose 镜像版本来自 `docker/compose.yml`（基础设施）和 `docker/com
 
 ## 目录
 
+- [docs/go-live-checklist.md](docs/go-live-checklist.md) —— **上线与本地启动清单**：端口表、启动顺序、验证基线、7 个真实踩坑
+
+
 - `CHANGELOG.md`：版本变更记录（开发期里程碑与已知限制）；
 - `BACKEND_IMPROVEMENT_PLAN.md`：基于 `fa9a51c` 的后端优化计划（BE-01～BE-13：优先级、证据、验收；其中部分条目已在本仓库后续提交中修复，见该文件开头的基线说明）；
 - `docs/development-guide.md`：**起手开发指南**——阅读顺序、代码约定、auth-service 实现路径、测试与错误码约定（新会话从这里开始）；
