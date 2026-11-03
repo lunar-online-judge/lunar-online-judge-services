@@ -1,7 +1,5 @@
 package io.lunar.contest.config;
 
-import io.lunar.common.audit.AuditRecorder;
-import io.lunar.common.audit.AuditServiceApi;
 import io.lunar.common.client.HttpServiceClientFactory;
 import io.lunar.common.identity.ServiceTokenApi;
 import io.lunar.common.identity.ServiceTokenProvider;
@@ -28,17 +26,6 @@ public class ServiceClientConfig {
         return HttpServiceClientFactory.create(AuthServiceApi.class, loadBalancedRestClientBuilder, authBaseUrl);
     }
 
-    /** 审计账本写入：契约被四个服务共用，故复用 lunar-common 的 {@link AuditServiceApi}。 */
-    @Bean
-    AuditServiceApi auditServiceApi(RestClient.Builder loadBalancedRestClientBuilder,
-                                    @Value("${AUDIT_BASE_URL:http://audit-service}") String auditBaseUrl) {
-        return HttpServiceClientFactory.create(AuditServiceApi.class, loadBalancedRestClientBuilder, auditBaseUrl);
-    }
-
-    @Bean
-    AuditRecorder auditRecorder(AuditServiceApi auditServiceApi, ServiceTokenProvider serviceTokenProvider) {
-        return new AuditRecorder(auditServiceApi, serviceTokenProvider);
-    }
 
     /** 服务身份令牌（客户端凭证）：定时任务没有用户令牌，用它换取 SERVICE 身份写账本。 */
     @Bean

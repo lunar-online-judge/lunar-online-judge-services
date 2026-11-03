@@ -1,6 +1,5 @@
 package io.lunar.submission.domain;
 
-import io.lunar.common.audit.AuditRecorder;
 import io.lunar.submission.config.SubmissionLimitProperties;
 import io.lunar.submission.domain.dto.SubmissionView;
 import io.lunar.submission.infra.ConsumedEventMapper;
@@ -41,7 +40,6 @@ class SubmissionServiceTest {
     private final OutboxEventMapper outboxMapper = mock(OutboxEventMapper.class);
     private final ConsumedEventMapper consumedEventMapper = mock(ConsumedEventMapper.class);
     private final UpstreamClient upstream = mock(UpstreamClient.class);
-    private final AuditRecorder auditRecorder = mock(AuditRecorder.class);
     private final SubmissionService service = new SubmissionService(
             submissionMapper, outboxMapper, consumedEventMapper, upstream, limitProperties(), "submission-service");
 
