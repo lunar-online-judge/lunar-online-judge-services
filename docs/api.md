@@ -200,7 +200,6 @@ HTTP 前缀统一为 `/api/v1`。各服务经 gateway 对外暴露；客户端�
 | analytics | GET | `/api/v1/analytics/contests/{contestId}/students/{studentId}/profile` | TEACHER（限归属）/ADMIN | 已实现（学情：名次/总分来自成绩读模型，verdict 与语言分布、逐题最佳分与最近结论、提交时间线按需聚合；`from`/`to`（ISO-8601）**只作用于时间线**，起止颠倒或格式非法 400 `ANALYTICS_INVALID_RANGE`） |
 | analytics | GET | `/api/v1/analytics/contests/{contestId}/risk/summary` | **ADMIN** | 已实现（风险汇总：总数/待审核/已确认/已驳回/涉事学生数 + 严重度·事件类型·审核状态分布 + 学生×时间窗热力图（只回**最近** N 格，桶宽与上限可配）；**先收紧为 ADMIN**——考试级授权落地前按最小权限开放，与 anti-cheat 的 `/monitor/events` 同一取舍） |
 | analytics | GET | `/api/v1/analytics/contests/{contestId}/risk/students` | **ADMIN** | 已实现（风险学生分页：按可疑度降序，权重可配 `analytics.risk.weight-*`，末档 student_id 保证深分页不漏行/不重行；每行并入最多 5 条 AI 结论作为**证据**——模型可疑度不进入排序权重、不触发任何自动处置） |
-| analytics | POST | `/api/v1/internal/analytics/rebuild` | **SERVICE / ADMIN** | 已实现（显式重算某场考试的成绩与排名；同考试重算中返回 409 `ANALYTICS_REBUILD_IN_PROGRESS`；**不经网关**；单飞闸门是**进程内**的，多实例并发重算未覆盖） |
 
 **规划中（代码不存在）**：
 

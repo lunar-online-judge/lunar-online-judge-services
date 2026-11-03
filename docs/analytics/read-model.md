@@ -50,7 +50,6 @@
    只算 `computed_at < judged_at` 的考试——即"读模型落后于事实"，一场没有新判决的考试不会进入候选；
 2. **读路径自愈**（`ScoreboardService#ensureComputed`）：读模型为空时顺带算一次（30 秒冷却），
    覆盖"刚部署、历史考试从没算过"；
-3. **显式重建**：`POST /api/v1/internal/analytics/rebuild`（同考试进行中返回 409）。
 
 ### 3.1 可配口径（产品未确认项）
 
