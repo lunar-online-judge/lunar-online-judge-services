@@ -12,7 +12,7 @@ BASE="${BASE:-http://localhost}"
 
 declare -A SERVICES=(
   [auth]=8081 [contest]=8082 [problem]=8083 [submission]=8084
-  [anti-cheat]=8086 [analytics]=8088
+  [anti-cheat]=8086 [analytics]=8098
 )
 
 command -v jq >/dev/null 2>&1 || { echo "需要 jq"; exit 1; }

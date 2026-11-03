@@ -14,7 +14,7 @@
 | judge-service | 8080* | 评测调度：消费提交事件、适配 go-judge、verdict 归一化 | `judge_schema`（只一张 `outbox_events`：判决先落本地再异步投递） | 事件消费 + verdict 归一化 + go-judge 适配器 + **判决 Outbox（含退避/死信）**已实现；`judge_task` 异步状态机/超时补偿未实现 |
 | anti-cheat-service | 8086 | 风险事件、风险分数、查重任务、人工审核 | `anti_cheat_schema` | 风险事件上报/查询/审核已实现（2026-10-07）；查重与告警推送未实现 |
 | ai-service | 8089 | AI 能力：代码评审、出题草稿（风险研判与语义查重已按简化决定删除），**只产证据不改事实** | `ai_schema`（作业队列、结论、草稿、相似对、Outbox） | 2 项作业能力已实现（LangChain4j Provider 层、异步作业管道含租约/退避/原子配额、BE-01 范围）；审计留痕改为结构化日志（Outbox 与隐私守卫已删） |
-| analytics-service | 8088 | 分析读模型：消费事件把事实投影进自己的 schema，提供成绩排名、学情与监考风险查询，**只读自己的 schema、不影响任何业务不变量** | `analytics_schema`（事实表、物化成绩表、参照数据缓存、幂等闸门，全部可由 MQ 重放重建） | 4 个消费者 + 三条读模型 + 9 个端点均已实现；模块内设计文档 `docs/analytics/read-model.md` |
+| analytics-service | 8098 | 分析读模型：消费事件把事实投影进自己的 schema，提供成绩排名、学情与监考风险查询，**只读自己的 schema、不影响任何业务不变量** | `analytics_schema`（事实表、物化成绩表、参照数据缓存、幂等闸门，全部可由 MQ 重放重建） | 4 个消费者 + 三条读模型 + 9 个端点均已实现；模块内设计文档 `docs/analytics/read-model.md` |
 
 \* 无 `application.yml` 的服务使用 Spring 默认端口 8080，本地同时启动时必须分别设置 `SERVER_PORT`，详见 `docs/deployment.md`。
 

@@ -24,7 +24,7 @@
 > **注（2026-11）**：ai-service 已从仓库删除（59 文件 / 3,484 行，含根 pom 模块、Nacos 配置、compose.ai.yml、ai-test.sh 与 auth 的服务客户端密钥）。下文涉及该服务的内容保留为**设计记录**，不代表现有能力。
 
 | ai-service | 8089 | 有 | AI 能力（代码评审/出题草稿）——**默认不启用**（简化中移出默认运行清单）；依赖 PostgreSQL（`ai_schema`）+ **云厂商 OpenAI 兼容 API 端点**（**外部服务**，地址由 `AI_PROVIDER_BASE_URL` 或 `ai.provider.base-url` 给；未配置时首次调用报错） |
-| analytics-service | 8088 | 有 | 分析读模型（成绩排名/学情/监考风险）；依赖 PostgreSQL（`analytics_schema`）+ RocketMQ（4 个消费组）；**不使用 Redis**；取考试快照走 contest 的服务间接口。（`docker/nacos/config/` 下暂无 `analytics-service.yml`，全部配置走 `application.yml` 默认值 + 环境变量） |
+| analytics-service | 8098 | 有 | 分析读模型（成绩排名/学情/监考风险）；依赖 PostgreSQL（`analytics_schema`）+ RocketMQ（4 个消费组）；**不使用 Redis**；取考试快照走 contest 的服务间接口。（`docker/nacos/config/` 下暂无 `analytics-service.yml`，全部配置走 `application.yml` 默认值 + 环境变量） |
 
 **健康检查**：10 个服务均引入 Spring Boot Actuator，**只通过 HTTP 暴露 `health`**（`GET /actuator/health`，匿名可访问、只返回 `UP`/`DOWN`，不展示组件细节）。其余 actuator 端点不可用：有 Security 配置的服务上返回 401（安全过滤链先于路由拦截），网关上返回 404。
 
@@ -135,7 +135,7 @@ curl -s "http://localhost:8848/nacos/v1/ns/instance/list?serviceName=auth-servic
 # 控制台：http://localhost:8848/nacos → 服务管理 → 服务列表
 
 # 0.4 健康检查：10 个服务都应返回 {"status":"UP"}（actuator 只暴露 health，匿名可访问）
-for p in 8080 8081 8082 8083 8084 8085 8086 8087 8088 8089; do printf "%s " "$p"; curl -s -m 5 "http://localhost:$p/actuator/health"; echo; done
+for p in 8080 8081 8082 8083 8084 8085 8086 8098; do printf "%s " "$p"; curl -s -m 5 "http://localhost:$p/actuator/health"; echo; done
 # 其余 actuator 端点不可用：有 Security 的服务上返回 401（过滤链先于路由拦截），网关上返回 404
 curl -s -o /dev/null -w "%{http_code}\n" http://localhost:8081/actuator/env   # 401
 curl -s -o /dev/null -w "%{http_code}\n" http://localhost:8080/actuator/env   # 404
@@ -181,7 +181,7 @@ curl -s -i -H "X-Request-Id: test-123" http://localhost:8081/api/v1/auth/jwks | 
 | `AI_EGRESS_APPROVED` | **数据出境授权**：base-url 指向非内网地址时，必须显式设为 `true` 才允许调用，否则服务**启动失败**（构建模型前还会复核一次，热改 base-url 同样拦得住）。**刻意只认环境变量**——配置中心改不动它 | `false` |
 | `AI_EMBEDDING_ENABLED` | 是否启用向量检索通道（`LlmClient.embed` 的开关，未启用时向量化直接返回 409 `AI_EMBEDDING_DISABLED`）；**当前语义查重只用纯 Java 的 MinHash 代码指纹、尚未调用该通道**，真正启用还需要 Provider 提供 embedding 模型 + 数据库有 pgvector 扩展，属部署期开关 | `false` |
 | `SUBMISSION_BASE_URL` / `PROBLEM_BASE_URL` / `CONTEST_BASE_URL` / `ANTICHEAT_BASE_URL` | **服务间地址覆盖**（排障时钉到固定地址）。默认值均为服务名，经 Nacos + LoadBalancer 解析：`http://submission-service` / `http://problem-service` / `http://contest-service` / `http://anti-cheat-service`（ai-service 的 `ServiceClientConfig` 读取；`PROBLEM_BASE_URL` 与 `CONTEST_BASE_URL` 同时被 submission 使用） | 见括号内 |
-| `ANALYTICS_SERVICE_URI` | 网关到 analytics-service 的路由地址覆盖（默认 `lb://analytics-service`，经 Nacos + LoadBalancer 解析；排障时钉到固定地址，如 `http://localhost:8088`） | `lb://analytics-service` |
+| `ANALYTICS_SERVICE_URI` | 网关到 analytics-service 的路由地址覆盖（默认 `lb://analytics-service`，经 Nacos + LoadBalancer 解析；排障时钉到固定地址，如 `http://localhost:8098`） | `lb://analytics-service` |
 | `SERVICE_TOKEN_TTL_MINUTES` | 服务身份令牌有效期（分钟），刻意比用户令牌短 | `10` |
 | `POSTGRES_HOST` | PostgreSQL 地址 | `localhost` |
 | `POSTGRES_PORT` | PostgreSQL 端口（本地 Compose 映射在 5433） | `5432`，**judge / anti-cheat  / ai / analytics 的默认值却是 `5433`**（两处不一致，见"已知限制"） |

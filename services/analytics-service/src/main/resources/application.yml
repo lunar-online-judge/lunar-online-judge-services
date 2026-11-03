@@ -89,7 +89,7 @@ analytics:
     weight-pending: ${ANALYTICS_RISK_WEIGHT_PENDING:1}
 
 server:
-  port: ${SERVER_PORT:8088}
+  port: ${SERVER_PORT:8098}
 
 management:
   endpoints:
