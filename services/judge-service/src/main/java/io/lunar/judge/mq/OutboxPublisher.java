@@ -1,5 +1,6 @@
 package io.lunar.judge.mq;
 
+import io.lunar.common.outbox.OutboxRetryPolicy;
 import io.lunar.common.event.EventEnvelope;
 import io.lunar.judge.infra.OutboxEventEntity;
 import io.lunar.judge.infra.OutboxEventMapper;
@@ -75,15 +76,14 @@ public class OutboxPublisher {
     private void recordFailure(OutboxEventEntity event, Exception exception) {
         int attempts = (event.getAttempts() == null ? 0 : event.getAttempts()) + 1;
         event.setAttempts(attempts);
-        if (attempts >= maxAttempts) {
+        if (OutboxRetryPolicy.isDeadLettered(attempts, maxAttempts)) {
             event.setDeadLetteredAt(Instant.now());
             log.error("判决事件投递连续失败 {} 次，转入死信待人工重放 eventId={}",
                     attempts, event.getEventId(), exception);
         } else {
-            long backoffSeconds = Math.min(300L, 1L << Math.min(attempts, 8));
-            event.setNextAttemptAt(Instant.now().plusSeconds(backoffSeconds));
+            event.setNextAttemptAt(OutboxRetryPolicy.nextAttemptAt(attempts, Instant.now()));
             log.warn("判决事件投递失败 eventId={} attempts={} 下次重试 {}s 后",
-                    event.getEventId(), attempts, backoffSeconds, exception);
+                    event.getEventId(), attempts, event.getNextAttemptAt(), exception);
         }
         outboxMapper.updateById(event);
     }

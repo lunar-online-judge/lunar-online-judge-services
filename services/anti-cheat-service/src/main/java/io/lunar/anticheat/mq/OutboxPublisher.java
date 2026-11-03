@@ -1,5 +1,6 @@
 package io.lunar.anticheat.mq;
 
+import io.lunar.common.outbox.OutboxRetryPolicy;
 import io.lunar.anticheat.infra.OutboxEventEntity;
 import io.lunar.anticheat.infra.OutboxEventMapper;
 import io.lunar.common.event.EventEnvelope;
@@ -79,15 +80,14 @@ public class OutboxPublisher {
     private void recordFailure(OutboxEventEntity event, Exception exception) {
         int attempts = (event.getAttempts() == null ? 0 : event.getAttempts()) + 1;
         event.setAttempts(attempts);
-        if (attempts >= maxAttempts) {
+        if (OutboxRetryPolicy.isDeadLettered(attempts, maxAttempts)) {
             event.setDeadLetteredAt(Instant.now());
             log.error("Outbox 投递连续失败 {} 次，转入死信待人工重放 eventId={} type={}",
                     attempts, event.getEventId(), event.getEventType(), exception);
         } else {
-            long backoffSeconds = Math.min(300L, 1L << Math.min(attempts, 8));
-            event.setNextAttemptAt(Instant.now().plusSeconds(backoffSeconds));
+            event.setNextAttemptAt(OutboxRetryPolicy.nextAttemptAt(attempts, Instant.now()));
             log.warn("Outbox publish failed eventId={} type={} attempts={} 下次重试 {}s 后",
-                    event.getEventId(), event.getEventType(), attempts, backoffSeconds, exception);
+                    event.getEventId(), event.getEventType(), attempts, event.getNextAttemptAt(), exception);
         }
         outboxMapper.updateById(event);
     }
