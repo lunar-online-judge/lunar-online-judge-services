@@ -1,5 +1,18 @@
 ### 变更
 
+- **安全收口（2026-11，第 1 批上线阻断清零）**
+  - **生产配置门禁补 map 型检查**：`auth.service-clients.secrets.*` 每个 clientId 都必须是非默认值——此前漏掉任意一个，就等于留了一条"用默认口令换 SERVICE 令牌"的通道（SERVICE 令牌能读内部测试点与源码）
+  - **审计写入收紧**：`POST /api/v1/internal/audit/records` 从 `isAuthenticated()` 改为 SERVICE/TEACHER/ADMIN + 格式校验（action 大写下划线、id 必须 uuid、detail ≤2000）；同时补上 audit/anti-cheat/judge 缺失的 `spring-boot-starter-validation`（此前 `@Valid` 靠传递依赖侥幸生效，链路一变就静默失效）
+  - **题目详情分层授权**：老师/管理员按归属校验（越权 404），考生限已发布版本
+  - **风险上报三项**：事件类型格式校验（400）、按学生窗口限流（30 条/5 分钟，429）、**报名校验**（由 contest 判定，未报名 403；上游不可用时 fail-open 不丢证据）
+  - **教师-学生归属**：老师只能重置自己名下学生的密码（越权与不存在同码 404），ADMIN 与服务身份不受限；已补 3 条单测锁住
+  - **auth 自建 JwtDecoder 补 iss/aud**（此前 `@ConditionalOnMissingBean` 绕过了统一校验）
+  - **judge 端点补 SERVICE/ADMIN 角色**（此前靠"没接验签恒 401"侥幸兜底）
+  - **基础设施**：compose 补 healthcheck/restart、Redis 启用口令（门禁同步覆盖）、边缘加登录 6 次/分与 API 20 r/s 限流
+  - **简化**：删除 media-service 占位与 MinIO 容器、ai-service 标注默认不启用（顺带消掉跨考试读源码的 IDOR 可达面）、历史测试记录归档、配置默认值统一（judge 补 8085、`POSTGRES_PORT` 统一 5433）
+  - 已知未做：学生账号查询仍支持任意条件（枚举面）、Outbox 三份合一的代码重构、第 2 批的版本锁定闭环与名单对账
+### 变更
+
 - **第二批正确性：分页、源码上限、引擎瞬时故障**
   - **problem-service 补 MyBatis-Plus 分页插件**（新建 `MybatisPlusConfig`）：此前 `selectPage` 生成的 SQL **没有 LIMIT**、`total` 恒为 0，且 `pageSize` 传负数时等于全表导出；现设单页硬上限 100 行
   - **提交源码上限 64 KiB**（`@Size`）：源码随 created 事件进 RocketMQ，broker 拒收 >4MB 消息——没有上限时一条超大源码会让事件转死信、提交**永久卡 QUEUED**；现在入口直接 400
