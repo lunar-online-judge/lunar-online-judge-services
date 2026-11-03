@@ -48,10 +48,7 @@ spring:
           uri: ${ANTICHEAT_SERVICE_URI:lb://anti-cheat-service}
           predicates:
             - Path=/api/v1/monitor/**
-        - id: audit
-          uri: ${AUDIT_SERVICE_URI:lb://audit-service}
-          predicates:
-            - Path=/api/v1/audit/**
+        # audit-service 已删除（审计账本按决定下线）
         # ai-service 已从仓库删除，对应路由一并移除
         - id: analytics
           uri: ${ANALYTICS_SERVICE_URI:lb://analytics-service}
