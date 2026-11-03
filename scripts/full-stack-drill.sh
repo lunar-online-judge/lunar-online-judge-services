@@ -20,7 +20,7 @@ ok "GET /api/v1/auth/jwks（经边缘）" "$CODE" "200"
 
 step "0.2 评测沙箱可达"
 VERSION=$(curl -s http://localhost:5050/version)
-ok "go-judge /version 返回版本号" "$(echo "$VERSION" | grep -o '"buildVersion":"[^"]*"' | cut -d'"' -f4)" "v1.13.0"
+ok "go-judge /version 返回版本号" "$(echo "$VERSION" | grep -o '"buildVersion":"[^"]*"' | cut -d'"' -f4)" "v1.13.3"
 
 step "0.3 服务注册（Nacos）"
 SERVICES=$(curl -s "http://localhost:8848/nacos/v1/ns/service/list?pageNo=1&pageSize=20")
