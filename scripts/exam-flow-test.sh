@@ -63,7 +63,7 @@ STU_TOKENS=(); STU_NAMES=()
 for N in 1 2; do
   U="flowstu${N}_$TS"
   CODE=$(curl -s -o /dev/null -w '%{http_code}' -X POST "$CONTEST/api/v1/contests/$CID/students" -H "Authorization: Bearer $ADMIN" \
-    -H 'Content-Type: application/json' -d "{\"studentNo\":\"FLOW$TS$N\",\"username\":\"$U\",\"displayName\":\"Flow$N\",\"initialPassword\":\"init-pass-123\"}")
+    -H 'Content-Type: application/json' -d "{\"studentNo\":\"FLOW$TS$N\",\"username\":\"$U\",\"className\":\"FLOW-CLASS\",\"displayName\":\"Flow$N\",\"initialPassword\":\"init-pass-123\"}")
   ok "加入学生 $N" "$CODE" "200"
   BODY=$(curl -s -X POST "$AUTH/api/v1/auth/login" -H 'Content-Type: application/json' -d "{\"username\":\"$U\",\"password\":\"init-pass-123\"}")
   STU_TOKENS+=("$(jget "$BODY" accessToken)"); STU_NAMES+=("$U")

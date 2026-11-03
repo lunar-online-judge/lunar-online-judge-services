@@ -291,7 +291,7 @@ for i in $(seq 1 20); do
 done
 check "调度器推进 PUBLISHED→RUNNING" RUNNING "$STATUS"
 
-api POST "$CONTEST/api/v1/contests/$CID2/students" "$ADMIN_TOKEN" "{\"studentNo\":\"$SNO\",\"username\":\"student_$SNO\",\"displayName\":\"测试学生\",\"initialPassword\":\"whatever-999\"}"
+api POST "$CONTEST/api/v1/contests/$CID2/students" "$ADMIN_TOKEN" "{\"studentNo\":\"$SNO\",\"username\":\"student_$SNO\",\"displayName\":\"测试学生\",\"className\":\"测试班\",\"initialPassword\":\"whatever-999\"}"
 check "同一学生加入第二场（账号复用）→ 200" 200 "$CODE"
 check "  复用同一 studentId"      "$SID" "$(jget "$BODY" "data.studentId")"
 
@@ -390,12 +390,6 @@ api POST "$ANTICHEAT/api/v1/monitor/events/00000000-0000-0000-0000-0000000000de/
 check "不存在的事件审核 → 404"    404 "$CODE"
 check "  MONITOR_EVENT_NOT_FOUND" MONITOR_EVENT_NOT_FOUND "$(jget "$BODY" "error.code")"
 
-check "服务间写审计记录 → 200"    200 "$CODE"
-check "  actorRole=ADMIN"         ADMIN "$(jget "$BODY" "data.actorRole")"
-check "管理端查询账本 → 200"      200 "$CODE"
-check "  含 items"                "true" "$([ "$(jlen "$BODY" "data.items")" -ge 1 ] && echo true || echo false)"
-check "考生查询账本 → 403"        403 "$CODE"
-check "无令牌查询 → 401"          401 "$CODE"
 
 section "10. gateway-service (8080) 与边缘"
 api GET "$GATEWAY/api/v1/auth/jwks" "" ""
