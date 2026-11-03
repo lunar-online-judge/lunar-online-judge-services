@@ -34,7 +34,8 @@ services:
     # 加密码：限流计数与判题去重状态都在这里，无密码时任何能连 6379 的人都能读改它们
     # （绕过登录限流、伪造"已评测过"）。口令由 REDIS_PASSWORD 注入，生产必须换成强随机值。
     command: ["redis-server", "--requirepass", "${REDIS_PASSWORD:-change-me-redis}"]
-    ports: ["6379:6379"]
+    # 宿主端口用 REDIS_PORT：本机若有别的 Redis 占着 6379，把它设成 6380 即可（业务服务也读同一个变量）
+    ports: ["${REDIS_PORT:-6379}:6379"]
     environment:
       REDIS_PASSWORD: ${REDIS_PASSWORD:-change-me-redis}
     healthcheck:
@@ -62,7 +63,8 @@ services:
     # 3.x 的 Derby 结构与 2.x 不兼容，故换用新卷（旧卷 docker_nacos-data 可删）
     volumes: ["nacos-data-v3:/home/nacos/data"]
     healthcheck:
-      test: ["CMD-SHELL", "curl -fs http://localhost:8080/nacos/v3/console/health/readiness || exit 1"]
+      # 检查客户端 API 端口 8848（业务服务只用这条通道）；控制台 8080 在 3.0.3 上会对所有路径返 500，不可用作探针
+      test: ["CMD-SHELL", "curl -s -m 5 -o /dev/null -w '%{http_code}' http://localhost:8848/ | grep -qE '^[234]' || exit 1"]
       interval: 15s
       timeout: 5s
       retries: 10
