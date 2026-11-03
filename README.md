@@ -18,6 +18,7 @@
 | 安全 | Spring Security Starter | 随 Spring Boot 3.5.16 管理 | 9 个服务已生效（auth 显式引入，其余经资源服务器 starter 传递）；gateway 与 media 无 |
 | 资源服务器 | OAuth2 Resource Server Starter | 随 Spring Boot 3.5.16 管理 | auth、contest、problem、submission、judge、anti-cheat、media（占位）、audit、ai、analytics 已引入；**gateway 未引入**；judge 引入依赖但**未配置验签**（全模块无 `jwk-set-uri`，`README` 曾据此断言端点恒 401，已核对仍成立），端点当前恒 401 |
 | 服务发现 | Spring Cloud Alibaba Nacos Discovery | 2025.0.0.0 | 10 个服务均已注册到 Nacos；网关路由与服务间调用按服务名寻址 |
+> **注**：ai-service 已于 2026-11 删除，下文相关描述仅作设计记录。
 | 服务间调用 | Spring HTTP Interface（`@HttpExchange`）+ RestClient | 随 Spring Framework 6.2 管理 | contest / submission / anti-cheat / auth / ai / analytics 六个调用方用声明式接口（各服务 `ServiceClientConfig` 装配，baseUrl 默认服务名、`*_BASE_URL` 可覆盖）；审计写入契约 `AuditServiceApi` 因四个调用方完全相同而定义在 lunar-common 共享；寻址靠 `spring-cloud-starter-loadbalancer`，无需额外 starter |
 | 配置中心 | Spring Cloud Alibaba Nacos Config | 2025.0.0.0 | 5 个服务托管运行时可变参数（登录限流阈值、心跳超时等），改值后无需重启 |
 | LLM 框架 | LangChain4j（`langchain4j` + `langchain4j-open-ai`） | 1.22.0 | ai-service 已引入，版本由 `langchain4j-bom` 统一。**只接入云端 API 模型**（不再有本地模型）：各家云厂商都是 OpenAI 兼容协议，因此切换 Provider 只换 base-url（外加 api-key 与模型名），不引任何厂商专属 SDK；Provider 地址必须由 `AI_PROVIDER_BASE_URL` 显式给出（没有默认值，缺了服务起不来）；输出契约由 `AiServices` 的返回类型生成 JSON schema，不手写 JSON 提示词 |
@@ -36,7 +37,6 @@
 ### 当前仅纳入编排或设计、尚未接入 Java 依赖的组件
 
 - Elasticsearch：暂不使用；风险事件与审计的检索需求首期直接查询 PostgreSQL，后续有需要时再引入；
-- MinIO：截图存储目标，尚未加入 MinIO SDK；
 - JPlag：独立查重 worker，尚未接入主 Maven Reactor。
 
 已在用的关键组件（MyBatis-Plus、Nacos 服务发现、Redis、RocketMQ、go-judge）见上表与 `docs/middleware.md`。
@@ -47,7 +47,6 @@
 |---|---|---|
 | PostgreSQL | `postgres:16` | core Compose |
 | Redis | `redis:7-alpine` | core Compose |
-| MinIO | `minio/minio:latest` | core Compose；当前未固定版本，生产部署前必须锁定 digest 或明确版本 |
 | Nacos | `nacos/nacos-server:v3.0.3` | platform Compose，standalone 模式；8848 API/9848 gRPC/8849 控制台；3.0.3 与 SCA 捆绑的 nacos-client 3.0.3 同补丁线 |
 | RocketMQ NameServer | `apache/rocketmq:5.3.1` | platform Compose |
 | RocketMQ Broker | `apache/rocketmq:5.3.1` | platform Compose；配置 `docker/rocketmq/broker.conf`，本地向宿主机广播 127.0.0.1 |
@@ -62,8 +61,6 @@ Compose 镜像版本来自 `docker/compose.core.yml`、`docker/compose.platform.
 - go-judge 作为独立 Linux 沙箱执行服务；
 - JPlag 作为独立异步代码查重 worker，具体版本和许可证在集成前审查；
 - WebRTC 用于指定时间窗口内的屏幕/摄像头实时查看，不保存连续视频；
-- 风险截图支持风险触发、定时、手动三种方式，保存到 MinIO；
-- PostgreSQL 单实例多 schema；Redis、RocketMQ、Nacos、MinIO 通过 Compose 提供；
 - 角色：管理员、考生、监考员、老师；RBAC 按考试/竞赛授权；
 - 评测和查重通过平台自有接口抽象，避免业务代码绑定第三方协议。
 
@@ -78,7 +75,6 @@ Compose 镜像版本来自 `docker/compose.core.yml`、`docker/compose.platform.
 - `docs/api.md`：API 与 WebSocket/媒体信令约定；
 - `docs/exam-process.md`：考试生命周期、随机组卷、预检、提交、评分和待确认决策；
 - `docs/deployment.md`：Docker Compose、环境变量配置和生产隔离要求；
-- `docker/compose.core.yml`：PostgreSQL、Redis、MinIO；
 - `docker/compose.platform.yml`：Nacos、RocketMQ；
 - `docker/compose.edge.yml`：OpenResty 边缘反向代理，统一对外入口；
 - `docker/compose.judge.yml`：go-judge 评测沙箱节点（独立网络）；

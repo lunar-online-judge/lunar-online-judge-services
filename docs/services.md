@@ -155,7 +155,11 @@ submission/anti-cheat/ai ──(audit-recorded)──> audit（**已生产，aud
 - 当前实现（2026-10-08，2026-10 更新）：`audit_schema.audit_logs` 追加式账本（仅插入，无更新/删除接口；**V3 起 DB 触发器兜底**：任何 `UPDATE`/`DELETE` 一律被拒绝——用触发器而不是 `REVOKE`，因为所有服务共用同一个数据库角色（也是表 owner），对 owner 做 REVOKE 不生效）；服务间写入端点（转发操作者令牌，actor/role 自动记录）+ 管理端分页查询（动作/操作者/竞赛过滤）；**服务身份单独存 `service_id`**（V2 迁移加列：SERVICE 令牌的 `sub` 是服务名而非用户 uuid，塞进 `actor_id` 会被 PostgreSQL 拒绝；此时 `actor_id` 留空、`actor_role=SERVICE`）；动作清单约定（大写下划线自由字符串）：STUDENT_CREATED、STUDENT_PASSWORD_RESET、RISK_EVENT_REVIEWED、EXAM_STARTED、SUBMISSION_JUDGED 等，新增动作自然写入不因校验丢账。
 - 接入样本：anti-cheat 审核动作 + contest 名单变更/考试流转 + auth 学生账号 + submission 提交与判决，共 **10 个动作**已接入（`AuditRecorder` 尽力而为，审计服务暂不可用不阻断主流程，条目缺口由服务结构化日志兜底）；其中考试流转与判决回写没有用户令牌，用**服务身份令牌**（role=SERVICE）写入。**ai 的三个动作**（`AI_JOB_REQUESTED` / `AI_JOB_FAILED` / `AI_FINDING_CREATED`）在简化后**只写结构化日志**，不再入审计账本（原走本地 Outbox 的 `lunar-audit-recorded`）。
 
-## ai-service
+## ai-service（**已删除**）
+
+> **⚠️ 已删除（2026-11）**：ai-service 已从仓库移除（59 文件、3,484 行），根 pom 模块、Nacos 配置、
+> `compose.ai.yml`、`scripts/ai-test.sh` 与 auth 的服务客户端密钥一并清除。以下内容保留为**设计记录**，
+> 不代表当前可用的能力。将来重新启用时按此实现，并先满足 `docs/development-guide.md` §9 的前置条件。
 
 AI 能力的证据产出方，**只产证据、不改事实**。
 
