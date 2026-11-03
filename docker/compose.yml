@@ -1,0 +1,116 @@
+# 基础设施：一个文件起齐（PostgreSQL / Redis / Nacos / RocketMQ / OpenResty）
+#
+# 设计取舍（≤1000 人规模）：
+# - 业务服务（auth/contest/problem/submission/judge/anti-cheat/analytics）**不进容器**，
+#   用 `mvn spring-boot:run` 或 jar + 进程管理跑在宿主机：单机部署下容器化只增加构建与调试成本。
+# - 容器只留给"有状态、要隔离、版本要锁死"的东西：数据库、缓存、注册配置中心、消息队列、边缘入口。
+# - 评测沙箱单独一份 compose.judge.yml：它要 privileged + 独立节点，天然不该与这些同生共死。
+#
+# 启动：docker compose -f docker/compose.yml up -d
+# 停止：docker compose -f docker/compose.yml down           （加 -v 会连数据卷一起删）
+# 变量：复制 .env.example 为 .env，改掉所有 change-me* 默认值。
+
+services:
+  postgres:
+    image: postgres:16
+    environment:
+      POSTGRES_DB: lunar
+      POSTGRES_USER: lunar
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-change-me}
+    # 宿主机 5432 常被本机 postgres 服务占用，开发期映射到 5433（容器内仍是 5432）。
+    # 本地启动业务服务需设置 POSTGRES_PORT=5433；生产环境按实际端口注入即可。
+    ports: ["5433:5432"]
+    volumes: ["postgres-data:/var/lib/postgresql/data"]
+    # 没有 healthcheck 时，编排无法判断"库是真的可连"，restart 策略让崩溃后能自愈
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U lunar -d lunar"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    restart: unless-stopped
+
+  redis:
+    image: redis:7-alpine
+    # 加密码：限流计数与判题去重状态都在这里，无密码时任何能连 6379 的人都能读改它们
+    # （绕过登录限流、伪造"已评测过"）。口令由 REDIS_PASSWORD 注入，生产必须换成强随机值。
+    command: ["redis-server", "--requirepass", "${REDIS_PASSWORD:-change-me-redis}"]
+    ports: ["6379:6379"]
+    environment:
+      REDIS_PASSWORD: ${REDIS_PASSWORD:-change-me-redis}
+    healthcheck:
+      test: ["CMD-SHELL", "redis-cli -a \"$$REDIS_PASSWORD\" ping | grep -q PONG"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    restart: unless-stopped
+
+  nacos:
+    # 3.0.3 与 SCA 2025.0.0.0 捆绑的 nacos-client 3.0.3 同属一条补丁线，是最适配的版本；
+    # 升到 3.x 同时消除了 2.x 的 public 命名空间 ID 不一致问题（配置拉取的坑，见 docs/middleware.md）
+    image: nacos/nacos-server:v3.0.3
+    environment:
+      MODE: standalone
+      # 3.x 的启动脚本强制要求以下三项（2.x 镜像无此要求）。开发用值；生产必须换成强随机值并启用鉴权
+      NACOS_AUTH_TOKEN: ${NACOS_AUTH_TOKEN:-bHVuYXItZGV2LW5hY29zLWF1dGgtdG9rZW4tMDEyMzQ1Njc4OWFiY2RlZg==}
+      NACOS_AUTH_IDENTITY_KEY: ${NACOS_AUTH_IDENTITY_KEY:-serverIdentity}
+      NACOS_AUTH_IDENTITY_VALUE: ${NACOS_AUTH_IDENTITY_VALUE:-lunarDevSecret}
+      # 刻意不设 NACOS_AUTH_ENABLE：沿用镜像默认的 nacos.core.auth.enabled=false，客户端 API 免凭据
+      # （与 2.x 时期一致）。控制台另有自己的登录，首次访问时初始化管理员密码
+      # （3.x 取消了默认 nacos/nacos）。生产环境必须启用鉴权，见 docs/deployment.md。
+    ports: ["8848:8848", "9848:9848", "8849:8080"]
+    # 配置中心的数据必须持久化：此前无卷，容器重建会让写入 Nacos 的配置全部丢失。
+    # 3.x 的 Derby 结构与 2.x 不兼容，故换用新卷（旧卷 docker_nacos-data 可删）
+    volumes: ["nacos-data-v3:/home/nacos/data"]
+    healthcheck:
+      test: ["CMD-SHELL", "curl -fs http://localhost:8080/nacos/v3/console/health/readiness || exit 1"]
+      interval: 15s
+      timeout: 5s
+      retries: 10
+    restart: unless-stopped
+
+  namesrv:
+    image: apache/rocketmq:5.3.1
+    command: sh mqnamesrv
+    ports: ["9876:9876"]
+    healthcheck:
+      test: ["CMD-SHELL", "sh mqadmin clusterList -n localhost:9876 >/dev/null 2>&1 || exit 1"]
+      interval: 15s
+      timeout: 10s
+      retries: 5
+    restart: unless-stopped
+
+  broker:
+    image: apache/rocketmq:5.3.1
+    command: sh mqbroker -n namesrv:9876 -c /home/rocketmq/broker.conf
+    depends_on:
+      - namesrv
+    environment:
+      # 默认堆是 8g，本地开发必须调小
+      JAVA_OPT_EXT: "-Xms512m -Xmx512m -Xmn128m"
+    ports: ["10909:10909", "10911:10911", "10912:10912"]
+    volumes:
+      - ./rocketmq/broker.conf:/home/rocketmq/broker.conf
+    healthcheck:
+      test: ["CMD-SHELL", "sh mqadmin brokerStatus -n namesrv:9876 -b localhost:10911 >/dev/null 2>&1 || exit 1"]
+      interval: 15s
+      timeout: 10s
+      retries: 5
+    restart: unless-stopped
+
+  # 边缘入口：TLS 终止与限流。业务服务跑在宿主机，容器内经 host.docker.internal 回源。
+  openresty:
+    image: openresty/openresty:1.29.2.4-0-alpine
+    ports: ["80:80"]
+    volumes:
+      - ./openresty/nginx.conf:/usr/local/openresty/nginx/conf/nginx.conf:ro
+    # Linux 宿主机兼容（Docker Desktop 自带 host.docker.internal）；
+    # Windows 上 80 端口若被 IIS/http.sys 占用，改成其它映射端口并同步文档
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    depends_on:
+      - postgres
+    restart: unless-stopped
+
+volumes:
+  postgres-data:
+  nacos-data-v3:

@@ -51,7 +51,7 @@
 
 按顺序做，每步可独立验证：
 
-1. **打通数据库迁移**：`docker compose -f docker/compose.core.yml up -d postgres`，启动服务并设置 `FLYWAY_ENABLED=true`，确认两张迁移执行、`auth_schema.users` 建表。
+1. **打通数据库迁移**：`docker compose -f docker/compose.yml up -d postgres`，启动服务并设置 `FLYWAY_ENABLED=true`，确认两张迁移执行、`auth_schema.users` 建表。
 2. **接入 MyBatis-Plus**：pom 加 `mybatis-plus-spring-boot3-starter`（版本已在根 POM dependencyManagement 管理）和 `spring-boot-starter-jdbc`（MyBatis-Plus 需要 DataSource 事务支撑），配置数据源沿用现有 `application.yml`。
 3. **安全配置基线**：新增 `SecurityConfig`——`BCryptPasswordEncoder` Bean；`SecurityFilterChain` 放行 `POST /api/v1/auth/login` 与 `GET /api/v1/auth/jwks`，其余 `authenticated()`；无状态会话（`STATELESS`）；关闭 CSRF。这一步完成后服务不再是"全 401 + 随机密码"状态。
 4. **用户加载**：按 `username` 查 `auth_schema.users`（MyBatis-Plus Mapper），校验 `status='ACTIVE'`。

@@ -44,20 +44,20 @@
 
 | 组件 | 端口 | 所在文件 | 凭据 |
 |---|---|---|---|
-| PostgreSQL | 宿主机 5433（容器内 5432） | compose.core.yml | `lunar` / `change-me`，库 `lunar`；宿主 5432 被本机 postgres 服务占用，开发期映射 5433，服务启动需 `POSTGRES_PORT=5433` |
-| Redis | 6379 | compose.core.yml | 无密码（仅本地） |
-| Nacos | 8848（API/客户端）+ 9848（客户端 gRPC）+ 8849（控制台，容器内 8080） | compose.platform.yml | standalone 模式，`nacos/nacos-server:v3.0.3`；**9848 必须映射**——服务注册与订阅走 gRPC，只开 8848 会报 `Server check fail ... 9848`。控制台首次访问需初始化管理员密码（3.x 取消默认 nacos/nacos） |
-| RocketMQ NameServer | 9876 | compose.platform.yml | — |
-| RocketMQ Broker | 10909 / 10911 / 10912 | compose.platform.yml | 配置见 `docker/rocketmq/broker.conf` |
-| RocketMQ Dashboard | 8090 | compose.platform.yml | 开发专用管理面板；与 broker 共享网络命名空间（无登录），broker 重启后需一起重启 |
-| OpenResty（反向代理） | 80 | compose.edge.yml | 回源宿主机 gateway-service :8080 |
+| PostgreSQL | 宿主机 5433（容器内 5432） | compose.yml | `lunar` / `change-me`，库 `lunar`；宿主 5432 被本机 postgres 服务占用，开发期映射 5433，服务启动需 `POSTGRES_PORT=5433` |
+| Redis | 6379 | compose.yml | 无密码（仅本地） |
+| Nacos | 8848（API/客户端）+ 9848（客户端 gRPC）+ 8849（控制台，容器内 8080） | compose.yml | standalone 模式，`nacos/nacos-server:v3.0.3`；**9848 必须映射**——服务注册与订阅走 gRPC，只开 8848 会报 `Server check fail ... 9848`。控制台首次访问需初始化管理员密码（3.x 取消默认 nacos/nacos） |
+| RocketMQ NameServer | 9876 | compose.yml | — |
+| RocketMQ Broker | 10909 / 10911 / 10912 | compose.yml | 配置见 `docker/rocketmq/broker.conf` |
+| RocketMQ Dashboard | 8090 | compose.yml | 开发专用管理面板；与 broker 共享网络命名空间（无登录），broker 重启后需一起重启 |
+| OpenResty（反向代理） | 80 | compose.yml | 回源宿主机 gateway-service :8080 |
 | go-judge（评测沙箱） | 5050 | compose.judge.yml | `privileged` + `shm 256m`（官方推荐本地方式），独立网络 |
 
 **不再由 Compose 提供的组件：本地 LLM 推理（原 Ollama，11434 端口）**。本项目只接入**云端 API 模型**，Provider 是外部服务而不是本机容器，因此基础设施端口表里没有它。`docker/compose.ai.yml` 已废弃（文件只剩一段说明性注释，`docker compose -f docker/compose.ai.yml up -d` 本机实测以 `empty compose file` 失败退出、exit 1，既不起容器也不建工程——这是有意为之）；历史上拉模型的 `ollama pull` / `ollama list` 步骤一并删除。需要"数据不出境"的部署改用**自建内网的 OpenAI 兼容网关**，把 `AI_PROVIDER_BASE_URL` 指向它的内网地址（此时不需要出境授权）。
 
 ## 反向代理（OpenResty）
 
-OpenResty 是平台的唯一对外入口（边缘层），Compose 中由 `docker/compose.edge.yml` 提供，配置为 `docker/openresty/nginx.conf`：
+OpenResty 是平台的唯一对外入口（边缘层），Compose 中由 `docker/compose.yml` 提供，配置为 `docker/openresty/nginx.conf`：
 
 - 监听 80 端口，所有请求转发给 gateway-service（upstream `host.docker.internal:8080`，gateway 目前跑在宿主机）；服务容器化后把 upstream 改成容器名/服务名并加入同一网络；
 - `GET /healthz` 由 OpenResty 直接返回 200，不回源，用于边缘自检；
@@ -70,10 +70,10 @@ OpenResty 是平台的唯一对外入口（边缘层），Compose 中由 `docker
 
 ```powershell
 # 1. 基础设施
-docker compose -f docker/compose.core.yml up -d
-docker compose -f docker/compose.platform.yml up -d
+docker compose -f docker/compose.yml up -d
+docker compose -f docker/compose.yml up -d
 # 1.1 边缘反向代理（回源宿主机 gateway-service :8080，启动先后不限）
-docker compose -f docker/compose.edge.yml up -d
+docker compose -f docker/compose.yml up -d
 # 1.2 评测沙箱节点（与业务服务独立网络；judge-service 经 localhost:5050 访问）
 docker compose -f docker/compose.judge.yml up -d
 # 1.3 AI Provider 是**外部云 API**，不由 Compose 提供：启动 ai-service 前必须已设置

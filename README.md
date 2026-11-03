@@ -53,7 +53,7 @@
 | go-judge | `criyle/go-judge`（本仓库 `docker/go-judge/Dockerfile` 基于它构建带工具链的镜像） | judge Compose，评测沙箱节点；`GoJudgeAdapter` 已实现，C++ 编译/运行与五类 verdict 已真机实测 |
 | OpenResty | `openresty/openresty:1.29.2.4-0-alpine` | edge Compose，反向代理回源宿主机 gateway :8080 |
 
-Compose 镜像版本来自 `docker/compose.core.yml`、`docker/compose.platform.yml`、`docker/compose.edge.yml` 和 `docker/compose.judge.yml`。Docker 镜像版本与 Java 依赖版本独立维护，升级其中一类不代表另一类自动升级。
+Compose 镜像版本来自 `docker/compose.yml`（基础设施）和 `docker/compose.judge.yml`（评测沙箱）。Docker 镜像版本与 Java 依赖版本独立维护，升级其中一类不代表另一类自动升级。
 
 ## 当前架构决策
 
@@ -75,10 +75,10 @@ Compose 镜像版本来自 `docker/compose.core.yml`、`docker/compose.platform.
 - `docs/api.md`：API 与 WebSocket/媒体信令约定；
 - `docs/exam-process.md`：考试生命周期、随机组卷、预检、提交、评分和待确认决策；
 - `docs/deployment.md`：Docker Compose、环境变量配置和生产隔离要求；
-- `docker/compose.platform.yml`：Nacos、RocketMQ；
-- `docker/compose.edge.yml`：OpenResty 边缘反向代理，统一对外入口；
+- `docker/compose.yml`：Nacos、RocketMQ；
+- `docker/compose.yml`：OpenResty 边缘反向代理，统一对外入口；
 - `docker/compose.judge.yml`：go-judge 评测沙箱节点（独立网络）；
-- `docker/compose.full.yml`：组合启动入口；
+- `docker/compose.yml`：组合启动入口；
 - `services/judge-service`：评测编排服务；设 `GO_JUDGE_BASE_URL` 启用 go-judge 适配器，否则需 `spring.profiles.active=mock` 才有引擎实现。
 
 > 说明：管理后台前端曾以 `admin-web/` 引入（提交 `f3f0afa`），随后在后续提交中被整体删除，当前仓库不含该目录；它引用的 `admin/api-contracts.md` 同样不存在。若恢复该前端，请连同本节目录一并补回。

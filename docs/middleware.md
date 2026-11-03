@@ -1,6 +1,6 @@
 # 中间件清单
 
-本文档列出项目依赖的全部中间件与外部服务，说明各自的用途、功能、接入状态和使用约束。版本与镜像以 `docker/compose.core.yml`、`docker/compose.platform.yml` 和根 POM 为准（`docker/compose.ai.yml` 已废弃，只剩一段说明性注释，见"LLM 推理服务"节）；端口与启动见 `docs/deployment.md`；数据流细节见 `docs/architecture.md`。
+本文档列出项目依赖的全部中间件与外部服务，说明各自的用途、功能、接入状态和使用约束。版本与镜像以 `docker/compose.yml`、`docker/compose.yml` 和根 POM 为准（`docker/compose.ai.yml` 已废弃，只剩一段说明性注释，见"LLM 推理服务"节）；端口与启动见 `docs/deployment.md`；数据流细节见 `docs/architecture.md`。
 
 ## 总览
 
@@ -92,7 +92,7 @@
 
 - 该文件**只剩注释**（有意保留占位而不是删除：直接删会让照旧执行的人只看到"文件不存在"这种易误判的报错）；YAML 只有注释是合法的，而 compose 会拒绝它——**本机实测（2026-10）**：`docker compose -f docker/compose.ai.yml up -d` 与 `… config` 都以 `empty compose file` 退出（exit 1），既不建工程也不起容器。这正是我们要的效果：照旧文档执行的人会立刻停下，而不是在不知情的情况下又起一套本机推理；
 - 无 11434 端口、无 `ollama pull`、无 `lunar-ollama` 容器、无 `ollama-models` 命名卷；
-- **它没有被任何其它 compose 文件 `include`/`extends`**：`docker/compose.full.yml` 只收 `compose.core.yml` / `compose.platform.yml` / `compose.edge.yml` / `compose.judge.yml`，因此废弃它不影响组合启动；
+- **它没有被任何其它 compose 文件 `include`/`extends`**：`docker/compose.yml` 只收 `compose.yml` / `compose.yml` / `compose.yml` / `compose.judge.yml`，因此废弃它不影响组合启动；
 - 需要"数据不出境"的部署时，正确做法是自建**内网的 OpenAI 兼容网关**并把 base-url 指向它（此时地址判内网、不需要出境授权）——它仍是 API 模型，**不要**回到本机模型运行时。
 
 **数据边界（数据出境门禁）**：`AiModelFactory 的出境检查` 的判据是 **base-url 的地址**，不是 `ai.provider.mode`——把 mode 写成 LOCAL 却填了公网地址，是最容易发生的数据出境方式。**这条逻辑本轮原样保留、不因"只接云端"而放宽**：自建内网网关同样属于"API 模型"，而且按地址判定是后面几项授权/复核机制的基础（没有地址判据，"出境"就无从定义）。
@@ -156,7 +156,7 @@ ai-service **不放**的键与理由见下文"不放"清单与"LLM 推理服务"
 - 刻意**不设** `NACOS_AUTH_ENABLE`：沿用镜像默认的 `nacos.core.auth.enabled=false`，客户端 API 免凭据（与 2.x 时期一致）。**控制台另有自己的登录**，且 3.x 取消了默认 `nacos/nacos`——首次访问控制台需**初始化管理员密码**（用户名预填 `nacos`，密码留空会随机生成）。
 - **3.x 的 API 变化**：v1 配置 API 已移除（`POST /nacos/v1/cs/configs` 返回 404），发布配置走控制台或用 `docker/nacos/publish-configs.sh`；v3 的 admin API 需要控制台登录凭据。**v1 的命名（naming）API 仍可用**，`docs/deployment.md` 里的冒烟命令不受影响。
 - 暂无托管配置的服务（problem / judge / audit / gateway）启动时会打一条 `config[…] is empty` 警告，属预期（`optional:` 导入 + 该服务确实没有托管配置），不是错误。
-- **配置数据已持久化**：`docker/compose.platform.yml` 给 nacos 挂了命名卷 `nacos-data-v3`（此前无卷，容器重建即丢；3.x 的 Derby 结构与 2.x 不兼容，故换了新卷；已实测强制重建后配置仍在）。
+- **配置数据已持久化**：`docker/compose.yml` 给 nacos 挂了命名卷 `nacos-data-v3`（此前无卷，容器重建即丢；3.x 的 Derby 结构与 2.x 不兼容，故换了新卷；已实测强制重建后配置仍在）。
 
 ### 服务发现的约束
 
