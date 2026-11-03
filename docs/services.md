@@ -13,7 +13,6 @@
 | submission-service | 8084 | 接收提交、幂等校验、提交状态 | `submission_schema`；幂等键以 DB 唯一约束为权威 | 提交/幂等/Outbox/判决回写已实现；五项校验实现 4 项，**成绩读模型（排名/最高分聚合）已由 analytics-service 承接**，submission 自身只维护提交状态 |
 | judge-service | 8080* | 评测调度：消费提交事件、适配 go-judge、verdict 归一化 | `judge_schema`（只一张 `outbox_events`：判决先落本地再异步投递） | 事件消费 + verdict 归一化 + go-judge 适配器 + **判决 Outbox（含退避/死信）**已实现；`judge_task` 异步状态机/超时补偿未实现 |
 | anti-cheat-service | 8086 | 风险事件、风险分数、查重任务、人工审核 | `anti_cheat_schema` | 风险事件上报/查询/审核已实现（2026-10-07）；查重与告警推送未实现 |
-| audit-service | 8087 | 管理操作与敏感访问审计 | `audit_schema` | 账本写入/查询已实现；**contest / auth / submission / anti-cheat 四个调用方已接入**（共用 lunar-common 的 `AuditRecorder`） |
 | ai-service | 8089 | AI 能力：代码评审、出题草稿（风险研判与语义查重已按简化决定删除），**只产证据不改事实** | `ai_schema`（作业队列、结论、草稿、相似对、Outbox） | 2 项作业能力已实现（LangChain4j Provider 层、异步作业管道含租约/退避/原子配额、BE-01 范围）；审计留痕改为结构化日志（Outbox 与隐私守卫已删） |
 | analytics-service | 8088 | 分析读模型：消费事件把事实投影进自己的 schema，提供成绩排名、学情与监考风险查询，**只读自己的 schema、不影响任何业务不变量** | `analytics_schema`（事实表、物化成绩表、参照数据缓存、幂等闸门，全部可由 MQ 重放重建） | 4 个消费者 + 三条读模型 + 9 个端点均已实现；模块内设计文档 `docs/analytics/read-model.md` |
 
@@ -31,22 +30,18 @@
 contest ──> auth       创建/重置学生账号、绑定授权（服务间身份 + 幂等键）
 contest ──> problem     创建竞赛时绑定题目版本和语言策略
 contest ──> auth       创建竞赛时绑定老师/监考员授权
-contest ──> audit       创建、授权、名单变更留痕
 analytics ──> contest    考试快照（取考试归属做范围判断 + 刷新参照数据缓存，服务身份）
 auth    <── 所有资源服务  JWT 校验（资源服务器本地验签，不回源）
 
 事件链路（RocketMQ）：
 submission ──(submission.created)──> judge、anti-cheat
 judge ──(submission.judged)──> submission、analytics、contest、gateway
-media/anti-cheat ──(risk-event-created)──> analytics、anti-cheat、gateway、audit
 anti-cheat ──(risk-event-reviewed)──> analytics（审核结论就地修正）
-media ──(screenshot-created)──> anti-cheat、audit、gateway
 anti-cheat ──(plagiarism-requested)──> plagiarism-worker（独立部署）
 ai ──(ai-finding-created)──> analytics（**已消费**）；anti-cheat 未消费
-submission/anti-cheat/ai ──(audit-recorded)──> audit（**已生产，audit 已消费**）
 ```
 
-**当前已实现的调用（Spring 原生声明式 HTTP 接口 `@HttpExchange`，内网直连不经网关）**：contest→auth（学生账号创建/查询/重置，`AuthServiceApi`；**服务身份令牌，`ServiceTokenApi`**）、submission→contest（提交判定，`ContestServiceApi`）、submission→problem（题目当前版本 `ProblemServiceApi` 与判题测试点 `ProblemInternalApi`）、**ai→submission / problem / contest / anti-cheat（AI 取数，见下方 ai-service 节）**、**analytics→contest（考试快照：取考试归属做范围判断 + 刷新参照数据缓存，服务身份，见下方 analytics-service 节）**、**contest→audit、auth→audit、submission→audit、anti-cheat→audit（审计留痕，四个调用方共用 lunar-common 的 `AuditServiceApi` + 尽力而为的 `AuditRecorder`）**。上图其余箭头（contest→problem、contest/gateway 作为事件消费方）尚未实现。**事件消费者代码已落地的只有 4 个服务**：judge 消费 `lunar-submission-created`、submission 消费 `lunar-submission-judged`、analytics 消费 `lunar-submission-judged` / `lunar-risk-event-created` / `lunar-risk-event-reviewed` / `lunar-ai-finding-created`、audit 消费 `lunar-audit-recorded`（anti-cheat / gateway / media 目前没有消费者代码）。
+**当前已实现的调用（Spring 原生声明式 HTTP 接口 `@HttpExchange`，内网直连不经网关）**：contest→auth（学生账号创建/查询/重置，`AuthServiceApi`；**服务身份令牌，`ServiceTokenApi`**）、submission→contest（提交判定，`ContestServiceApi`）、submission→problem（题目当前版本 `ProblemServiceApi` 与判题测试点 `ProblemInternalApi`）、**ai→submission / problem / contest / anti-cheat（AI 取数，见下方 ai-service 节）**、**analytics→contest（考试快照：取考试归属做范围判断 + 刷新参照数据缓存，服务身份，见下方 analytics-service 节）**、**contest→auth→submission→anti-cheat→audit（审计留痕，四个调用方共用 lunar-common 的 `AuditServiceApi` + 尽力而为的 `AuditRecorder`）**。上图其余箭头（contest→problem、contest/gateway 作为事件消费方）尚未实现。**事件消费者代码已落地的只有 4 个服务**：judge 消费 `lunar-submission-created`、submission 消费 `lunar-submission-judged`、analytics 消费 `lunar-submission-judged` / `lunar-risk-event-created` / `lunar-risk-event-reviewed` / `lunar-ai-finding-created` 消费 `lunar-audit-recorded（已下线）`（anti-cheat / gateway / media 目前没有消费者代码）。
 
 **令牌来源分两种**：有用户上下文（老师/考生发起的动作）**转发用户 Bearer**，账本因此能记到真实 actor；没有用户上下文（contest 的定时任务、submission 的 MQ 消费者、**ai 的作业 worker**、**analytics 的参照数据刷新**）**用服务身份令牌**（`POST /api/v1/internal/service-tokens` 以 clientId+clientSecret 换取 `roles=["SERVICE"]`、`sub=服务名`、默认 10 分钟 TTL），`AuditRecorder` 在操作者令牌为空时自动回落。客户端密钥由环境变量注入（`SERVICE_CLIENT_SECRET*`），默认值仅供本地联调。
 
@@ -70,7 +65,7 @@ submission/anti-cheat/ai ──(audit-recorded)──> audit（**已生产，aud
 - 数据与基础设施：`auth_schema.users`（字段设计见 `docs/architecture.md` §2.1.2）；Redis 存登录失败限流计数（令牌黑名单/失效状态尚未实现）。
 - 对外接口：`POST /api/v1/auth/login`、`GET /api/v1/auth/jwks`（均已实现，真实校验）；规划中还有学生账号管理服务间接口（供 contest-service 调用，见 `docs/api.md`）。
 - 当前实现（2026-10-05）：`SecurityConfig` 基线（STATELESS、放行 login/jwks、其余 401+Bearer 入口点）；MyBatis-Plus `UserMapper` 查 `auth_schema.users`；`AuthService` 编排（限流检查→用户加载→BCrypt 校验→ACTIVE 校验→签发）；RS256 `JwtTokenService`（claims 契约见 api.md）+ JWKS 公钥分发（`AUTH_JWT_PRIVATE_KEY` 未配置时临时生成开发密钥）；`LoginRateLimiter` 失败限流已迁 Redis（5 次锁 5 分钟，多实例共享、TTL 自动清理、Redis 不可用时 fail-open）；V3 迁移含开发种子管理员（`AUTH_DEV_SEED` 守卫）。**生产配置门禁（2026-10，BE-02）**：`prod` profile 下 `ProductionConfigGuard` 在就绪前校验（必须有持久 RSA 私钥、开发种子必须关闭、数据库口令/客户端密钥不得是开发默认、配置中心 fail-fast），不通过直接启动失败；**密钥轮换**：JWKS 与内部验签同时接受当前密钥与 `auth.jwt.retired-public-keys` 的退役公钥，旧 token 在 TTL 内仍有效。32 个单测通过（含对真实 Redis 的集成用例与密钥轮换用例），真实库实测通过。
-- 服务间接口（2026-10-06）：`/api/v1/internal/students`——创建学生账号（CANDIDATE 固定角色，BCrypt，幂等靠唯一约束）、按学号/账户名查询、重置密码；鉴权 = 操作者（老师/管理员）令牌由 contest 转发，auth 以自身资源服务器验签；审计：账号创建/密码重置同时写 audit-service 账本（lunar-common 的 `AuditRecorder`，尽力而为）与结构化日志。**服务身份令牌（2026-10）**：`POST /api/v1/internal/service-tokens` 以 clientId+clientSecret 换 `roles=["SERVICE"]` 的短 TTL 令牌（免认证端点，凭证在请求体），供无用户上下文的调用方使用；客户端注册表在 `auth.service-clients.secrets`（部署期配置，生产用环境变量注入）。
+- 服务间接口（2026-10-06）：`/api/v1/internal/students`——创建学生账号（CANDIDATE 固定角色，BCrypt，幂等靠唯一约束）、按学号/账户名查询、重置密码；鉴权 = 操作者（老师/管理员）令牌由 contest 转发，auth 以自身资源服务器验签；审计：账号创建/密码重置同时写 （已下线） 账本（lunar-common 的 `AuditRecorder`，尽力而为）与结构化日志。**服务身份令牌（2026-10）**：`POST /api/v1/internal/service-tokens` 以 clientId+clientSecret 换 `roles=["SERVICE"]` 的短 TTL 令牌（免认证端点，凭证在请求体），供无用户上下文的调用方使用；客户端注册表在 `auth.service-clients.secrets`（部署期配置，生产用环境变量注入）。
 - 下一步：令牌吊销（Redis 黑名单）；接口频控；服务客户端注册表迁配置中心/库表（当前在 `application.yml` + 环境变量）。
 
 ## contest-service
@@ -82,7 +77,7 @@ submission/anti-cheat/ai ──(audit-recorded)──> audit（**已生产，aud
 - 数据与基础设施：`contest_schema` 的 contests / contest_candidates / exam_sessions / announcements / announcement_confirms（字段设计见 `docs/architecture.md` §2.1.2；**题目分配表不存在**）；会话心跳以 DB 为权威、**未迁 Redis**（理由见 `docs/middleware.md`）。
 - 对外接口：`POST /api/v1/contests`、`GET /api/v1/contests`、`GET /{id}`、`POST /{id}/review`、`POST /{id}/publish`、`POST /{id}/archive`，以及名单增删查、CSV 批量导入、密码重置、公告发布/拉取/确认、会话进入与心跳、管理端终止考生会话（**均已实现**，JWT 验签 + 角色控制：创建/审核/名单/公告为老师或管理员，发布与归档仅管理员）；**规划**：题目分配查询、成绩查询；**"消费 `lunar-submission-judged` 更新排名"尚未实现**（contest 无 RocketMQ 依赖）。
 - 当前实现（2026-10-06）：**首个 OAuth2 资源服务器**——JWT 经 auth-service JWKS 本地验签（roles claim → ROLE_ authorities，`AUTH_JWK_SET_URI` 可覆盖）；`contest_schema.contests` 落库（MyBatis-Plus，独立 Flyway 历史表 `contest_history`）；生命周期状态机（`ContestStatus` 单向流转 + 条件更新防并发双审，RUNNING/FINISHED/ARCHIVED 的触发随时间管理特性落地）。**资源范围（2026-10，BE-01）**：`owner_teacher_id` 表达"谁有权管理"（迁移按 `created_by` 回填，回填不到仅 ADMIN 可见），管理端每个入口先做范围校验、越权按 404 隐藏存在，列表 total 也在范围内；考生侧按"是否已报名"放行。
-- 学生名单（2026-10-06）：`contest_schema.contest_candidates` 报名关系（唯一约束 contest_id+student_id，学号/账户名/显示名快照）；添加学生（auth 账号不存在则创建、存在则复用；REMOVED 行重新加入时激活）、**CSV 批量导入（multipart 上传，逐行等价于添加学生，逐行返回成功/失败原因，部分失败不回滚）**、分页名单（keyword 查学号）、重置密码（学生须在名单中）、移出（软删除 REMOVED）；重复报名 409、重复/未报名移出 403。**审计**：加入/重新加入/重置密码/移出四个动作写 audit-service 账本（`AuditRecorder` 尽力而为，失败不阻断；结构化日志同时保留兜底）。
+- 学生名单（2026-10-06）：`contest_schema.contest_candidates` 报名关系（唯一约束 contest_id+student_id，学号/账户名/显示名快照）；添加学生（auth 账号不存在则创建、存在则复用；REMOVED 行重新加入时激活）、**CSV 批量导入（multipart 上传，逐行等价于添加学生，逐行返回成功/失败原因，部分失败不回滚）**、分页名单（keyword 查学号）、重置密码（学生须在名单中）、移出（软删除 REMOVED）；重复报名 409、重复/未报名移出 403。**审计**：加入/重新加入/重置密码/移出四个动作写 （已下线） 账本（`AuditRecorder` 尽力而为，失败不阻断；结构化日志同时保留兜底）。
 - 考生会话（2026-10-06）：`contest_schema.exam_sessions`（唯一约束 contest_id+student_id）；进入（名单+状态+时间窗口校验）、心跳、断线重连恢复、TERMINATED 终态拒绝重进；心跳超时（默认 2 分钟，`exam.session.heartbeat-timeout-minutes`）由 @Scheduled 扫描置 EXPIRED（条件更新多实例幂等）；管理端终止会话（`POST /{contestId}/students/{studentId}/session/terminate`，条件更新）与"移出名单即失效"（§9）已实现；重复登录踢设备的设备模型随客户端版本字段落地。
 - 状态推进与归档（2026-10-06）：PUBLISHED→RUNNING→FINISHED 由 `ContestScheduler` 按时间窗口自动推进（30s 周期，条件更新多实例幂等，无窗口的考试不参与）；心跳复核考试状态/窗口/名单；`POST /{id}/archive` 管理员归档（FINISHED→ARCHIVED）。**审计**：状态推进写账本（定时任务无用户令牌 → 服务身份令牌，账本 actor=contest-service、role=SERVICE）。
 - 服务间快照（2026-10）：`GET /api/v1/internal/contests/{contestId}/snapshot`（**只认服务身份** `roles=["SERVICE"]`）——一次给出考试元数据、全员名单（含 `REMOVED`，过滤留给使用方）与锁定题目版本，供分析型消费者定时拉取参照数据。已有的 `/internal/contests/{id}/session` 是**考生令牌**语义（判 `canSubmit`），分析服务用不了；实现见 `ContestSnapshotService`（单独成组件：它跨考试/名单/锁定题目三张表，塞进 `ContestService` 会让那个类同时承担生命周期规则与参照数据投影两件事）。
@@ -108,7 +103,7 @@ submission/anti-cheat/ai ──(audit-recorded)──> audit（**已生产，aud
 - 不负责：不直接调用 go-judge，也不了解评测细节。
 - 数据与基础设施：`submission_schema`（submissions + outbox_events）；**幂等键不存 Redis，以 DB 唯一约束为权威**（理由见 `docs/middleware.md`）。
 - 对外接口：`POST /api/v1/submissions`（考生；`Idempotency-Key` 幂等）、`GET /{id}`（学生看自己，老师/管理员可查任意）、`POST /api/v1/internal/submissions/{id}/judged`（判题回写过渡端点）；生产 `lunar-submission-created`、消费 `lunar-submission-judged`。
-- 当前实现（2026-10-06）：`submission_schema` 落库（submissions + outbox_events，独立 Flyway 历史表 `submission_history`）；五项校验实现四项——会话有效 + 竞赛进行中（contest 服务间判定 `/api/v1/internal/contests/{id}/session`）、语言白名单 + 判题限制（problem 服务间查询）、提交频率未超限（按学生做窗口计数，阈值经 Nacos `exam.submission.*` 热更新，默认每 60 秒 30 次，超限 429）；「题目属于竞赛」依赖随机分配表，仍未实现并在代码中标注；幂等=同键同指纹返首次、异指纹 409；提交与 Outbox（信封含 traceId）同一事务；判决回写更新状态并写 `lunar-submission-judged` Outbox；**审计**：提交动作写 audit-service 账本（`AuditRecorder` 尽力而为，traceId 透传）；9 个单测 + 真机闭环通过。
+- 当前实现（2026-10-06）：`submission_schema` 落库（submissions + outbox_events，独立 Flyway 历史表 `submission_history`）；五项校验实现四项——会话有效 + 竞赛进行中（contest 服务间判定 `/api/v1/internal/contests/{id}/session`）、语言白名单 + 判题限制（problem 服务间查询）、提交频率未超限（按学生做窗口计数，阈值经 Nacos `exam.submission.*` 热更新，默认每 60 秒 30 次，超限 429）；「题目属于竞赛」依赖随机分配表，仍未实现并在代码中标注；幂等=同键同指纹返首次、异指纹 409；提交与 Outbox（信封含 traceId）同一事务；判决回写更新状态并写 `lunar-submission-judged` Outbox；**审计**：提交动作写 （已下线） 账本（`AuditRecorder` 尽力而为，traceId 透传）；9 个单测 + 真机闭环通过。
 - 事件总线（2026-10-07，2026-10 更新）：`OutboxPublisher`（2s 周期扫未发布事件行 → RocketMQTemplate 投递 → 标记 published_at，失败留待重试；**消息体改为完整事件信封**，此前只发内层 payload 因此 `eventId` 传不出去）；`JudgedConsumer` 消费 `lunar-submission-judged` 回写提交状态（成绩与排名由 analytics-service 独立投影同一事件）——**幂等分两层**：信封 `eventId` 走 `submission_schema.consumed_events` 闸门（V2 迁移，`on conflict do nothing` 插入即判断，与状态回写**同一事务**，回滚时登记一起回滚，不会出现"登记了已处理、判决却没落库"的黑洞），无 `eventId` 的旧格式消息退化为终态条件更新（CAS）。**审计**：判决回写写账本（MQ 消费者无用户令牌 → 服务身份令牌，actor=submission-service）。
 - 下一步：题目归属校验（依赖随机分配表落地）；提交频率阈值目前是保守默认，正式考试前按考场规模调整 `exam.submission.*`。（"该题最高有效分"聚合与成绩读模型已由 analytics-service 实现，本服务不再持有。）
 
@@ -135,7 +130,7 @@ submission/anti-cheat/ai ──(audit-recorded)──> audit（**已生产，aud
 - 对外接口：`POST /api/v1/monitor/events`（考生上报）、`GET /api/v1/monitor/events`（监考/管理分页查询）、`POST /api/v1/monitor/events/{eventId}/review`（人工审核）**均已实现**（见 `docs/api.md`）；生产 `lunar-risk-event-created`（经 Outbox）；**消费 `lunar-submission-created`、`lunar-risk-event-created`、`lunar-screenshot-created`、`lunar-plagiarism-completed` 均未实现**（有 rocketmq 依赖但没有任何消费者），规划中的 `lunar-screenshot-requested`、`lunar-plagiarism-requested` 也未生产。
 - 当前实现（2026-10-06/07）：`anti_cheat_schema.risk_events` 落库 + Outbox（`lunar-risk-event-created` → gateway 告警的未来消费方）；上报（考生客户端，severity 服务端规则表计算、未知类型保守 MEDIUM）；分页查询（竞赛/学生/等级/审核状态过滤）；审核状态机 OPEN→ACKNOWLEDGED→CONFIRMED/DISMISSED（条件更新防并发，终态保护，动作留痕日志待 audit 迁移）；9 个单测 + 真机闭环通过。
 - 审核流转事件（2026-10）：新增 `lunar-risk-event-reviewed`（`previousStatus`/`newStatus`/`reviewedBy`/`reviewedAt`，与审核状态更新**同一事务**）。此前风险事件只在**创建**时进 Outbox，只消费 `created` 的话分析侧的审核结论会永远停留在 `OPEN`；同时给 created 的 payload 补上 `problemId`。
-- 下一步：查重任务（JPlag，随 submission 聚合）；告警推送 gateway（WebSocket 阶段）；规则表可配置化；审核动作迁移 audit-service。
+- 下一步：查重任务（JPlag，随 submission 聚合）；告警推送 gateway（WebSocket 阶段）；规则表可配置化；审核动作迁移 （已下线）。
 
 ## media-service（**已从仓库移除**）
 
@@ -143,17 +138,6 @@ submission/anti-cheat/ai ──(audit-recorded)──> audit（**已生产，aud
 > 已确认的设计（监考令牌字段、实时流状态机、截图策略与三种触发、MinIO 对象与访问审计、
 > `lunar-screenshot-requested/created` 两个事件）保留在 `docs/architecture.md` 的 media-service 一节，
 > 将来落地时按此实现；当前仓库**没有**截图/WebRTC/媒体审计能力。
-
-## audit-service
-
-审计记录的追加式账本。
-
-- 职责：记录管理员操作、权限变更、账号管理操作（创建/重置/禁用/移出学生）、实时流查看、截图查看与创建、人工审核动作、系统配置变更。
-- 不负责：普通业务接口不能删除审计记录；不记录密码及任何敏感明文。
-- 数据与基础设施：`audit_schema`；风险事件与审计的检索首期直接查 PostgreSQL。
-- 对外接口：`POST /api/v1/internal/audit/records`（服务间写入）与 `GET /api/v1/audit/records`（管理端查询）**均已实现**；规划 `GET /api/v1/audit/media-access`（媒体访问审计查询，见 `docs/api.md`）；**已消费 `lunar-audit-recorded`**（audit-service 引了 rocketmq-spring，`AuditRecordedConsumer` 按 `eventId` 幂等入账——actor 取事件里的审计快照，不重放用户 Bearer，因此令牌过期不会让补偿永远失败；生产者是 submission / anti-cheat / ai 的本地 Outbox），**消费 `lunar-risk-event-created`、`lunar-screenshot-created`、`lunar-plagiarism-completed` 等事件仍未实现**——auth / contest 目前的接入方式仍是经 HTTP 同步写入（lunar-common 的 `AuditServiceApi` + 尽力而为的 `AuditRecorder`，失败不阻断主流程）。
-- 当前实现（2026-10-08，2026-10 更新）：`audit_schema.audit_logs` 追加式账本（仅插入，无更新/删除接口；**V3 起 DB 触发器兜底**：任何 `UPDATE`/`DELETE` 一律被拒绝——用触发器而不是 `REVOKE`，因为所有服务共用同一个数据库角色（也是表 owner），对 owner 做 REVOKE 不生效）；服务间写入端点（转发操作者令牌，actor/role 自动记录）+ 管理端分页查询（动作/操作者/竞赛过滤）；**服务身份单独存 `service_id`**（V2 迁移加列：SERVICE 令牌的 `sub` 是服务名而非用户 uuid，塞进 `actor_id` 会被 PostgreSQL 拒绝；此时 `actor_id` 留空、`actor_role=SERVICE`）；动作清单约定（大写下划线自由字符串）：STUDENT_CREATED、STUDENT_PASSWORD_RESET、RISK_EVENT_REVIEWED、EXAM_STARTED、SUBMISSION_JUDGED 等，新增动作自然写入不因校验丢账。
-- 接入样本：anti-cheat 审核动作 + contest 名单变更/考试流转 + auth 学生账号 + submission 提交与判决，共 **10 个动作**已接入（`AuditRecorder` 尽力而为，审计服务暂不可用不阻断主流程，条目缺口由服务结构化日志兜底）；其中考试流转与判决回写没有用户令牌，用**服务身份令牌**（role=SERVICE）写入。**ai 的三个动作**（`AI_JOB_REQUESTED` / `AI_JOB_FAILED` / `AI_FINDING_CREATED`）在简化后**只写结构化日志**，不再入审计账本（原走本地 Outbox 的 `lunar-audit-recorded`）。
 
 ## ai-service（**已删除**）
 

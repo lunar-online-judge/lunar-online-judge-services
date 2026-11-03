@@ -80,7 +80,7 @@ HTTP 前缀统一为 `/api/v1`。各服务经 gateway 对外暴露；客户端�
 | `Idempotency-Key` | 写操作幂等键；同一键 + 相同请求内容返回首次结果（200，不产生二次副作用），同一键 + 不同请求内容返回 409 `SUBMISSION_DUPLICATE` | 客户端 |
 | `Authorization: Bearer <JWT>` | 访问令牌，由 auth-service 签发，各服务作为资源服务器本地验签 | 登录后携带 |
 
-未携带或携带无效令牌返回 401（资源服务用 `BearerTokenAuthenticationEntryPoint`）；令牌有效但缺少角色/授权返回 403。**当前安全基线**：除 gateway（无 Spring Security 依赖）与 media（无代码）外，7 个服务都已配置 `SecurityFilterChain`——auth 放行 login/jwks，contest / problem / submission / anti-cheat / audit 作为资源服务器经 auth 的 JWKS 本地验签、角色规则写在方法级 `@PreAuthorize`；**judge-service 尚未接入验签**（未配置 `oauth2ResourceServer`，也没有 `jwk-set-uri`），其端点当前对所有调用者都返回 401。
+未携带或携带无效令牌返回 401（资源服务用 `BearerTokenAuthenticationEntryPoint`）；令牌有效但缺少角色/授权返回 403。**当前安全基线**：除 gateway（无 Spring Security 依赖）与 media（无代码）外，7 个服务都已配置 `SecurityFilterChain`——auth 放行 login/jwks，contest / problem / submission / anti-cheat  作为资源服务器经 auth 的 JWKS 本地验签、角色规则写在方法级 `@PreAuthorize`；**judge-service 尚未接入验签**（未配置 `oauth2ResourceServer`，也没有 `jwk-set-uri`），其端点当前对所有调用者都返回 401。
 
 ### 认证令牌
 
@@ -181,8 +181,6 @@ HTTP 前缀统一为 `/api/v1`。各服务经 gateway 对外暴露；客户端�
 | anti-cheat | POST | `/api/v1/monitor/events` | CANDIDATE | 已实现（severity 由服务端规则表计算） |
 | anti-cheat | GET | `/api/v1/monitor/events` | **ADMIN** | 已实现（分页：竞赛/学生/等级/审核状态过滤；**BE-01 先收紧为管理员专用**——风险事件只知道 contestId、不知道竞赛归属，跨服务范围查询落地前按兼容说明继续 ADMIN-only） |
 | anti-cheat | POST | `/api/v1/monitor/events/{eventId}/review` | **ADMIN** | 已实现（OPEN→ACKNOWLEDGED→CONFIRMED/DISMISSED；写入走前态条件更新，**并发终审恰好一个成功、另一个 409**，终态不可再动；**终态必须填原因**，空白/超长 400 `MONITOR_REVIEW_REASON_INVALID`；角色同上一行，先收紧为管理员） |
-| audit | POST | `/api/v1/internal/audit/records` | 任意已认证 | 已实现（服务间写入；注意规则是 `isAuthenticated()`，未限制为 TEACHER/ADMIN。调用方：contest / auth / submission / anti-cheat，经 lunar-common 的 `AuditRecorder` 尽力而为写入。请求体可选字段缺省传 `null`——`contestId` 是 uuid 列，传空串会被 PostgreSQL 拒绝。SERVICE 令牌写入时 `sub` 落 `service_id`、`actor_id` 留空） |
-| audit | GET | `/api/v1/audit/records` | TEACHER/ADMIN | 已实现（追加式账本查询） |
 | ai | POST | `/api/v1/ai/jobs/code-review` | TEACHER（限归属）/ADMIN | 已实现（请求代码评审：立即返回作业号，评审在后台执行；必须给 `contestId` 以做资源范围判断） |
 | ai | GET | `/api/v1/ai/jobs/{jobId}` | TEACHER（限归属）/ADMIN | 已实现（作业状态与 `errorCode`；越权与不存在同样 404） |
 | ai | GET | `/api/v1/ai/jobs` | TEACHER（限归属）/ADMIN | 已实现（分页 + contestId/jobType/status 过滤；不给 contestId 时仅 ADMIN） |
@@ -310,7 +308,7 @@ PROVISIONAL -> UNDER_REVIEW -> FINAL
 
 ## 实时监考
 
-风险事件（2026-10-06 已实现）：`POST /api/v1/monitor/events` 由考生客户端自动上报（studentId = JWT sub），severity 由服务端规则表计算（不采信上报值）；v1 规则：HIGH=DEBUGGER_DETECTED/INJECTION_ATTEMPT/UNAUTHORIZED_MODULE，MEDIUM=SUSPICIOUS_PROCESS/MEDIA_STREAM_LOST/JUDGE_LIMIT_VIOLATION，LOW=FOCUS_LOST/CAMERA_MISSING/CLIPBOARD_ACCESS，未知类型保守 MEDIUM；事件入库即写 `lunar-risk-event-created` Outbox（gateway WebSocket 告警的未来消费方）。查询与审核（2026-10-06 已实现）：分页过滤 + 审核状态机 OPEN→ACKNOWLEDGED→CONFIRMED/DISMISSED（**写入是"前态条件更新"（CAS）：并发终审最多一个成功，终态不可再动**）；单一事件不能自动判定作弊，处置必须人工审核并留痕（审核人/时间/备注，已接入 audit-service，尽力而为、失败不阻断）。
+风险事件（2026-10-06 已实现）：`POST /api/v1/monitor/events` 由考生客户端自动上报（studentId = JWT sub），severity 由服务端规则表计算（不采信上报值）；v1 规则：HIGH=DEBUGGER_DETECTED/INJECTION_ATTEMPT/UNAUTHORIZED_MODULE，MEDIUM=SUSPICIOUS_PROCESS/MEDIA_STREAM_LOST/JUDGE_LIMIT_VIOLATION，LOW=FOCUS_LOST/CAMERA_MISSING/CLIPBOARD_ACCESS，未知类型保守 MEDIUM；事件入库即写 `lunar-risk-event-created` Outbox（gateway WebSocket 告警的未来消费方）。查询与审核（2026-10-06 已实现）：分页过滤 + 审核状态机 OPEN→ACKNOWLEDGED→CONFIRMED/DISMISSED（**写入是"前态条件更新"（CAS）：并发终审最多一个成功，终态不可再动**）；单一事件不能自动判定作弊，处置必须人工审核并留痕（审核人/时间/备注，已接入 （已下线），尽力而为、失败不阻断）。
 
 - `GET /api/v1/monitor/events`：分页查询风险事件；
 - `POST /api/v1/monitor/events/{eventId}/review`：人工审核风险事件；
@@ -398,7 +396,7 @@ CSV 列顺序固定为 `studentNo,username,displayName,initialPassword`；首个
 {"temporaryPassword":"新的临时密码"}
 ```
 
-接口返回 `passwordChangeRequired=true`，不返回密码。老师不能查询旧密码，只能重置。操作必须记录审计事件 `STUDENT_PASSWORD_RESET`（**现状**：contest/auth 侧先落结构化日志，尚未进 audit 账本，见 `docs/services.md` 各服务"下一步"；anti-cheat 的审核动作已接入 audit-service）。
+接口返回 `passwordChangeRequired=true`，不返回密码。老师不能查询旧密码，只能重置。操作必须记录审计事件 `STUDENT_PASSWORD_RESET`（**现状**：contest/auth 侧先落结构化日志，尚未进 audit 账本，见 `docs/services.md` 各服务"下一步"；anti-cheat 的审核动作已接入 （已下线））。
 
 ### 移出竞赛名单
 

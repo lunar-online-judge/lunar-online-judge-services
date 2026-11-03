@@ -21,7 +21,6 @@
 | submission-service | 8084 | 有 | |
 | judge-service | 8080（Spring 默认；yml 未设 `server.port`） | 有 | 唯一启用 spring-boot-maven-plugin 的模块，打出可执行 jar；**尚未接入令牌验签**（无 `jwk-set-uri`，端点当前恒 401） |
 | anti-cheat-service | 8086 | 有 | 风险事件/审核（rocketmq + 分页已配） |
-| audit-service | 8087 | 有 | 审计账本 |
 > **注（2026-11）**：ai-service 已从仓库删除（59 文件 / 3,484 行，含根 pom 模块、Nacos 配置、compose.ai.yml、ai-test.sh 与 auth 的服务客户端密钥）。下文涉及该服务的内容保留为**设计记录**，不代表现有能力。
 
 | ai-service | 8089 | 有 | AI 能力（代码评审/出题草稿）——**默认不启用**（简化中移出默认运行清单）；依赖 PostgreSQL（`ai_schema`）+ **云厂商 OpenAI 兼容 API 端点**（**外部服务**，地址由 `AI_PROVIDER_BASE_URL` 或 `ai.provider.base-url` 给；未配置时首次调用报错） |
@@ -90,7 +89,7 @@ mvn spring-boot:run -pl services/auth-service
 java -jar services/judge-service/target/judge-service-0.1.0-SNAPSHOT.jar
 ```
 
-所有服务的接口都要求认证。**除 gateway（无 Spring Security 依赖）与 media（无代码）外，9 个服务均已配置 `SecurityConfig`**：auth 放行 `POST /api/v1/auth/login` 与 `GET /api/v1/auth/jwks`（登录为真实实现：BCrypt 校验 + RS256 JWT + Redis 失败限流）；contest / problem / submission / anti-cheat / audit / ai / analytics 作为 OAuth2 资源服务器经 auth 的 JWKS 本地验签，角色规则在方法级 `@PreAuthorize`（ai-service 与 analytics-service 还在此之上做资源范围判断，见 `docs/api.md` 端点总表与 `docs/services.md`）；judge 仅放行 `/actuator/health`，**尚未接入验签**，其余端点当前恒 401。数据库迁移由 `FLYWAY_ENABLED=true` 开启，默认关闭。
+所有服务的接口都要求认证。**除 gateway（无 Spring Security 依赖）与 media（无代码）外，9 个服务均已配置 `SecurityConfig`**：auth 放行 `POST /api/v1/auth/login` 与 `GET /api/v1/auth/jwks`（登录为真实实现：BCrypt 校验 + RS256 JWT + Redis 失败限流）；contest / problem / submission / anti-cheat  / ai / analytics 作为 OAuth2 资源服务器经 auth 的 JWKS 本地验签，角色规则在方法级 `@PreAuthorize`（ai-service 与 analytics-service 还在此之上做资源范围判断，见 `docs/api.md` 端点总表与 `docs/services.md`）；judge 仅放行 `/actuator/health`，**尚未接入验签**，其余端点当前恒 401。数据库迁移由 `FLYWAY_ENABLED=true` 开启，默认关闭。
 
 **本地启动注意**（2026-10-05 实测）：
 
@@ -185,7 +184,7 @@ curl -s -i -H "X-Request-Id: test-123" http://localhost:8081/api/v1/auth/jwks | 
 | `ANALYTICS_SERVICE_URI` | 网关到 analytics-service 的路由地址覆盖（默认 `lb://analytics-service`，经 Nacos + LoadBalancer 解析；排障时钉到固定地址，如 `http://localhost:8088`） | `lb://analytics-service` |
 | `SERVICE_TOKEN_TTL_MINUTES` | 服务身份令牌有效期（分钟），刻意比用户令牌短 | `10` |
 | `POSTGRES_HOST` | PostgreSQL 地址 | `localhost` |
-| `POSTGRES_PORT` | PostgreSQL 端口（本地 Compose 映射在 5433） | `5432`，**judge / anti-cheat / audit / ai / analytics 的默认值却是 `5433`**（两处不一致，见"已知限制"） |
+| `POSTGRES_PORT` | PostgreSQL 端口（本地 Compose 映射在 5433） | `5432`，**judge / anti-cheat  / ai / analytics 的默认值却是 `5433`**（两处不一致，见"已知限制"） |
 | `POSTGRES_DB` | 数据库名 | `lunar` |
 | `POSTGRES_USER` / `POSTGRES_PASSWORD` | 数据库凭据 | `lunar` / `change-me` |
 | `AUTH_JWT_PRIVATE_KEY` | RS256 私钥（PKCS#8 PEM）；留空则启动期临时生成开发密钥，重启令牌失效 | 未设置（临时生成） |
@@ -204,9 +203,9 @@ curl -s -i -H "X-Request-Id: test-123" http://localhost:8081/api/v1/auth/jwks | 
 | `NACOS_CONFIG_NAMESPACE` | 配置中心命名空间；默认空 = `public`（与服务发现一致，3.x 下 public 正常可用） | 空（public） |
 | `ROCKETMQ_NAMESRV_ADDR` | RocketMQ NameServer | `localhost:9876` |
 
-数据库连接变量当前由 9 个有库的服务消费：auth、contest、problem、submission、judge、anti-cheat、audit、ai、analytics（只有 media 无 DataSource）。
+数据库连接变量当前由 9 个有库的服务消费：auth、contest、problem、submission、judge、anti-cheat、ai、analytics（只有 media 无 DataSource）。
 
-**多服务共库的 Flyway 约定**：每个服务使用独立的 schema 与独立的迁移历史表（`spring.flyway.schemas` + `spring.flyway.table`），避免版本号/checksum 冲突——auth-service 沿用默认 `public.flyway_schema_history`；contest / problem / submission / judge / anti-cheat / audit / ai / analytics 分别用 `contest_schema`+`contest_history`、`problem_schema`+`problem_history`、`submission_schema`+`submission_history`、**`judge_schema`+`judge_history`**（V1 只有 `outbox_events` 一张表，判决先落本地再异步投递）、`anti_cheat_schema`+`anti_cheat_history`、`audit_schema`+`audit_history`、**`ai_schema`+`ai_history`**（作业队列/结论/相似对/出题草稿/Outbox）、**`analytics_schema`+`analytics_history`**（V1 事实表 + 参照数据缓存 + 幂等闸门，V2 物化成绩表 + AI 结论事实表）。**资源服务验签**：`AUTH_JWK_SET_URI` 指向 auth 的 JWKS（默认 `http://localhost:8081/api/v1/auth/jwks`），本地启动顺序上 auth 需先于其他资源服务可用。
+**多服务共库的 Flyway 约定**：每个服务使用独立的 schema 与独立的迁移历史表（`spring.flyway.schemas` + `spring.flyway.table`），避免版本号/checksum 冲突——auth-service 沿用默认 `public.flyway_schema_history`；contest / problem / submission / judge / anti-cheat  / ai / analytics 分别用 `contest_schema`+`contest_history`、`problem_schema`+`problem_history`、`submission_schema`+`submission_history`、**`judge_schema`+`judge_history`**（V1 只有 `outbox_events` 一张表，判决先落本地再异步投递）、`anti_cheat_schema`+`anti_cheat_history`、`audit_schema`+`audit_history`、**`ai_schema`+`ai_history`**（作业队列/结论/相似对/出题草稿/Outbox）、**`analytics_schema`+`analytics_history`**（V1 事实表 + 参照数据缓存 + 幂等闸门，V2 物化成绩表 + AI 结论事实表）。**资源服务验签**：`AUTH_JWK_SET_URI` 指向 auth 的 JWKS（默认 `http://localhost:8081/api/v1/auth/jwks`），本地启动顺序上 auth 需先于其他资源服务可用。
 
 **服务发现（Nacos）**：10 个服务启动时注册到 Nacos 的 `DEFAULT_GROUP`，网关路由用 `lb://<服务名>`、服务间客户端默认按服务名寻址（均可用 `*_SERVICE_URI` / `*_BASE_URL` 覆盖为固定地址排障）。因此**启动顺序上 auth 需先完成注册**，其他服务的 `lb://auth-service` 才能解析到实例；Nacos 本身未启动时服务仍可启动（`NACOS_FAIL_FAST=false`），只是发现链路不可用。JWKS 验签链路**不**走服务发现（`AUTH_JWK_SET_URI` 仍是固定地址，见 `docs/middleware.md`"Nacos"节）。
 
@@ -229,7 +228,7 @@ curl -s -i -H "X-Request-Id: test-123" http://localhost:8081/api/v1/auth/jwks | 
 - RocketMQ broker 广播地址固定为 `127.0.0.1`（Spring 服务跑在宿主机的前提）；服务容器化后需注释掉 `broker.conf` 中的 `brokerIP1`；开发期 `autoCreateTopicEnable=true`，生产必须改为 `false` 并显式建 Topic；
 - judge、media 两个服务没有完整端口配置：judge 有 `application.yml` 但未设 `server.port`（需 `SERVER_PORT`），media 无 `application.yml`；两者默认都是 8080、与 gateway 相同，本地同时启动必须显式区分；
 - **judge-service 没有 HTTP 端点**：它只消费消息队列，因此不配 `jwk-set-uri`、也不需要对外暴露端口（除 actuator）。
-- **`POSTGRES_PORT` 默认值不一致**：auth / contest / problem / submission 默认 `5432`，judge / anti-cheat / audit / ai / analytics 默认 `5433`；本地 Compose 映射在 5433，因此前 4 个服务启动时必须显式设 `POSTGRES_PORT=5433`；
+- **`POSTGRES_PORT` 默认值不一致**：auth / contest / problem / submission 默认 `5432`，judge / anti-cheat  / ai / analytics 默认 `5433`；本地 Compose 映射在 5433，因此前 4 个服务启动时必须显式设 `POSTGRES_PORT=5433`；
 - gateway 经 OpenResty 暴露后，`/api/v1/internal/**` 无路由不可达——服务间调用必须内网直连，不得绕行网关（按服务名寻址同样由调用方直连目标实例，不经过网关）；
 - 服务实例注册为临时实例（ephemeral，靠 gRPC 心跳续约）：进程正常退出或被强杀时实例会立即从注册表摘除，网络分区等 gRPC 连接不可判定的场景才依赖心跳超时；服务已提供 `/actuator/health`，但**负载均衡仍只按注册表轮询、不做主动探活**（默认 LoadBalancer 不查健康端点），Compose 也只为基础设施容器配置探测；
 - **开发期重启 auth-service 会让令牌在约 5 分钟内全部失效**（含重启后新签发的）：未注入 `AUTH_JWT_PRIVATE_KEY` 时启动会临时生成签名密钥，而 kid 固定为 `lunar-dev-1`，资源服务的 JWKS 缓存按 kid 命中旧公钥、不会触发重新拉取，于是新旧令牌都验签失败。开发期建议注入固定私钥（`AUTH_JWT_PRIVATE_KEY`）或重启 auth 后一并重启调用方；

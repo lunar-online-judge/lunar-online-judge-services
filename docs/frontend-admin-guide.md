@@ -14,7 +14,7 @@
 |---|---|
 | 边缘入口（推荐给浏览器用） | `http://localhost`（OpenResty → gateway） |
 | 网关直连 | `http://localhost:8080` |
-| 各服务直连 | auth 8081 / contest 8082 / problem 8083 / submission 8084 / judge 8085 / anti-cheat 8086 / audit 8087 / analytics 8088 / ai 8089 |
+| 各服务直连 | auth 8081 / contest 8082 / problem 8083 / submission 8084 / judge 8085 / anti-cheat 8086  8087 / analytics 8088 / ai 8089 |
 | 开发管理员 | `admin` / `admin123` |
 | 时区与时间 | 后端统一返回 **ISO-8601 UTC**（如 `2026-10-17T16:55:26.115454500Z`），前端自行转本地时区 |
 | ID 格式 | 全部是 **UUID 字符串**（不是数字自增） |
@@ -159,7 +159,6 @@ Body: { "username": "admin", "password": "admin123" }
 ### 3.8 审计账本
 | 方法 | 路径 | 角色 | 说明 |
 |---|---|---|---|
-| GET | `/api/v1/audit/records?action=&actorId=&contestId=&page=&pageSize=` | **ADMIN** | 审计查询 |
 
 > 账本**只追加**（DB 触发器拒绝 UPDATE/DELETE）。当前查询**不支持**按 `targetId`/时间范围过滤，也不返回 `eventId`/`originalOccurredAt`。
 

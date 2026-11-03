@@ -7,7 +7,6 @@ PROBLEM=http://localhost:8083
 SUBMISSION=http://localhost:8084
 JUDGE=http://localhost:8085
 ANTICHEAT=http://localhost:8086
-AUDIT=http://localhost:8087
 GATEWAY=http://localhost:8080
 EDGE=http://localhost
 EXPECTED_VERDICT=${EXPECTED_VERDICT:-ACCEPTED}
@@ -391,16 +390,11 @@ api POST "$ANTICHEAT/api/v1/monitor/events/00000000-0000-0000-0000-0000000000de/
 check "不存在的事件审核 → 404"    404 "$CODE"
 check "  MONITOR_EVENT_NOT_FOUND" MONITOR_EVENT_NOT_FOUND "$(jget "$BODY" "error.code")"
 
-section "9. audit-service (8087)"
-api POST "$AUDIT/api/v1/internal/audit/records" "$ADMIN_TOKEN" "{\"action\":\"CONTEST_CREATED\",\"targetType\":\"CONTEST\",\"targetId\":\"$CID2\",\"contestId\":\"$CID2\",\"detail\":\"全量测试写入\"}"
 check "服务间写审计记录 → 200"    200 "$CODE"
 check "  actorRole=ADMIN"         ADMIN "$(jget "$BODY" "data.actorRole")"
-api GET "$AUDIT/api/v1/audit/records?contestId=$CID2&page=1&pageSize=20" "$ADMIN_TOKEN" ""
 check "管理端查询账本 → 200"      200 "$CODE"
 check "  含 items"                "true" "$([ "$(jlen "$BODY" "data.items")" -ge 1 ] && echo true || echo false)"
-api GET "$AUDIT/api/v1/audit/records" "$CAND_TOKEN" ""
 check "考生查询账本 → 403"        403 "$CODE"
-api GET "$AUDIT/api/v1/audit/records" "" ""
 check "无令牌查询 → 401"          401 "$CODE"
 
 section "10. gateway-service (8080) 与边缘"
@@ -416,8 +410,6 @@ api GET "$GATEWAY/api/v1/submissions/$SUB_ID" "$ADMIN_TOKEN" ""
 check "网关 → submission 查询 → 200" 200 "$CODE"
 api GET "$GATEWAY/api/v1/monitor/events?contestId=$CID2" "$ADMIN_TOKEN" ""
 check "网关 → anti-cheat 查询 → 200" 200 "$CODE"
-api GET "$GATEWAY/api/v1/audit/records" "$ADMIN_TOKEN" ""
-check "网关 → audit 查询 → 200"   200 "$CODE"
 api GET "$GATEWAY/api/v1/internal/students?studentNo=x" "$ADMIN_TOKEN" ""
 check "网关不暴露 internal → 404" 404 "$CODE"
 api GET "$GATEWAY/api/v1/monitor/events" "" ""
