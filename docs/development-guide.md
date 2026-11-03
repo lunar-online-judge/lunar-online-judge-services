@@ -116,3 +116,15 @@ mvn install -DskipTests -pl lunar-common
 - **Windows 下 bash 脚本必须保持 ASCII**：Git Bash 里 curl 传中文会变成非法 JSON。
 - **`$pid` 在 PowerShell 里是只读自动变量**，不要赋值。
 - **PowerShell 里用正则做批量替换要当心回溯**：`(?:.*\r?\n)*?` 这类模式在大文件上会挂死，优先用逐行过滤或 `String.Replace`。
+
+## 11. 本机启动参数与常见坑位
+
+启动业务服务前必须设置：
+
+```powershell
+$env:POSTGRES_PORT = '5433'   # 容器映射在 5433，服务默认 5432
+$env:REDIS_PORT    = '6380'   # 本机 6379 常被别的项目占用；不设会静默连错 Redis
+```
+
+`analytics` 的默认端口是 **8098**（曾是 8088，与其他项目冲突）。
+完整端口表、启动顺序、验证命令与 7 个真实踩过的坑见 [`docs/go-live-checklist.md`](go-live-checklist.md)。

@@ -242,3 +242,15 @@ curl -s -i -H "X-Request-Id: test-123" http://localhost:8081/api/v1/auth/jwks | 
 修改任一服务的 `application.yml` 或 Nacos 配置后，**必须重启该服务**（以及依赖它的服务，见上一节 JWKS 说明）。
 踩过的坑：改了代码/配置但只重启了其中一个服务，另一个仍在跑旧字节码或旧配置，
 表现是"配置明明改了却不生效"或"健康检查返回 401"——先确认进程启动时间是不是在改动之后。
+
+## 验证结果基线（2026-11 回归）
+
+| 套件 | 命令 | 结果 |
+|---|---|---|
+| 单元与集成 | `mvn test` | 216 项通过 |
+| 接口契约 | `bash scripts/api-full-test.sh` | 137 项通过 |
+| 考试流程 | `bash scripts/exam-flow-test.sh` | 24 项通过 |
+| 全链路回路 | `bash scripts/full-stack-drill.sh` | 16 项通过 |
+
+回路闭合的数据库侧证据：Outbox 未发送数 0、死信 0、`analytics_schema.consumed_events` 有消费记录、
+`submission_facts` 有最新判题结果。启动参数与坑位见 [`docs/go-live-checklist.md`](go-live-checklist.md)。
