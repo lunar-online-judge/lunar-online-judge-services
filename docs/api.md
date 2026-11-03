@@ -154,7 +154,7 @@ HTTP 前缀统一为 `/api/v1`。各服务经 gateway 对外暴露；客户端�
 
 | submission | GET | `/api/v1/internal/submissions/{submissionId}` | **SERVICE** | 已实现（**含源码**的服务间详情：源码是学生作品，只认服务身份、不经网关；当前调用方是 ai-service 的代码评审作业） |
 | submission | GET | `/api/v1/internal/submissions` | **SERVICE** | 已实现（按 `contestId`+`problemId` 批量取提交摘要，**含源码**；`limit` 由服务端夹取到 ≤500，调用方无法把它变成全库导出；当前调用方是 ai-service 的代码评审） |
-| judge | POST | `/api/v1/judge/submissions` | **未接验签** | 代码存在，但**当前对所有调用者恒 401**（未配 `jwk-set-uri` / `oauth2ResourceServer`）；`requestId` 硬编码为 `"pending"`，测试点恒为空 |
+> **注意**：judge-service **没有 HTTP 端点**。判题只经消息队列（消费 `lunar-submission-created`、生产 `lunar-submission-judged`）；早期原型的 `POST /api/v1/judge/submissions` 因不落库、不发事件、测试点恒为空且恒 401，已删除。
 | contest | POST | `/api/v1/contests` | TEACHER/ADMIN | 已实现（创建草稿） |
 | contest | GET | `/api/v1/contests` | 任意已认证 | 已实现（分页 + status 过滤；**未做资源范围限制**） |
 | contest | GET | `/api/v1/contests/{id}` | 任意已认证 | 已实现（**未做资源范围限制**） |
@@ -266,7 +266,6 @@ POST /api/v1/auth/users
 
 ## 评测
 
-`POST /api/v1/judge/submissions`（**当前不可用**：judge-service 未接入验签，所有请求返回 401；该端点也不落库、不发事件、测试点恒为空。真正的评测链路走 MQ，见下。生产实现由 judge-service 将内部命令翻译为 go-judge 请求，不允许客户端直接访问 go-judge）：
 
 ```json
 {

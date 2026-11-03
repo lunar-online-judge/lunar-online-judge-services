@@ -228,7 +228,7 @@ curl -s -i -H "X-Request-Id: test-123" http://localhost:8081/api/v1/auth/jwks | 
 
 - RocketMQ broker 广播地址固定为 `127.0.0.1`（Spring 服务跑在宿主机的前提）；服务容器化后需注释掉 `broker.conf` 中的 `brokerIP1`；开发期 `autoCreateTopicEnable=true`，生产必须改为 `false` 并显式建 Topic；
 - judge、media 两个服务没有完整端口配置：judge 有 `application.yml` 但未设 `server.port`（需 `SERVER_PORT`），media 无 `application.yml`；两者默认都是 8080、与 gateway 相同，本地同时启动必须显式区分；
-- **judge-service 的 HTTP 端点当前不可用**：`SecurityConfig` 要求 `authenticated()`，但既未配置 `oauth2ResourceServer`、`application.yml` 也没有 `jwk-set-uri`，任何请求都是 401；判题实际走 RocketMQ 消费链路，`POST /api/v1/judge/submissions` 需先补齐验签配置才能调用；
+- **judge-service 没有 HTTP 端点**：它只消费消息队列，因此不配 `jwk-set-uri`、也不需要对外暴露端口（除 actuator）。
 - **`POSTGRES_PORT` 默认值不一致**：auth / contest / problem / submission 默认 `5432`，judge / anti-cheat / audit / ai / analytics 默认 `5433`；本地 Compose 映射在 5433，因此前 4 个服务启动时必须显式设 `POSTGRES_PORT=5433`；
 - gateway 经 OpenResty 暴露后，`/api/v1/internal/**` 无路由不可达——服务间调用必须内网直连，不得绕行网关（按服务名寻址同样由调用方直连目标实例，不经过网关）；
 - 服务实例注册为临时实例（ephemeral，靠 gRPC 心跳续约）：进程正常退出或被强杀时实例会立即从注册表摘除，网络分区等 gRPC 连接不可判定的场景才依赖心跳超时；服务已提供 `/actuator/health`，但**负载均衡仍只按注册表轮询、不做主动探活**（默认 LoadBalancer 不查健康端点），Compose 也只为基础设施容器配置探测；
