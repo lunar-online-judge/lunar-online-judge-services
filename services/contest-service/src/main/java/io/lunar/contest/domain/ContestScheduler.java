@@ -1,6 +1,5 @@
 package io.lunar.contest.domain;
 
-import io.lunar.common.audit.AuditRecorder;
 import io.lunar.contest.infra.ContestEntity;
 import io.lunar.contest.infra.ContestMapper;
 import com.baomidou.mybatisplus.core.conditions.update.LambdaUpdateWrapper;
@@ -25,11 +24,9 @@ public class ContestScheduler {
     private static final Logger log = LoggerFactory.getLogger(ContestScheduler.class);
 
     private final ContestMapper contestMapper;
-    private final AuditRecorder auditRecorder;
 
-    public ContestScheduler(ContestMapper contestMapper, AuditRecorder auditRecorder) {
+    public ContestScheduler(ContestMapper contestMapper) {
         this.contestMapper = contestMapper;
-        this.auditRecorder = auditRecorder;
     }
 
     @Scheduled(fixedDelayString = "${exam.status.sweep-interval-ms:30000}")

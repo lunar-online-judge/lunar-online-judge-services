@@ -1,7 +1,6 @@
 package io.lunar.contest.domain;
 
 import io.lunar.common.api.ApiException;
-import io.lunar.common.audit.AuditRecorder;
 import io.lunar.contest.domain.dto.BatchEnrollItem;
 import io.lunar.contest.domain.dto.BatchEnrollResult;
 import io.lunar.contest.domain.dto.CandidatePage;
@@ -41,16 +40,13 @@ public class EnrollmentService {
     private final ContestService contestService;
     private final AuthInternalClient authClient;
     private final ExamSessionService examSessionService;
-    private final AuditRecorder auditRecorder;
 
     public EnrollmentService(CandidateMapper candidateMapper, ContestService contestService,
-                             AuthInternalClient authClient, ExamSessionService examSessionService,
-                             AuditRecorder auditRecorder) {
+                             AuthInternalClient authClient, ExamSessionService examSessionService) {
         this.candidateMapper = candidateMapper;
         this.contestService = contestService;
         this.authClient = authClient;
         this.examSessionService = examSessionService;
-        this.auditRecorder = auditRecorder;
     }
 
     /** 添加学生：账号不存在则经 auth 创建（或账号已存在则复用），再建立/激活报名关系。 */

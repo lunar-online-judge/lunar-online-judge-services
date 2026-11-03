@@ -7,7 +7,6 @@ import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.baomidou.mybatisplus.core.MybatisConfiguration;
 import io.lunar.auth.infra.UserEntity;
 import io.lunar.auth.infra.UserMapper;
-import io.lunar.common.audit.AuditRecorder;
 import io.lunar.common.security.Role;
 import org.junit.jupiter.api.Test;
 import org.springframework.security.crypto.password.PasswordEncoder;
@@ -31,9 +30,8 @@ class StudentAccountServiceTest {
 
     private final UserMapper userMapper = mock(UserMapper.class);
     private final PasswordEncoder passwordEncoder = mock(PasswordEncoder.class);
-    private final AuditRecorder auditRecorder = mock(AuditRecorder.class);
     private final StudentAccountService service =
-            new StudentAccountService(userMapper, passwordEncoder, auditRecorder);
+            new StudentAccountService(userMapper, passwordEncoder);
 
     private static UserEntity studentManagedBy(String teacherId) {
         UserEntity user = new UserEntity();

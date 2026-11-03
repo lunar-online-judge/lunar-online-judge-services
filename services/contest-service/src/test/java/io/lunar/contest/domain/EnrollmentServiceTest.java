@@ -1,6 +1,5 @@
 package io.lunar.contest.domain;
 
-import io.lunar.common.audit.AuditRecorder;
 import io.lunar.contest.domain.dto.EnrollmentResult;
 import io.lunar.contest.domain.dto.RosterImportResult;
 import io.lunar.contest.infra.AuthInternalClient;
@@ -35,9 +34,8 @@ class EnrollmentServiceTest {
     private final ContestProblemMapper contestProblemMapper = mock(ContestProblemMapper.class);
     private final AuthInternalClient authClient = mock(AuthInternalClient.class);
     private final ExamSessionService examSessionService = mock(ExamSessionService.class);
-    private final AuditRecorder auditRecorder = mock(AuditRecorder.class);
     private final EnrollmentService service = new EnrollmentService(candidateMapper,
-            new ContestService(contestMapper, contestProblemMapper), authClient, examSessionService, auditRecorder);
+            new ContestService(contestMapper, contestProblemMapper), authClient, examSessionService);
 
     @BeforeAll
     static void initMpMetadata() {

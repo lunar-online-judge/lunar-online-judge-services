@@ -3,7 +3,6 @@ package io.lunar.auth.domain;
 import io.lunar.auth.domain.dto.CreatedStudent;
 import io.lunar.auth.infra.UserEntity;
 import io.lunar.auth.infra.UserMapper;
-import io.lunar.common.audit.AuditRecorder;
 import io.lunar.common.security.Role;
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import org.slf4j.Logger;
@@ -28,13 +27,10 @@ public class StudentAccountService {
 
     private final UserMapper userMapper;
     private final PasswordEncoder passwordEncoder;
-    private final AuditRecorder auditRecorder;
 
-    public StudentAccountService(UserMapper userMapper, PasswordEncoder passwordEncoder,
-                                 AuditRecorder auditRecorder) {
+    public StudentAccountService(UserMapper userMapper, PasswordEncoder passwordEncoder) {
         this.userMapper = userMapper;
         this.passwordEncoder = passwordEncoder;
-        this.auditRecorder = auditRecorder;
     }
 
     /** 按学号或账户名查学生账号；两个条件至少传一个，都不匹配返回 null。 */

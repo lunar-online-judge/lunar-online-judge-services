@@ -6,7 +6,6 @@ import io.lunar.auth.api.dto.UserPage;
 import io.lunar.auth.api.dto.UserView;
 import io.lunar.auth.infra.UserEntity;
 import io.lunar.auth.infra.UserMapper;
-import io.lunar.common.audit.AuditRecorder;
 import io.lunar.common.security.Role;
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import org.slf4j.Logger;
@@ -39,13 +38,10 @@ public class UserAdminService {
 
     private final UserMapper userMapper;
     private final PasswordEncoder passwordEncoder;
-    private final AuditRecorder auditRecorder;
 
-    public UserAdminService(UserMapper userMapper, PasswordEncoder passwordEncoder,
-                            AuditRecorder auditRecorder) {
+    public UserAdminService(UserMapper userMapper, PasswordEncoder passwordEncoder) {
         this.userMapper = userMapper;
         this.passwordEncoder = passwordEncoder;
-        this.auditRecorder = auditRecorder;
     }
 
     /** 分页查询：角色/状态/班级精确过滤，keyword 模糊匹配账号、姓名与学号。 */
