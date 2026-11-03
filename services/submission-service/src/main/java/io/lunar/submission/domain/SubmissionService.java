@@ -153,8 +153,6 @@ public class SubmissionService {
         log.info("AUDIT event=SUBMISSION_CREATED submissionId={} contestId={} problemId={} studentId={}",
                 submission.getId(), contestId, problemId, studentId);
         // 审计留痕改走本地 Outbox + 异步投递（BE-07）：与提交落库同事务
-        writeAuditOutbox(submission.getId(), contestId, "SUBMISSION_CREATED", studentId, "CANDIDATE",
-                null, "题目 " + problemId + " 语言 " + language, traceId);
         return toView(submission);
     }
 
@@ -278,8 +276,6 @@ public class SubmissionService {
         log.info("AUDIT event=SUBMISSION_JUDGED submissionId={} verdict={} score={}",
                 submissionId, judged.name(), score);
         // 判决回写没有用户上下文 → actor 记服务身份（BE-07：actor 是事件快照，不重放用户 Bearer）
-        writeAuditOutbox(submissionId, submission.getContestId(), "SUBMISSION_JUDGED", null, "SERVICE",
-                serviceName, "verdict=" + judged.name() + " score=" + score, traceId);
         return toView(submission);
     }
 
@@ -350,26 +346,6 @@ public class SubmissionService {
             throw new SubmissionException.LanguageNotAllowed();
         }
         return problem;
-    }
-
-    /**
-     * 审计留痕事件（lunar-audit-recorded，BACKEND_IMPROVEMENT_PLAN BE-07）：与业务同事务写本地 Outbox，
-     * 由 OutboxPublisher 异步投递、audit-service 消费端按 eventId 幂等；actor 作为事件快照保存，
-     * 不再同步用 audit-service、也不再转发用户 Bearer（token 到期不会让补偿永远失败）。
-     */
-    private void writeAuditOutbox(String aggregateId, String contestId, String action, String actorId,
-                                  String actorRole, String serviceId, String detail, String traceId) {
-        Map<String, Object> payload = new LinkedHashMap<>();
-        payload.put("action", action);
-        payload.put("actorId", actorId);
-        payload.put("actorRole", actorRole);
-        payload.put("serviceId", serviceId);
-        payload.put("targetType", "SUBMISSION");
-        payload.put("targetId", aggregateId);
-        payload.put("contestId", contestId);
-        payload.put("detail", detail);
-        payload.put("traceId", traceId);
-        writeOutbox("lunar-audit-recorded", aggregateId, traceId, payload);
     }
 
     private void writeOutbox(String eventType, String aggregateId, String traceId, Map<String, Object> payload) {

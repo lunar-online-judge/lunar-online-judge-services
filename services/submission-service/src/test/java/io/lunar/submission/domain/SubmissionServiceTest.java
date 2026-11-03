@@ -110,14 +110,13 @@ class SubmissionServiceTest {
         assertThat(view.submissionId()).isNotBlank();
         verify(submissionMapper).insert(any(SubmissionEntity.class));
         ArgumentCaptor<OutboxEventEntity> captor = ArgumentCaptor.forClass(OutboxEventEntity.class);
-        verify(outboxMapper, times(2)).insert(captor.capture());
+        verify(outboxMapper).insert(captor.capture());
         assertThat(captor.getAllValues().get(0).getEventType()).isEqualTo("lunar-submission-created");
         assertThat(captor.getAllValues().get(0).getTraceId()).isEqualTo("trace-1");
         assertThat(captor.getAllValues().get(0).getPayload()).contains("\"problemVersionId\":\"v1\"");
         // 测试点随 created 事件送到评测引擎（键名与 GoJudgeAdapter.parseTestCases 约定一致）
         assertThat(captor.getAllValues().get(0).getPayload()).contains("\"case1.in\":\"1 2\"").contains("\"case1.out\":\"3\"");
         // 提交动作写审计账本（尽力而为；traceId 透传给账本，链路不断）
-        assertThat(captor.getAllValues()).extracting(OutboxEventEntity::getEventType).contains("lunar-audit-recorded");
     }
 
     /** BE-04：提交用的版本是**考试锁定版本**，不是题目当前发布版本（否则考试中途发布会改掉测试数据）。 */
@@ -131,7 +130,7 @@ class SubmissionServiceTest {
         service.submit("c1", "p1", "cpp", "int main(){}", "key-9", "trace-9", "stu_1", "Bearer t");
 
         ArgumentCaptor<OutboxEventEntity> captor = ArgumentCaptor.forClass(OutboxEventEntity.class);
-        verify(outboxMapper, times(2)).insert(captor.capture());
+        verify(outboxMapper).insert(captor.capture());
         assertThat(captor.getAllValues().get(0).getPayload()).contains("\"problemVersionId\":\"v-locked\"");
     }
 
@@ -209,10 +208,9 @@ class SubmissionServiceTest {
         assertThat(view.status()).isEqualTo("ACCEPTED");
         assertThat(view.score()).isEqualTo(100);
         ArgumentCaptor<OutboxEventEntity> captor = ArgumentCaptor.forClass(OutboxEventEntity.class);
-        verify(outboxMapper, times(2)).insert(captor.capture());
+        verify(outboxMapper).insert(captor.capture());
         assertThat(captor.getAllValues().get(0).getEventType()).isEqualTo("lunar-submission-judged");
         // 判决回写由 MQ 消费者触发（无用户令牌）→ 账本走服务身份，operatorToken 传 null
-        assertThat(captor.getAllValues()).extracting(OutboxEventEntity::getEventType).contains("lunar-audit-recorded");
     }
 
     @Test

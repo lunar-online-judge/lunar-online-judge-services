@@ -128,10 +128,10 @@ class RiskEventServiceTest {
         service.review("e1", "CONFIRM", "证据确凿", "teacher_1", "TEACHER", "trace-1");
 
         ArgumentCaptor<OutboxEventEntity> captor = ArgumentCaptor.forClass(OutboxEventEntity.class);
-        verify(outboxMapper, times(2)).insert(captor.capture());
+        verify(outboxMapper).insert(captor.capture());
         // BE-07：审核同时写一条审计留痕事件，异步投递到 audit-service（actor 作为事件快照）
         assertThat(captor.getAllValues()).extracting(OutboxEventEntity::getEventType)
-                .containsExactlyInAnyOrder("lunar-risk-event-reviewed", "lunar-audit-recorded");
+                .containsExactlyInAnyOrder("lunar-risk-event-reviewed");
         OutboxEventEntity reviewed = captor.getAllValues().stream()
                 .filter(event -> "lunar-risk-event-reviewed".equals(event.getEventType()))
                 .findFirst().orElseThrow();
