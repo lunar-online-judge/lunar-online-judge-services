@@ -82,7 +82,7 @@ public class OutboxPublisher {
                     attempts, event.getEventId(), exception);
         } else {
             event.setNextAttemptAt(OutboxRetryPolicy.nextAttemptAt(attempts, Instant.now()));
-            log.warn("判决事件投递失败 eventId={} attempts={} 下次重试 {}s 后",
+            log.warn("判决事件投递失败 eventId={} attempts={} 下次重试 {} 后",
                     event.getEventId(), attempts, event.getNextAttemptAt(), exception);
         }
         outboxMapper.updateById(event);

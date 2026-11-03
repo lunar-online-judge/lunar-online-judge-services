@@ -86,7 +86,7 @@ public class OutboxPublisher {
                     attempts, event.getEventId(), event.getEventType(), exception);
         } else {
             event.setNextAttemptAt(OutboxRetryPolicy.nextAttemptAt(attempts, Instant.now()));
-            log.warn("Outbox publish failed eventId={} type={} attempts={} 下次重试 {}s 后",
+            log.warn("Outbox publish failed eventId={} type={} attempts={} 下次重试 {} 后",
                     event.getEventId(), event.getEventType(), attempts, event.getNextAttemptAt(), exception);
         }
         outboxMapper.updateById(event);
