@@ -15,7 +15,7 @@ import org.springframework.web.client.RestClient;
  * 注入的 {@link RestClient.Builder} 由 lunar-common 提供且带负载均衡，baseUrl 可直接写服务名，
  * CONTEST_BASE_URL 可覆盖为固定地址排障。
  *
- * 分析侧只需要 contest 一家：参照数据全部来自考试快照。**没有 AuditRecorder**——本服务的写路径只有
+ * 分析侧只需要 contest 一家：参照数据全部来自考试快照。**不写任何账本**——本服务的写路径只有
  * MQ 投影（无用户动作要留痕），读取不产生审计账目。
  */
 @Configuration(proxyBeanMethods = false)
