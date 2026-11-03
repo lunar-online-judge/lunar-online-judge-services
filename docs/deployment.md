@@ -22,6 +22,8 @@
 | judge-service | 8080（Spring 默认；yml 未设 `server.port`） | 有 | 唯一启用 spring-boot-maven-plugin 的模块，打出可执行 jar；**尚未接入令牌验签**（无 `jwk-set-uri`，端点当前恒 401） |
 | anti-cheat-service | 8086 | 有 | 风险事件/审核（rocketmq + 分页已配） |
 | audit-service | 8087 | 有 | 审计账本 |
+> **注（2026-11）**：ai-service 已从仓库删除（59 文件 / 3,484 行，含根 pom 模块、Nacos 配置、compose.ai.yml、ai-test.sh 与 auth 的服务客户端密钥）。下文涉及该服务的内容保留为**设计记录**，不代表现有能力。
+
 | ai-service | 8089 | 有 | AI 能力（代码评审/出题草稿）——**默认不启用**（简化中移出默认运行清单）；依赖 PostgreSQL（`ai_schema`）+ **云厂商 OpenAI 兼容 API 端点**（**外部服务**，地址由 `AI_PROVIDER_BASE_URL` 或 `ai.provider.base-url` 给；未配置时首次调用报错） |
 | analytics-service | 8088 | 有 | 分析读模型（成绩排名/学情/监考风险）；依赖 PostgreSQL（`analytics_schema`）+ RocketMQ（4 个消费组）；**不使用 Redis**；取考试快照走 contest 的服务间接口。（`docker/nacos/config/` 下暂无 `analytics-service.yml`，全部配置走 `application.yml` 默认值 + 环境变量） |
 

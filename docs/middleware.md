@@ -13,6 +13,8 @@
 | MinIO | `minio/minio:latest` | 9000 / 9001 | 截图对象存储 | Compose 已提供；SDK 未接入 |
 | OpenResty | `openresty/openresty:1.29.2.4-0-alpine` | 80 | 边缘反向代理：唯一对外入口，转发 gateway | Compose 已提供；回源宿主机 gateway，gateway 的 8 条路由（含 `/api/v1/ai/**`、`/api/v1/analytics/**`）已实现 |
 | go-judge | `criyle/go-judge`（本仓库 Dockerfile 基于它构建，未固定 digest） | 5050 | 用户代码沙箱执行（唯一执行环境） | Compose 已提供；`GoJudgeAdapter` 已实现，C++ 编译/运行与五类 verdict 已真机实测（测试点传输仍缺，见"go-judge"节） |
+> **注（2026-11）**：ai-service 已从仓库删除（59 文件 / 3,484 行，含根 pom 模块、Nacos 配置、compose.ai.yml、ai-test.sh 与 auth 的服务客户端密钥）。下文涉及该服务的内容保留为**设计记录**，不代表现有能力。
+
 | LLM 推理（云厂商 OpenAI 兼容端点） | 外部服务：云厂商 OpenAI 兼容 API（无镜像、无本地容器） | 由 Provider 决定（`https://…`） | 大模型推理：代码评审、风险研判、出题草稿；语义查重默认走代码指纹、不需要模型 | **只接入云端 API 模型**：地址由 `AI_PROVIDER_BASE_URL` 显式给（无默认值，缺了服务起不来）；ai-service 以 LangChain4j 1.22.0 + `langchain4j-open-ai` 接入（见"LLM 推理服务"节）。本地推理栈已废弃 |
 | JPlag | 独立 worker 进程 | — | 代码查重引擎 | 未接入 Maven Reactor，集成前审查许可证 |
 | SFU（WebRTC） | 未选型 | — | 屏幕/摄像头实时流转发 | 未选型、未部署 |

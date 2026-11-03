@@ -150,6 +150,8 @@ HTTP 前缀统一为 `/api/v1`。各服务经 gateway 对外暴露；客户端�
 | submission | POST | `/api/v1/submissions` | CANDIDATE | 已实现（幂等 + 会话/竞赛/**题目属于竞赛**/语言/频率五项校验 + Outbox；版本取自考试锁定值，见 BE-04） |
 | submission | GET | `/api/v1/submissions/{id}` | 任意已认证（本人；TEACHER/ADMIN 可查任意） | 已实现（权限在 Service 内判定，方法上无 `@PreAuthorize`） |
 | submission | POST | `/api/v1/internal/submissions/{id}/judged` | ADMIN | 已实现（判题回写过渡端点） |
+> **注（2026-11）**：ai-service 已从仓库删除（59 文件 / 3,484 行，含根 pom 模块、Nacos 配置、compose.ai.yml、ai-test.sh 与 auth 的服务客户端密钥）。下文涉及该服务的内容保留为**设计记录**，不代表现有能力。
+
 | submission | GET | `/api/v1/internal/submissions/{submissionId}` | **SERVICE** | 已实现（**含源码**的服务间详情：源码是学生作品，只认服务身份、不经网关；当前调用方是 ai-service 的代码评审作业） |
 | submission | GET | `/api/v1/internal/submissions` | **SERVICE** | 已实现（按 `contestId`+`problemId` 批量取提交摘要，**含源码**；`limit` 由服务端夹取到 ≤500，调用方无法把它变成全库导出；当前调用方是 ai-service 的代码评审） |
 | judge | POST | `/api/v1/judge/submissions` | **未接验签** | 代码存在，但**当前对所有调用者恒 401**（未配 `jwk-set-uri` / `oauth2ResourceServer`）；`requestId` 硬编码为 `"pending"`，测试点恒为空 |

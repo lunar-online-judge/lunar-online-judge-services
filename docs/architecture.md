@@ -114,6 +114,8 @@ Windows 客户端 -> OpenResty(80, 边缘反向代理) -> gateway-service
                     |-- anti-cheat-service     风险/查重/审核
                     |-- media-service          WebRTC/截图/媒体审计
                     |-- audit-service          管理与访问审计
+> **注（2026-11）**：ai-service 已从仓库删除（59 文件 / 3,484 行，含根 pom 模块、Nacos 配置、compose.ai.yml、ai-test.sh 与 auth 的服务客户端密钥）。下文涉及该服务的内容保留为**设计记录**，不代表现有能力。
+
                     |-- ai-service             AI 证据（代码评审/风险研判/查重/出题草稿）
                     `-- analytics-service      分析读模型（成绩排名/学情/监考风险）
 
