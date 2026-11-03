@@ -1,0 +1,25 @@
+# 排名口径与成绩视图（docs/analytics/read-model.md）
+#
+# analytics 的可配置项全部是 @ConfigurationProperties，Nacos 推送后热更新，改完无需重启。
+# 这里只放"运维可能想改"的少数几项；其余默认值见服务的 application.yml。
+
+analytics:
+  # 成绩可见范围：OWN_ONLY = 考生只看自己那一行；VISIBLE = 可看完整榜单
+  score-visibility: OWN_ONLY
+
+  ranking:
+    # 排序字段按优先级排列，写法 "<列名>:<asc|desc>"
+    # tie-break 尚未经产品最终确认，因此做成可配置而不是写死
+    tie-break:
+      - total_score:desc
+      - last_effective_at:asc
+      - solved_count:desc
+      - student_id:asc
+
+  refresh:
+    # 参照数据最长陈旧时间：请求路径上发现超过它就顺带刷一次
+    max-age: 5m
+    # 定时刷新兜底周期（只刷"最近有事实写入"的考试，不做全表轮询）
+    interval-ms: 300000
+    # "最近有事实写入"的时间窗：超出它的考试不再被视为活跃
+    active-window: 30m
