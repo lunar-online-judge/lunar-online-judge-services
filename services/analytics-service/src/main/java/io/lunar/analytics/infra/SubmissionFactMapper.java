@@ -217,28 +217,7 @@ public interface SubmissionFactMapper extends BaseMapper<SubmissionFactEntity> {
                                                         @Param("to") Instant to,
                                                         @Param("limit") long limit);
 
-    /**
-     * 需要重算成绩的考试：在窗口内有过判决、且**该判决比上次重算还新**的考试。
-     *
-     * 为什么不能只按"最近有判决"触发重算：正在进行的考试每几秒就有一次判决，
-     * 那样等于每轮都把全场考试重算一遍。这里用 {@code computed_at}（重算时写入读模型的时间戳）
-     * 与事实的 {@code judged_at} 比较，表达的是"读模型落后于事实"，与事实总量无关。
-     *
-     * {@code not exists} 同时覆盖两种"需要算"的情形：从来没有算过（子查询无行）与算过之后又有新判决。
-     */
-    @Select("""
-            select distinct f.contest_id
-            from analytics_schema.submission_facts f
-            where f.judged_at >= #{since}
-              and not exists (
-                  select 1 from analytics_schema.student_contest_scores s
-                  where s.contest_id = f.contest_id and s.computed_at >= f.judged_at
-              )
-            order by f.contest_id
-            limit #{maxRows}
-            """)
-    List<String> selectContestIdsNeedingScoreRebuild(@Param("since") Instant since,
-                                                     @Param("maxRows") int maxRows);
+    
 
     /**
      * "最近有判决写入"的考试：定时任务据此挑选要刷新参照数据的考试，避免全表轮询所有历史竞赛。

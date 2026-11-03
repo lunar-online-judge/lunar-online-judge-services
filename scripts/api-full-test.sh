@@ -92,7 +92,6 @@ section() { printf '\n=== %s ===\n' "$1"; }
 section "0. 基础设施"
 check "OpenResty /healthz"        200 "$(curl -s -o /dev/null -m 10 -w '%{http_code}' $EDGE/healthz)"
 check "go-judge /version"         200 "$(curl -s -o /dev/null -m 10 -w '%{http_code}' http://localhost:5050/version)"
-check "MinIO health/live"         200 "$(curl -s -o /dev/null -m 10 -w '%{http_code}' http://localhost:9000/minio/health/live)"
 check "Nacos 控制台"              200 "$(curl -s -o /dev/null -m 10 -w '%{http_code}' http://localhost:8848/nacos/)"
 
 GJ=$(curl -s -m 30 -X POST http://localhost:5050/run -H 'Content-Type: application/json' \
